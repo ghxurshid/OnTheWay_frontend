@@ -28,7 +28,7 @@ jobs:
         uses: actions/upload-artifact@v2
         with:
           name: build-artifact
-          path: /home/ubuntu/OnTheWay/frontend/
+          path: /home/ubuntu/OnTheWay/frontend/build
 
   deploy:
     runs-on: self-hosted
