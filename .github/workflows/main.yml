@@ -41,7 +41,10 @@ jobs:
           name: production-files
           path: ./dist
 
+      - name: Clean up previous deployment
+        run: sudo rm -rf /home/ubuntu/OnTheWay/frontend/app/*
+
       - name: Deploy to Ubuntu Server
-        run: rsync -r ./dist/* /home/ubuntu/OnTheWay/frontend/app
+        run: sudo rsync -r ./dist/* /home/ubuntu/OnTheWay/frontend/app
 
       
