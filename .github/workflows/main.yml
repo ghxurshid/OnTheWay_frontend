@@ -42,10 +42,6 @@ jobs:
           path: ./dist
 
       - name: Deploy to Ubuntu Server
-        run: rsync -r ./dist/* /home/ubuntu/OnTheWay/frontend
+        run: rsync -r ./dist/* /home/ubuntu/OnTheWay/frontend/app
 
-      - name: Start Application
-        run: |
-          cd /home/ubuntu/OnTheWay/frontend
-          npm install # Install dependencies if needed
-          npm start    # Start your application
+      
