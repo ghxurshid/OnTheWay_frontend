@@ -46,6 +46,6 @@ jobs:
 
       - name: Start Application
         run: |
-          cd /path/to/destination/folder
+          cd /home/ubuntu/OnTheWay/frontend
           npm install # Install dependencies if needed
           npm start    # Start your application
