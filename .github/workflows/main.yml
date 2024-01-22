@@ -45,4 +45,7 @@ jobs:
         run: rsync -r ./dist/* /home/ubuntu/OnTheWay/frontend
 
       - name: Start Application
-        run: npm start
+        run: |
+          cd /path/to/destination/folder
+          npm install # Install dependencies if needed
+          npm start    # Start your application
