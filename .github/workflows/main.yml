@@ -42,9 +42,9 @@ jobs:
           path: ./dist
 
       - name: Clean up previous deployment
-        run: sudo rm -rf /home/ubuntu/OnTheWay/frontend/app/*
+        run: sudo rm -rf /var/www/ontheway/*
 
       - name: Deploy to Ubuntu Server
-        run: sudo rsync -r ./dist/* /home/ubuntu/OnTheWay/frontend/app
+        run: sudo rsync -r ./dist/* /var/www/ontheway
 
       
