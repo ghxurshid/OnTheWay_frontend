@@ -8,7 +8,7 @@ const MapComponent = () => {
   useEffect(() => {    
     const mapInstance  = L.map('map').setView([41.3273628, 69.330082], 20);
      
-    // var marker = L.marker([41.3273628, 69.330082]).addTo(mapInstance);
+     var marker = L.marker([41.3273628, 69.330082]).addTo(mapInstance);
     // var circle = L.circle([41.3273628, 69.330082], {
     //   color: 'green',
     //   fillColor: '#f03',
@@ -178,7 +178,7 @@ const MapComponent = () => {
             console.info(userLocation);
 
             // Центрирование карты на текущем местоположении
-            mapInstance.setView(userLocation, 13);
+            //mapInstance.setView(userLocation, 13);
 
             // Если маркер уже существует, обновляем его местоположение
             if (markerRef.current) {
