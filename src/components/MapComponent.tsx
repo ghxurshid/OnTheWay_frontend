@@ -9,6 +9,7 @@ const MapComponent = () => {
   const [map, _setMap] = useState(null);
   const currentLoc = useRef<L.Marker<any> | null>(null);
   const destineLoc = useRef<L.Marker<any> | null>(null);
+  const userLocation = useRef<L.Marker<any> | null>(null);
 
   useEffect(() => {
     const mapInstance = map ? map : L.map('map', {
@@ -63,7 +64,7 @@ const MapComponent = () => {
         destineLoc.current.setLatLng(e.latlng);
       }
 
-      // Строим маршрут от текущего местоположения до выбранной точки
+      //Строим маршрут от текущего местоположения до выбранной точки
       // L.Routing.control({
       //   waypoints: [
       //     L.latLng(currentLoc.current),
@@ -78,41 +79,47 @@ const MapComponent = () => {
 
     // setMap(mapInstance);
 
-    // // Функция для отслеживания местоположения
-    // function startTracking() {
-    //   if (navigator.geolocation) {
-    //     navigator.geolocation.watchPosition(
-    //       (position) => {
-    //         const { latitude, longitude } = position.coords;
-    //         const userLocation = [latitude, longitude];
+    // Функция для отслеживания местоположения
+    function startTracking() {
+      if (!navigator.geolocation) {
+        console.error('Geolocation is not supported by this browser.');
+        return;
+      }
+    
+      navigator.geolocation.watchPosition(
+        (position) => {
+          const { latitude, longitude } = position.coords;
+          const userLocation: [number, number] = [latitude, longitude];
+    
+          console.info('User location:', userLocation);
+    
+          // Har doim xaritani markazga olib borish
+          mapInstance.setView(userLocation, 13);
+    
+          // Marker mavjud bo‘lsa, uni yangilash
+          if (currentLoc.current) {
+            currentLoc.current.setLatLng(userLocation);
+          } else {
+            // Marker yo‘q bo‘lsa, yangi marker yaratish
+            currentLoc.current = L.marker(userLocation)
+              .addTo(mapInstance)
+              .bindPopup('You are here!')
+              .openPopup();
+          }
+        },
+        (error) => {
+          console.error('Error occurred while retrieving location:', error);
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 5000,
+          maximumAge: 0,
+        }
+      );
+    }
 
-    //         console.info(userLocation); 
-    //         mapInstance.setView(userLocation, 13);
-
-    //         if (currentLoc.current) {
-    //           currentLoc.current.setLatLng(userLocation);
-    //         } else {              
-    //           currentLoc.current = L.marker(userLocation).addTo(mapInstance)
-    //             .bindPopup('You are here!')
-    //             .openPopup();
-    //         }
-    //       },
-    //       (error) => {
-    //         console.error('Error occurred while retrieving location:', error);
-    //       },
-    //       {
-    //         enableHighAccuracy: true,
-    //         timeout: 5000,
-    //         maximumAge: 0
-    //       }
-    //     );
-    //   } else {
-    //     console.error('Geolocation is not supported by this browser.');
-    //   }
-    // }
-
-    // // Начинаем отслеживание
-    // startTracking();
+    // Начинаем отслеживание
+    startTracking();
 
     // Очистка ресурсов при размонтировании компонента
     return () => {
