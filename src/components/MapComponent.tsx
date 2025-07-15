@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
  
 const MapComponent = () => {
-  const [map, setMap] = useState(null);
+  const [map, _setMap] = useState(null);
   const currentLoc = useRef<L.Marker<any> | null>(null);
   const destineLoc = useRef<L.Marker<any> | null>(null);
 
@@ -19,14 +19,14 @@ const MapComponent = () => {
     });
      
     currentLoc.current = L.marker([41.3273629, 69.330082]).addTo(mapInstance);
-    var circle = L.circle([41.3273628, 69.330082], {
+    /*var _circle = */L.circle([41.3273628, 69.330082], {
       color: 'green',
       fillColor: '#f03',
       fillOpacity: 0.2,
       radius: 50
     }).addTo(mapInstance);
 
-    var polygon = L.polygon([
+    /*var _polygon = */L.polygon([
       [41.327624, 69.329116],
       [41.326045, 69.326895],
       [41.325856, 69.331133]
