@@ -1,5 +1,6 @@
 {
   "name": "my-vue-app",
+  "homepage": "https://ghxurshid.github.io/OnTheWay_frontend/",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -8,7 +9,7 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "start": "vite preview",
-    "predeploy": "yarn build",
+    "predeploy": "yarn run build",
     "deploy": "gh-pages -d dist"
   },
   "dependencies": {
@@ -32,6 +33,5 @@
     "typescript": "~5.7.2",
     "typescript-eslint": "^8.26.1",
     "vite": "^6.3.1"
-  },
-  "homepage": "https://ghxurshid.github.io/OnTheWay_frontend/"
+  }  
 }
