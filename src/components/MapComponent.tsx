@@ -8,8 +8,7 @@ import L from 'leaflet';
 const MapComponent = () => {
   const [map, _setMap] = useState(null);
   const currentLoc = useRef<L.Marker<any> | null>(null);
-  const destineLoc = useRef<L.Marker<any> | null>(null);
-  const userLocation = useRef<L.Marker<any> | null>(null);
+  const destineLoc = useRef<L.Marker<any> | null>(null); 
 
   useEffect(() => {
     const mapInstance = map ? map : L.map('map', {
