@@ -93,7 +93,7 @@ const MapComponent = () => {
           console.info('User location:', userLocation);
     
           // Har doim xaritani markazga olib borish
-          mapInstance.setView(userLocation, 13);
+          //mapInstance.setView(userLocation, 13);
     
           // Marker mavjud bo‘lsa, uni yangilash
           if (currentLoc.current) {
