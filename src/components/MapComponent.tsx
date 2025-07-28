@@ -1,9 +1,8 @@
-
+import { useEffect, useRef, useState } from 'react'; 
+import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import 'leaflet-routing-machine';
-
-import { useEffect, useRef, useState } from 'react';
-import L from 'leaflet';
+import 'leaflet-routing-machine/dist/leaflet-routing-machine.css';
  
 const MapComponent = () => {
   const [map, _setMap] = useState(null);
@@ -35,6 +34,14 @@ const MapComponent = () => {
     const tileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
     });
+
+    L.Routing.control({
+      waypoints: [
+        L.latLng(41.311081, 69.240562), // Boshlanish nuqta
+        L.latLng(41.2995, 69.2401)      // Tugash nuqta
+      ],
+      routeWhileDragging: true
+    }).addTo(mapInstance);
 
     tileLayer.on('tileload', (event) => {
       const url = event.tile.src;
