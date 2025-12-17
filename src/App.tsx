@@ -1,12 +1,17 @@
-import MapComponent from './components/MapComponent';
+// App.tsx
+import MapComponent from "./components/MapComponent";
+import BottomPanel from "./components/BottomPanel";
 
 const App = () => {
-  return (
-    <div className="map-companent"> 
-      <p>Map</p>     
-      <MapComponent />                
-    </div>
+  return (    
+    <>    
+      {/* Map to‘liq ekranni egallaydi */}
+      <MapComponent />
+
+      {/* Navbar map ustida */}
+      <BottomPanel />      
+    </>
   );
 };
 
-export default App
+export default App;
