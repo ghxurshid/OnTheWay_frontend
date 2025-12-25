@@ -1,15 +1,15 @@
 // App.tsx
+import { useState, useEffect } from "react";
 import MapComponent from "./components/MapComponent";
-import BottomPanel from "./components/BottomPanel";
+import MapOverlayComponents from "./components/MapOverlayComponents";
+import MyComponent from "./components/MyComponent";
 
 const App = () => {
-  return (    
-    <>    
-      {/* Map to‘liq ekranni egallaydi */}
-      <MapComponent />
 
-      {/* Navbar map ustida */}
-      <BottomPanel />      
+  return (    
+    <>        
+      <MapComponent />      
+      <MapOverlayComponents />
     </>
   );
 };
