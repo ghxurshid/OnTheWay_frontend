@@ -14,11 +14,13 @@
   },
   "dependencies": {
     "@tailwindcss/cli": "^4.1.18",
-    "@types/leaflet-routing-machine": "^3.2.8",
+    "@types/leaflet-routing-machine": "^3.2.9",
     "gh-pages": "^6.3.0",
     "leaflet": "^1.9.4",
+    "leaflet-curve": "^1.0.0",
     "leaflet-routing-machine": "^3.2.12",
     "leaflet.markercluster": "^1.5.3",
+    "openrouteservice-js": "^0.4.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-leaflet": "^5.0.0"

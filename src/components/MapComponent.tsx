@@ -1,11 +1,12 @@
 // MapComponent.tsx
 import { useEffect, useRef, useState } from "react";
 import L from "leaflet";
-import 'leaflet.markercluster'; 
+import 'leaflet.markercluster';
 import "leaflet/dist/leaflet.css";
 import "leaflet-routing-machine";
 import "leaflet-routing-machine/dist/leaflet-routing-machine.css";
 import { TrafficParticipant } from "../types/application-types"; 
+import 'leaflet-curve';
 
 /*
 [41.398324, 69.150855] [                    ]
@@ -31,7 +32,7 @@ function createRotatingTaxiMarker(latlng: L.LatLngExpression, angle: number = 0,
 
   return L.marker(latlng, { icon: rotatingIcon });
 }
-
+ 
 const MapComponent = () => {
   const mapRef = useRef<L.Map | null>(null);
   const markerClusterRef = useRef<L.MarkerClusterGroup | null>(null);
@@ -60,11 +61,15 @@ const MapComponent = () => {
 
     if (!markerClusterRef.current) {
       const cluster = L.markerClusterGroup({
-        spiderfyOnMaxZoom: false,
-        showCoverageOnHover: false,
-         
+        spiderfyOnMaxZoom: true,
+        showCoverageOnHover: false,         
         chunkedLoading: true,
         maxClusterRadius: 100,
+        zoomToBoundsOnClick: true,
+        disableClusteringAtZoom: 19,
+        removeOutsideVisibleBounds: true,
+        animate: true,
+        animateAddingMarkers: true        
       });
     
       map.addLayer(cluster);
@@ -79,37 +84,34 @@ const MapComponent = () => {
         route: null as any, // Layer.Route yaratish uchun keyin
       };
     }    
-
-    // Xarita bosilganda — maqsad nuqtasi va marshrut
+ 
     map.on("click", (e: L.LeafletMouseEvent) => {
       const { latlng } = e;
-      console.log("Map clicked at:", latlng);
-      // if (!currentLoc.current || !destineLoc.current) return;
-
-      // const waypoints = [
-      //   L.Routing.waypoint(currentLoc.current.getLatLng()),
-      //   L.Routing.waypoint(destineLoc.current.getLatLng()),
-      // ];
-
-      // const router = L.Routing.osrmv1({
-      //   serviceUrl: "https://router.project-osrm.org/route/v1",
-      // });
-
-      // router.route(waypoints, (args) => {
-      //   if (!args) return;
-      //   const err = args.error;
-      //   const routes = args.routes as L.Routing.IRoute[];
-
-      //   const route = routes[0];
-      //   const coords = route.coordinates;
-      //   if (!coords) return;
-
-      //   polylineRef.current?.setLatLngs(coords.map((c) => [c.lat, c.lng]));
-      //   map.fitBounds(polylineRef.current!.getBounds());
-      // });
-      
+      console.log("Map clicked at:", latlng);   
     });
+
+    const route = L.Routing.control({
+      // waypoints: [
+      //   L.latLng(41.327725, 69.329877),
+      //   // L.latLng(41.242499, 69.367857)
+      //   L.latLng(41.257052, 69.276888)
+      // ], 
+      createMarker: () => null,   // ✅ barcha markerlarni o‘chiradi
+      addWaypoints: false,        // waypoint qo‘shishni o‘chiradi
+      draggableWaypoints: false,  // tortib ko‘chirish yo‘q
+      routeWhileDragging: false,
+      show: false,                 // panel ham chiqmaydi
+      //router: L.Routing.openrouteservice('eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjNiY2MxZTZmYWIzODQxYjc4YmVlZjZmZmNmYTljMWM4IiwiaCI6Im11cm11cjY0In0='),
+    }).addTo(map);
   
+    var pathOne = L.curve([
+      'M', [41.28, 69.10],
+      'Q', [41.55, 69.45],
+           [41.28, 69.80],
+      'T', [41.15, 70.10]
+    ]).addTo(map);
+    
+
     // Joriy joylashuvni kuzatish
     if (!watchId)
     {
@@ -174,7 +176,8 @@ const MapComponent = () => {
     addUsersToCluster();
      
     return () => {       
-      map.off("click");            
+      map.off("click");         
+      route.remove();   
     };
   }, []);
 
@@ -186,11 +189,11 @@ const MapComponent = () => {
     // Toshkent hududi uchun latitude va longitude chegaralari
     const centerLat = 41.3111;
     const centerLng = 69.2797;
-    const R = 8000; // masalan 1000 (1km)
+    const R = 800; // masalan 1000 (1km)
 
     const map = mapRef.current!;
   
-    for (let i = 0; i < 300; i++) {
+    for (let i = 0; i < 250; i++) {
       // Random koordinatalar
       // bitta markaz atrofida random
 

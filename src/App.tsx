@@ -1,8 +1,7 @@
-// App.tsx
-import { useState, useEffect } from "react";
+// App.tsx 
 import MapComponent from "./components/MapComponent";
 import MapOverlayComponents from "./components/MapOverlayComponents";
-import MyComponent from "./components/MyComponent";
+ 
 
 const App = () => {
 
