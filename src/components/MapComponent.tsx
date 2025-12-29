@@ -19,7 +19,7 @@ function createRotatingTaxiMarker(latlng: L.LatLngExpression, angle: number = 0,
       <div class="taxi-icon-rotate" style="
         width: 38px;
         height: 38px;
-        background: url('/src/icons/${color}-taxi.png') no-repeat center/cover;
+        background: url('/icons/${color}-taxi.png') no-repeat center/cover;
         transform: rotate(${angle}deg);
         transform-origin: center center;
         transition: transform 1.2s ease;
