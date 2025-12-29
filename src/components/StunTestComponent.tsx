@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 
 const StunTestComponent = () => {
     const [publicAddress, setPublicAddress] = useState('Нажмите кнопку "Определить IP..."');

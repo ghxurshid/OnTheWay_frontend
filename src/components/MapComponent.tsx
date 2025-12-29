@@ -104,12 +104,12 @@ const MapComponent = () => {
       //router: L.Routing.openrouteservice('eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjNiY2MxZTZmYWIzODQxYjc4YmVlZjZmZmNmYTljMWM4IiwiaCI6Im11cm11cjY0In0='),
     }).addTo(map);
   
-    var pathOne = L.curve([
-      'M', [41.28, 69.10],
-      'Q', [41.55, 69.45],
-           [41.28, 69.80],
-      'T', [41.15, 70.10]
-    ]).addTo(map);
+    // var pathOne = L.curve([
+    //   'M', [41.28, 69.10],
+    //   'Q', [41.55, 69.45],
+    //        [41.28, 69.80],
+    //   'T', [41.15, 70.10]
+    // ]).addTo(map);
     
 
     // Joriy joylashuvni kuzatish
@@ -177,7 +177,12 @@ const MapComponent = () => {
      
     return () => {       
       map.off("click");         
-      route.remove();   
+      route.remove();  
+      if (watchId !== null) {
+        navigator.geolocation.clearWatch(watchId);
+        watchId = null;
+      } 
+      
     };
   }, []);
 
@@ -190,9 +195,7 @@ const MapComponent = () => {
     const centerLat = 41.3111;
     const centerLng = 69.2797;
     const R = 800; // masalan 1000 (1km)
-
-    const map = mapRef.current!;
-  
+ 
     for (let i = 0; i < 250; i++) {
       // Random koordinatalar
       // bitta markaz atrofida random
