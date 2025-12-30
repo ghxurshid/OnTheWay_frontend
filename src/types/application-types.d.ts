@@ -44,7 +44,7 @@ export interface TrafficParticipant {
     initData: TelegramInitData;
     circle: L.Circle | null;
     location: L.Marker | null;
-    route: L.Layer.Route;
+    route: L.Routing.Control | null;
   }
 
 export class Walker extends TrafficParticipant {
