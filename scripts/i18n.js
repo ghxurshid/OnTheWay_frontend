@@ -1,0 +1,435 @@
+/* ════════════════════════════════════════════════════════════════════════
+   OnTheWay — TIL RESURSLARI (i18n)
+   ────────────────────────────────────────────────────────────────────────
+   Barcha matnlar SHU YERDA — komponentlar faqat t('namespace.key') chaqiradi.
+   Yangi til qoʻshish: STRINGS ichidagi har bir kalitga shu til kodini qoʻshing
+   va LANGS roʻyxatiga bandini qoʻshing. Boshqa joyga tegmaysiz.
+
+   Foydalanish:
+     t('home.passengerLabel')                 → joriy tildagi matn
+     t('mapui.matchFound', { n: 5 })           → {n} oʻrnига qiymat qoʻyiladi
+   Til almashtirish (themeStore bilan bir xil uslub):
+     i18nStore.set('ru');  i18nStore.subscribe(fn);  i18nStore.mode
+   ════════════════════════════════════════════════════════════════════════ */
+(function (global) {
+  'use strict';
+
+  // Qoʻllab-quvvatlanadigan tillar (Sozlamalar tugmalari shundan oʻqiladi)
+  const LANGS = [
+    { id: 'uz', label: "O'zbek" },
+    { id: 'ru', label: 'Русский' },
+    { id: 'en', label: 'English' },
+  ];
+  const DEFAULT_LANG = 'uz';
+
+  // ── LUGʻAT ─────────────────────────────────────────────────────────────
+  // Har bir kalit: { uz, ru, en }. {token} — t() ikkinchi argumentidan toʻladi.
+  const STRINGS = {
+    common: {
+      list:        { uz: "Roʻyxat",     ru: 'Список',       en: 'List' },
+      clear:       { uz: 'Tozalash',    ru: 'Очистить',     en: 'Clear' },
+      cancel:      { uz: 'Bekor',       ru: 'Отмена',       en: 'Cancel' },
+      confirm:     { uz: 'Tasdiqlash',  ru: 'Подтвердить',  en: 'Confirm' },
+      send:        { uz: 'Yuborish',    ru: 'Отправить',    en: 'Send' },
+      close:       { uz: 'Yopish',      ru: 'Закрыть',      en: 'Close' },
+      call:        { uz: 'Qoʻngʻiroq',  ru: 'Звонок',       en: 'Call' },
+      chat:        { uz: 'Chat',        ru: 'Чат',          en: 'Chat' },
+      driver:      { uz: 'Haydovchi',   ru: 'Водитель',     en: 'Driver' },
+      passenger:   { uz: "Yoʻlovchi",   ru: 'Пассажир',     en: 'Passenger' },
+      online:      { uz: 'Onlayn',      ru: 'Онлайн',       en: 'Online' },
+      offline:     { uz: 'Oflayn',      ru: 'Офлайн',       en: 'Offline' },
+      comingSoon:  { uz: 'Tez kunda',   ru: 'Скоро',        en: 'Coming soon' },
+      seats:       { uz: 'oʻrin',       ru: 'мест',         en: 'seats' },
+      version:     { uz: 'OnTheWay v1.0.0 · © 2025', ru: 'OnTheWay v1.0.0 · © 2025', en: 'OnTheWay v1.0.0 · © 2025' },
+    },
+
+    loading: {
+      connecting:  { uz: 'Telegramga ulanmoqda…', ru: 'Подключение к Telegram…', en: 'Connecting to Telegram…' },
+    },
+
+    home: {
+      tagline:        { uz: "Real vaqtda yoʻl hamrohi · Toshkent", ru: 'Подбор попутчиков в реальном времени · Ташкент', en: 'Real-time ride matching · Tashkent' },
+      passengerLabel: { uz: "Yoʻlovchi izlash", ru: 'Искать пассажира', en: 'Find a passenger' },
+      passengerSub:   { uz: "Marshrutingiz uchun haydovchi toping", ru: 'Найдите водителя по маршруту', en: 'Find a driver for your route' },
+      driverLabel:    { uz: 'Haydovchi izlash', ru: 'Искать водителя', en: 'Find a driver' },
+      driverSub:      { uz: "Yoʻlingizda yoʻlovchilar toping", ru: 'Найдите пассажиров по пути', en: 'Find passengers along your way' },
+    },
+
+    mapui: {
+      location:   { uz: "Toshkent, Oʻzbekiston", ru: 'Ташкент, Узбекистан', en: 'Tashkent, Uzbekistan' },
+      live:       { uz: 'Jonli', ru: 'Прямой', en: 'Live' },
+      menu:       { uz: 'Menyu', ru: 'Меню', en: 'Menu' },
+      matchFound: { uz: "{n} ta mos haydovchi / yoʻlovchi topildi", ru: 'Найдено {n} подходящих водителей / пассажиров', en: '{n} matching drivers / passengers found' },
+      mapStyle:   { uz: 'Xarita stili', ru: 'Стиль карты', en: 'Map style' },
+      you:        { uz: 'SIZ', ru: 'ВЫ', en: 'YOU' },
+    },
+
+    speed: {
+      unit:  { uz: 'km/soat', ru: 'км/ч',  en: 'km/h' },
+      limit: { uz: 'Limit',   ru: 'Лимит', en: 'Limit' },
+      over:  { uz: 'Tezlik oshdi', ru: 'Превышение', en: 'Over limit' },
+    },
+
+    mapStyles: {
+      dark:      { uz: 'Tungi',   ru: 'Тёмная',     en: 'Dark' },
+      streets:   { uz: "Koʻcha",  ru: 'Улицы',      en: 'Streets' },
+      light:     { uz: "Yorugʻ",  ru: 'Светлая',    en: 'Light' },
+      satellite: { uz: "Sunʼiy",  ru: 'Спутник',    en: 'Satellite' },
+    },
+
+    nav: {
+      saved:    { uz: 'Saqlangan',   ru: 'Сохранённое', en: 'Saved' },
+      history:  { uz: 'Tarix',       ru: 'История',     en: 'History' },
+      new:      { uz: 'Yangi',       ru: 'Новый',       en: 'New' },
+      schedule: { uz: 'Rejalashtir', ru: 'Планировщик', en: 'Schedule' },
+      contacts: { uz: 'Kontaktlar',  ru: 'Контакты',    en: 'Contacts' },
+      titleSaved:    { uz: 'Saqlanganlar',          ru: 'Сохранённое',         en: 'Saved' },
+      titleHistory:  { uz: 'Sayohatlar tarixi',     ru: 'История поездок',     en: 'Trip history' },
+      titleSchedule: { uz: 'Rejalashtirilgan sayohat', ru: 'Запланированная поездка', en: 'Scheduled trip' },
+      titleContacts: { uz: 'Kontaktlar',            ru: 'Контакты',            en: 'Contacts' },
+    },
+
+    saved: {
+      emptyTitle: { uz: "Saqlanganlar boʻsh", ru: 'Сохранённое пусто', en: 'No saved items' },
+      emptyBody:  { uz: "Tarixingizdagi sayohat yoki topilgan walker yonidagi yulduzcha (★) tugmasini bosing — bu yerda saqlanadi.", ru: 'Нажмите звёздочку (★) рядом с поездкой из истории или найденным попутчиком — она сохранится здесь.', en: 'Tap the star (★) next to a trip in your history or a matched rider — it will be saved here.' },
+      count:      { uz: '{n} ta saqlangan', ru: 'Сохранено: {n}', en: '{n} saved' },
+      countSub:   { uz: 'Tez-tez ishlatadigan joylaringiz', ru: 'Часто используемые места', en: 'Your frequently used places' },
+      confirmClear: { uz: "Hammasini oʻchirasizmi?", ru: 'Удалить всё?', en: 'Clear everything?' },
+      remove:     { uz: "Oʻchirish", ru: 'Удалить', en: 'Remove' },
+      secPlaces:  { uz: 'Manzillar',   ru: 'Места',     en: 'Places' },
+      secRoutes:  { uz: 'Marshrutlar', ru: 'Маршруты',  en: 'Routes' },
+      secPartners:{ uz: 'Hamrohlar',   ru: 'Попутчики', en: 'Partners' },
+      saveTip:    { uz: 'Saqlash', ru: 'Сохранить', en: 'Save' },
+      removeTip:  { uz: 'Saqlangandan olib tashlash', ru: 'Убрать из сохранённого', en: 'Remove from saved' },
+    },
+
+    history: {
+      tabHistory:   { uz: 'Tarix',     ru: 'История',  en: 'History' },
+      tabDashboard: { uz: 'Dashboard', ru: 'Сводка',   en: 'Dashboard' },
+      statTrips:    { uz: 'Jami sayohat',    ru: 'Всего поездок',   en: 'Total trips' },
+      statDistance: { uz: 'Jami masofa',     ru: 'Всего км',        en: 'Total distance' },
+      statRating:   { uz: "Oʻrtacha reyting", ru: 'Средний рейтинг', en: 'Average rating' },
+      unitTrips:    { uz: 'ta', ru: 'шт', en: '' },
+      partner:      { uz: 'Hamroh', ru: 'Попутчик', en: 'Partner' },
+      repeat:       { uz: 'Takrorlash', ru: 'Повторить', en: 'Repeat' },
+    },
+
+    form: {
+      from:        { uz: 'Qayerdan', ru: 'Откуда', en: 'From' },
+      to:          { uz: 'Qayerga',  ru: 'Куда',   en: 'To' },
+      addrPlaceholder: { uz: 'Manzil yozing yoki xaritadan tanlang', ru: 'Введите адрес или выберите на карте', en: 'Type an address or pick on map' },
+      pickOnMap:   { uz: 'Xaritadan tanlash', ru: 'Выбрать на карте', en: 'Pick on map' },
+      searching:   { uz: 'Qidirilmoqda…', ru: 'Поиск…', en: 'Searching…' },
+      when:        { uz: 'Qachon', ru: 'Когда', en: 'When' },
+      today:       { uz: 'Bugun',  ru: 'Сегодня', en: 'Today' },
+      tomorrow:    { uz: 'Ertaga', ru: 'Завтра',  en: 'Tomorrow' },
+      dayAfter:    { uz: 'Indin',  ru: 'Послезавтра', en: 'In 2 days' },
+      other:       { uz: 'Boshqa', ru: 'Другое',  en: 'Other' },
+      timeRange:   { uz: "vaqt oraligʻi", ru: 'интервал времени', en: 'time range' },
+      presetMorning: { uz: 'Ertalab',   ru: 'Утром',   en: 'Morning' },
+      presetNoon:    { uz: 'Tushda',    ru: 'Днём',    en: 'Midday' },
+      presetEvening: { uz: 'Kechqurun', ru: 'Вечером', en: 'Evening' },
+      seats:       { uz: "Boʻsh oʻrinlar", ru: 'Свободные места', en: 'Free seats' },
+      seatsMin:    { uz: ' (kamida)', ru: ' (минимум)', en: ' (min)' },
+      seatsAny:    { uz: "Farqi yoʻq", ru: 'Любое', en: 'Any' },
+      note:        { uz: 'Izoh (ixtiyoriy)', ru: 'Заметка (необязательно)', en: 'Note (optional)' },
+      notePlaceholder: { uz: "Qoʻshimcha maʼlumot, shartlar...", ru: 'Доп. информация, условия...', en: 'Extra info, conditions...' },
+    },
+
+    schedule: {
+      tabSearch:   { uz: '{role} topish',  ru: 'Найти: {role}', en: 'Find {role}' },
+      tabAdd:      { uz: "Sayohat qoʻshish", ru: 'Добавить поездку', en: 'Add a trip' },
+      walkerType:  { uz: 'Walker turi', ru: 'Тип попутчика', en: 'Rider type' },
+      typeAll:     { uz: 'Barchasi',  ru: 'Все',       en: 'All' },
+      typeDriver:  { uz: 'Haydovchi', ru: 'Водитель',  en: 'Driver' },
+      typePassenger:{ uz: "Yoʻlovchi", ru: 'Пассажир', en: 'Passenger' },
+      find:        { uz: 'Topish', ru: 'Найти', en: 'Find' },
+      addOwnTrip:  { uz: "Shu filtr boʻyicha oʻz sayohatimni qoʻshish", ru: 'Добавить свою поездку по этому фильтру', en: 'Add my trip with this filter' },
+      resultsCount:{ uz: '{n} ta natija', ru: 'Результатов: {n}', en: '{n} results' },
+      nearest:     { uz: 'Eng yaqin walkerlar', ru: 'Ближайшие попутчики', en: 'Nearest riders' },
+      byLocation:  { uz: "joriy joylashuvga koʻra", ru: 'по текущему местоположению', en: 'by current location' },
+      noResults:   { uz: 'Filtrga mos walker topilmadi.', ru: 'По фильтру попутчики не найдены.', en: 'No riders match the filter.' },
+      noResultsSub:{ uz: "Shartlarni kengaytirib koʻring.", ru: 'Попробуйте расширить условия.', en: 'Try widening your criteria.' },
+      iAm:         { uz: 'Men', ru: 'Я', en: 'I am' },
+      iAmPassenger:{ uz: "Yoʻlovchiman", ru: 'Пассажир', en: 'A passenger' },
+      iAmDriver:   { uz: 'Haydovchiman', ru: 'Водитель', en: 'A driver' },
+      submit:      { uz: "Tizimga qoʻshish", ru: 'Добавить в систему', en: 'Add to system' },
+      addedTitle:  { uz: "Sayohat qoʻshildi!", ru: 'Поездка добавлена!', en: 'Trip added!' },
+      addedBody:   { uz: "Marshrutingiz serverda saqlandi. Mos walkerlar topilganda bildirishnoma keladi.", ru: 'Ваш маршрут сохранён на сервере. Вы получите уведомление, когда найдутся попутчики.', en: 'Your route is saved on the server. You will be notified when riders match.' },
+      toList:      { uz: 'Roʻyxatga', ru: 'К списку', en: 'To list' },
+      addMore:     { uz: "Yana qoʻshish", ru: 'Добавить ещё', en: 'Add another' },
+    },
+
+    walkerCard: {
+      passengerTag: { uz: "Yoʻlovchi", ru: 'Пассажир', en: 'Passenger' },
+    },
+
+    settings: {
+      title:       { uz: 'Sozlamalar', ru: 'Настройки', en: 'Settings' },
+      langSection: { uz: 'Til / Language', ru: 'Язык / Language', en: 'Language' },
+      appearance:  { uz: "Koʻrinish", ru: 'Внешний вид', en: 'Appearance' },
+      darkMode:    { uz: 'Tungi rejim', ru: 'Тёмный режим', en: 'Dark mode' },
+      darkOn:      { uz: "Qorongʻu mavzu", ru: 'Тёмная тема', en: 'Dark theme' },
+      darkOff:     { uz: "Yorugʻ mavzu", ru: 'Светлая тема', en: 'Light theme' },
+      walkerSection:{ uz: 'Yaqin walkerlar', ru: 'Ближайшие попутчики', en: 'Nearby riders' },
+      walkerShown: { uz: "Koʻrsatiladigan walkerlar", ru: 'Показывать попутчиков', en: 'Riders shown' },
+      walkerSub:   { uz: 'Eng yaqin N ta · maksimum 10', ru: 'Ближайшие N · максимум 10', en: 'Nearest N · max 10' },
+      notifSection:{ uz: 'Bildirishnomalar', ru: 'Уведомления', en: 'Notifications' },
+      notifMatch:  { uz: 'Mos walker topildi', ru: 'Найден попутчик', en: 'Rider matched' },
+      notifMatchSub:{ uz: 'Yangi matching', ru: 'Новое совпадение', en: 'New match' },
+      notifChat:   { uz: 'Chat xabarlari', ru: 'Сообщения чата', en: 'Chat messages' },
+      notifChatSub:{ uz: 'Yangi xabarlar', ru: 'Новые сообщения', en: 'New messages' },
+      notifPromo:  { uz: 'Aksiyalar', ru: 'Акции', en: 'Promotions' },
+      notifPromoSub:{ uz: 'Chegirmalar va takliflar', ru: 'Скидки и предложения', en: 'Discounts and offers' },
+    },
+
+    drawer: {
+      menu:         { uz: 'Menyu', ru: 'Меню', en: 'Menu' },
+      profileName:  { uz: 'Alisher Karimov', ru: 'Алишер Каримов', en: 'Alisher Karimov' },
+      profileMeta:  { uz: '@alisher_k · Toshkent', ru: '@alisher_k · Ташкент', en: '@alisher_k · Tashkent' },
+      tripsCount:   { uz: '· {n} ta sayohat', ru: '· {n} поездок', en: '· {n} trips' },
+      searchMode:   { uz: 'Qidiruv rejimi', ru: 'Режим поиска', en: 'Search mode' },
+      settings:     { uz: 'Sozlamalar', ru: 'Настройки', en: 'Settings' },
+      settingsSub:  { uz: "Til, koʻrinish, bildirishnomalar", ru: 'Язык, внешний вид, уведомления', en: 'Language, appearance, notifications' },
+      account:      { uz: 'Hisob', ru: 'Аккаунт', en: 'Account' },
+      complaint:    { uz: 'Shikoyat yuborish', ru: 'Отправить жалобу', en: 'Send a complaint' },
+      complaintSub: { uz: 'Muammo yoki taklif bildiring', ru: 'Сообщите о проблеме или идее', en: 'Report a problem or suggestion' },
+      privacy:      { uz: 'Maxfiylik siyosati', ru: 'Политика конфиденциальности', en: 'Privacy policy' },
+      privacySub:   { uz: "Maʼlumotlaringiz himoyasi", ru: 'Защита ваших данных', en: 'Protection of your data' },
+      exit:         { uz: 'Ilovadan chiqish', ru: 'Выйти из приложения', en: 'Exit app' },
+    },
+
+    complaint: {
+      title:       { uz: 'Shikoyat yuborish', ru: 'Отправить жалобу', en: 'Send a complaint' },
+      intro:       { uz: "Bizga muammo, nojoʻya holat yoki taklifingizni bildiring. Har bir murojaat koʻrib chiqiladi.", ru: 'Сообщите нам о проблеме, нарушении или предложении. Каждое обращение рассматривается.', en: 'Tell us about a problem, incident or suggestion. Every report is reviewed.' },
+      catType:     { uz: 'Mavzu turi', ru: 'Тип темы', en: 'Topic type' },
+      catDriver:   { uz: 'Haydovchi', ru: 'Водитель', en: 'Driver' },
+      catPassenger:{ uz: "Yoʻlovchi", ru: 'Пассажир', en: 'Passenger' },
+      catSafety:   { uz: 'Xavfsizlik', ru: 'Безопасность', en: 'Safety' },
+      catPayment:  { uz: "Toʻlov", ru: 'Оплата', en: 'Payment' },
+      catApp:      { uz: 'Ilova xatosi', ru: 'Ошибка приложения', en: 'App error' },
+      catOther:    { uz: 'Boshqa', ru: 'Другое', en: 'Other' },
+      subject:     { uz: 'Mavzu', ru: 'Тема', en: 'Subject' },
+      subjectPlaceholder: { uz: 'Qisqacha sarlavha', ru: 'Краткий заголовок', en: 'Short title' },
+      detail:      { uz: 'Tafsilot', ru: 'Подробности', en: 'Details' },
+      detailPlaceholder: { uz: "Nima sodir boʻldi? Iloji boʻlsa sana, vaqt va tafsilotlarni yozing.", ru: 'Что произошло? По возможности укажите дату, время и детали.', en: 'What happened? If possible, include date, time and details.' },
+      attach:      { uz: 'Skrinshot biriktirish (ixtiyoriy)', ru: 'Прикрепить скриншот (необязательно)', en: 'Attach a screenshot (optional)' },
+      submit:      { uz: 'Yuborish', ru: 'Отправить', en: 'Send' },
+      sentTitle:   { uz: 'Shikoyatingiz yuborildi', ru: 'Ваша жалоба отправлена', en: 'Your complaint was sent' },
+      sentBody:    { uz: "Murojaatingiz qabul qilindi. Jamoamiz 24 soat ichida koʻrib chiqib, javob beradi.", ru: 'Ваше обращение принято. Наша команда рассмотрит его и ответит в течение 24 часов.', en: 'Your request was received. Our team will review and respond within 24 hours.' },
+      ticketNo:    { uz: 'Murojaat raqami · #OTW-{id}', ru: 'Номер обращения · #OTW-{id}', en: 'Ticket number · #OTW-{id}' },
+      backToMap:   { uz: 'Xaritaga qaytish', ru: 'Вернуться к карте', en: 'Back to map' },
+    },
+
+    privacy: {
+      title:       { uz: 'Maxfiylik siyosati', ru: 'Политика конфиденциальности', en: 'Privacy policy' },
+      heroTitle:   { uz: 'Maxfiyligingiz biz uchun muhim', ru: 'Ваша конфиденциальность важна для нас', en: 'Your privacy matters to us' },
+      updated:     { uz: 'Oxirgi yangilanish · 1-iyun, 2025', ru: 'Последнее обновление · 1 июня 2025', en: 'Last updated · June 1, 2025' },
+      intro:       { uz: "Ushbu siyosat OnTheWay ilovasidan foydalanganda maʼlumotlaringiz qanday toʻplanishi, ishlatilishi va himoyalanishini tushuntiradi.", ru: 'Эта политика объясняет, как собираются, используются и защищаются ваши данные при использовании OnTheWay.', en: 'This policy explains how your data is collected, used and protected when you use OnTheWay.' },
+      s1Title:     { uz: "Qanday maʼlumot toʻplaymiz", ru: 'Какие данные мы собираем', en: 'What data we collect' },
+      s1Body:      { uz: "Roʻyxatdan oʻtishda ism, telefon raqami va profil maʼlumotlaringiz; xizmatdan foydalanish vaqtida esa joylashuv, marshrut va aloqa maʼlumotlaringizni toʻplaymiz.", ru: 'При регистрации — имя, номер телефона и данные профиля; при использовании сервиса — местоположение, маршрут и контактные данные.', en: 'At sign-up: your name, phone number and profile data; while using the service: your location, route and contact data.' },
+      s2Title:     { uz: "Joylashuv maʼlumotlari", ru: 'Данные о местоположении', en: 'Location data' },
+      s2Body:      { uz: "Joriy joylashuvingiz faqat ilova ochiq boʻlganda va mos haydovchi/yoʻlovchini topish uchun ishlatiladi. Joylashuvni istalgan vaqtda oʻchirib qoʻyishingiz mumkin.", ru: 'Текущее местоположение используется только при открытом приложении и для поиска подходящего водителя/пассажира. Вы можете отключить его в любой момент.', en: 'Your current location is used only while the app is open and to find a matching driver/passenger. You can turn it off at any time.' },
+      s3Title:     { uz: "Maʼlumotlardan foydalanish", ru: 'Использование данных', en: 'Use of data' },
+      s3Body:      { uz: "Maʼlumotlaringiz sizni mos yoʻldoshlar bilan bogʻlash, xavfsizlikni taʼminlash va xizmatni yaxshilash uchun ishlatiladi. Biz ularni reklama maqsadida sotmaymiz.", ru: 'Ваши данные используются для подбора попутчиков, обеспечения безопасности и улучшения сервиса. Мы не продаём их для рекламы.', en: 'Your data is used to match you with riders, ensure safety and improve the service. We do not sell it for advertising.' },
+      s4Title:     { uz: 'Ulashish', ru: 'Передача данных', en: 'Sharing' },
+      s4Body:      { uz: "Sayohat tasdiqlanganda boshqa tomonga faqat ism, reyting va taxminiy joylashuvingiz koʻrsatiladi. Telefon raqamingiz siz ruxsat bermaguningizcha yashirin qoladi.", ru: 'При подтверждении поездки другой стороне показываются только имя, рейтинг и примерное местоположение. Ваш номер скрыт, пока вы не разрешите.', en: 'When a trip is confirmed, the other party sees only your name, rating and approximate location. Your phone number stays hidden until you allow it.' },
+      s5Title:     { uz: 'Xavfsizlik', ru: 'Безопасность', en: 'Security' },
+      s5Body:      { uz: "Barcha maʼlumotlar shifrlangan kanallar orqali uzatiladi va himoyalangan serverlarda saqlanadi. Hisobingizni ikki bosqichli tasdiqlash bilan himoyalashingiz mumkin.", ru: 'Все данные передаются по зашифрованным каналам и хранятся на защищённых серверах. Аккаунт можно защитить двухфакторной аутентификацией.', en: 'All data is transmitted over encrypted channels and stored on protected servers. You can secure your account with two-factor authentication.' },
+      s6Title:     { uz: 'Sizning huquqlaringiz', ru: 'Ваши права', en: 'Your rights' },
+      s6Body:      { uz: "Istalgan vaqtda maʼlumotlaringizni koʻrish, tahrirlash yoki hisobingizni butunlay oʻchirishni soʻrashingiz mumkin. Soʻrov 30 kun ichida bajariladi.", ru: 'В любой момент вы можете запросить просмотр, изменение или полное удаление аккаунта. Запрос выполняется в течение 30 дней.', en: 'At any time you can request to view, edit or fully delete your account. The request is completed within 30 days.' },
+      questions:   { uz: 'Savollaringiz bormi?', ru: 'Есть вопросы?', en: 'Have questions?' },
+      contactLine: { uz: "Maxfiylik boʻyicha murojaat uchun:", ru: 'По вопросам конфиденциальности:', en: 'For privacy enquiries:' },
+    },
+
+    empty: {
+      soon: { uz: 'Tez kunda', ru: 'Скоро', en: 'Coming soon' },
+    },
+
+    contacts: {
+      search:    { uz: 'Kontaktlarni qidirish', ru: 'Поиск контактов', en: 'Search contacts' },
+      online:    { uz: 'Onlayn', ru: 'Онлайн', en: 'Online' },
+      offline:   { uz: 'Oflayn', ru: 'Офлайн', en: 'Offline' },
+      onRoad:    { uz: "yoʻlda", ru: 'в пути', en: 'on the way' },
+      onRoadTip: { uz: "Yoʻlda", ru: 'В пути', en: 'On the way' },
+      lastSeen:  { uz: 'Oxirgi: {time}', ru: 'Был(а): {time}', en: 'Last seen: {time}' },
+      coordOnMap:{ uz: 'xaritada', ru: 'на карте', en: 'on map' },
+      routeShown:{ uz: "Hozir yoʻlda — marshruti xaritada koʻrsatildi", ru: 'Сейчас в пути — маршрут показан на карте', en: 'On the way now — route shown on map' },
+      noRoute:   { uz: "Faol marshrut yoʻq — faqat joriy joylashuvi", ru: 'Нет активного маршрута — только текущее местоположение', en: 'No active route — current location only' },
+    },
+
+    chat: {
+      connected:   { uz: "Bogʻlanish oʻrnatildi", ru: 'Соединение установлено', en: 'Connection established' },
+      online:      { uz: 'online', ru: 'онлайн', en: 'online' },
+      typeMessage: { uz: 'Xabar yozing...', ru: 'Напишите сообщение...', en: 'Type a message...' },
+      callTip:     { uz: "Qoʻngʻiroq", ru: 'Звонок', en: 'Call' },
+      attachTip:   { uz: 'Biriktirish', ru: 'Прикрепить', en: 'Attach' },
+      greetDriverThem:    { uz: "Salom! Sizning oldingizdan oʻtaman, taxminan 5 daqiqada boʻlaman", ru: 'Привет! Проеду мимо вас примерно через 5 минут', en: "Hi! I'll pass by you in about 5 minutes" },
+      greetPassengerThem: { uz: "Salom! Marshrutingiz menga toʻgʻri kelyapti, sizga qoʻshilsam boʻladimi?", ru: 'Привет! Ваш маршрут мне подходит, могу присоединиться?', en: 'Hi! Your route suits me, may I join you?' },
+      greetMe:     { uz: "Salom, ajoyib! Kutib turaman", ru: 'Привет, отлично! Жду', en: 'Hi, great! I’ll wait' },
+      quick1:      { uz: "Salom! Yoʻlda turibman 🚗", ru: 'Привет! Я в пути 🚗', en: "Hi! I'm on the way 🚗" },
+      quick2:      { uz: 'Necha daqiqada yetib kelasiz?', ru: 'Через сколько минут будете?', en: 'How many minutes away are you?' },
+      quick3:      { uz: 'Kutib turibman', ru: 'Жду вас', en: 'Waiting for you' },
+      quick4:      { uz: 'Rahmat!', ru: 'Спасибо!', en: 'Thanks!' },
+      quick5:      { uz: 'Qayerdasiz?', ru: 'Где вы?', en: 'Where are you?' },
+      quick6:      { uz: 'Yetib keldim', ru: 'Я на месте', en: "I've arrived" },
+      quick7:      { uz: 'Bir necha daqiqa kuting', ru: 'Подождите пару минут', en: 'Give me a couple of minutes' },
+      quick8:      { uz: 'Mashina rusumi qanday?', ru: 'Какая у вас машина?', en: 'What car do you have?' },
+      reply1:      { uz: '5 daqiqada yetib boraman', ru: 'Буду через 5 минут', en: "I'll be there in 5 minutes" },
+      reply2:      { uz: "Koʻrdim, hozir keldim 👋", ru: 'Вижу, уже подхожу 👋', en: 'I see you, coming now 👋' },
+      reply3:      { uz: 'Mashina №01 A777 BB, oq rang', ru: 'Машина №01 A777 BB, белая', en: 'Car №01 A777 BB, white' },
+      reply4:      { uz: "Naqd toʻlaysizmi yoki kartami?", ru: 'Оплата наличными или картой?', en: 'Paying cash or card?' },
+      reply5:      { uz: "Sayohat yoqimli boʻlsin 🙌", ru: 'Приятной поездки 🙌', en: 'Have a nice ride 🙌' },
+      reply6:      { uz: "Trafik biroz ogʻir, bir oz kechikishim mumkin", ru: 'Пробки, могу немного опоздать', en: 'Traffic is heavy, I may be a bit late' },
+    },
+
+    dashboard: {
+      thisWeek:    { uz: 'Bu hafta', ru: 'На этой неделе', en: 'This week' },
+      tripsCount:  { uz: 'km · {n} ta sayohat', ru: 'км · {n} поездок', en: 'km · {n} trips' },
+      co2:         { uz: 'CO₂ tejaldi', ru: 'CO₂ сэкономлено', en: 'CO₂ saved' },
+      moneySaved:  { uz: 'Tejalgan pul', ru: 'Сэкономлено', en: 'Money saved' },
+      som:         { uz: "soʻm", ru: 'сум', en: 'UZS' },
+      weeklyActivity:{ uz: 'Haftalik aktivlik', ru: 'Активность за неделю', en: 'Weekly activity' },
+      kmPerDay:    { uz: 'km/kun', ru: 'км/день', en: 'km/day' },
+      topDest:     { uz: "Eng koʻp borilgan manzillar", ru: 'Самые частые направления', en: 'Top destinations' },
+      roleSplit:   { uz: 'Rol taqsimoti', ru: 'Распределение ролей', en: 'Role split' },
+      asDriver:    { uz: '{n} marta haydovchi', ru: '{n} раз водитель', en: '{n}× as driver' },
+      asPassenger: { uz: '{n} marta yoʻlovchi', ru: '{n} раз пассажир', en: '{n}× as passenger' },
+    },
+
+    route: {
+      startPlaceholder: { uz: 'Boshlanish manzili', ru: 'Адрес начала', en: 'Start address' },
+      where:       { uz: 'Qayerga?', ru: 'Куда?', en: 'Where to?' },
+      midPoint:    { uz: 'Oraliq nuqta', ru: 'Промежуточная точка', en: 'Stopover' },
+      title:       { uz: 'Marshrut yaratish', ru: 'Построить маршрут', en: 'Create route' },
+      subtitle:    { uz: 'Marshrutingizni rejalashtiring', ru: 'Спланируйте маршрут', en: 'Plan your route' },
+      addMidPoint: { uz: "Oraliq nuqta qoʻshish", ru: 'Добавить промежуточную точку', en: 'Add a stopover' },
+      show:        { uz: "Marshrutni koʻrsatish", ru: 'Показать маршрут', en: 'Show route' },
+      calculating: { uz: 'Optimal marshrutlar hisoblanmoqda…', ru: 'Расчёт оптимальных маршрутов…', en: 'Calculating optimal routes…' },
+      foundCount:  { uz: '{n} ta marshrut topildi — birini tanlang', ru: 'Найдено маршрутов: {n} — выберите один', en: '{n} routes found — pick one' },
+      none:        { uz: 'Marshrut topilmadi. Boshqa manzil kiriting.', ru: 'Маршрут не найден. Укажите другой адрес.', en: 'No route found. Enter another address.' },
+      labelFastest:{ uz: 'Eng tez',   ru: 'Самый быстрый', en: 'Fastest' },
+      labelAlt1:   { uz: 'Muqobil 1', ru: 'Вариант 1',     en: 'Alternative 1' },
+      labelAlt2:   { uz: 'Muqobil 2', ru: 'Вариант 2',     en: 'Alternative 2' },
+      noteOptimal: { uz: "Optimal yoʻl",      ru: 'Оптимальный путь',   en: 'Optimal path' },
+      noteLights:  { uz: 'Kamroq svetofor',   ru: 'Меньше светофоров',  en: 'Fewer traffic lights' },
+      noteAlt:     { uz: "Alternativ yoʻl",   ru: 'Альтернативный путь', en: 'Alternative path' },
+      start:       { uz: "Yoʻlni boshlash", ru: 'Начать маршрут', en: 'Start route' },
+      pickStart:   { uz: 'Boshlanish', ru: 'Начало', en: 'Start' },
+      pickDest:    { uz: 'Manzil', ru: 'Назначение', en: 'Destination' },
+      pickMid:     { uz: 'Oraliq nuqta', ru: 'Промежуточная точка', en: 'Stopover' },
+      dragMap:     { uz: 'xaritani suring', ru: 'двигайте карту', en: 'drag the map' },
+      detecting:   { uz: 'Aniqlanmoqda…', ru: 'Определение…', en: 'Detecting…' },
+      pickPlace:   { uz: 'Joyni tanlang', ru: 'Выберите место', en: 'Pick a place' },
+      pickedAddr:  { uz: 'Tanlangan manzil', ru: 'Выбранный адрес', en: 'Selected address' },
+      dragMapShort:{ uz: 'Xaritani suring', ru: 'Двигайте карту', en: 'Drag the map' },
+    },
+
+    pickField: {
+      from: { uz: 'Boshlanish nuqtasi', ru: 'Точка отправления', en: 'Start point' },
+      to:   { uz: 'Borish manzili', ru: 'Пункт назначения', en: 'Destination' },
+    },
+
+    nav2: { // active route navbar
+      arrived:     { uz: 'Manzilga yetib keldingiz', ru: 'Вы прибыли в пункт назначения', en: 'You have arrived' },
+      remaining:   { uz: '· {km} km qoldi', ru: '· осталось {km} км', en: '· {km} km left' },
+      finished:    { uz: 'Marshrut yakunlandi', ru: 'Маршрут завершён', en: 'Route finished' },
+      eta:         { uz: 'Yetib borish · {time}', ru: 'Прибытие · {time}', en: 'Arrival · {time}' },
+      endTip:      { uz: 'Marshrutni yakunlash', ru: 'Завершить маршрут', en: 'End route' },
+    },
+
+    userPopup: {
+      sub:         { uz: "Sizning yoʻnalishingizda", ru: 'В вашем направлении', en: 'Going your way' },
+      tripsCount:  { uz: '{n} ta sayohat', ru: '{n} поездок', en: '{n} trips' },
+      distance:    { uz: 'Masofa', ru: 'Расстояние', en: 'Distance' },
+      arrival:     { uz: 'Yetib kelish', ru: 'Прибытие', en: 'Arrival' },
+      match:       { uz: 'Marshrut mos', ru: 'Совпадение', en: 'Route match' },
+    },
+
+    preview: {
+      back:        { uz: "Roʻyxat", ru: 'Список', en: 'List' },
+      loading:     { uz: 'Marshrut serverdan yuklanmoqda…', ru: 'Маршрут загружается с сервера…', en: 'Loading route from server…' },
+      fromServer:  { uz: 'serverdan', ru: 'с сервера', en: 'from server' },
+    },
+
+    call: {
+      yourScreen:  { uz: 'Sizning ekraningiz', ru: 'Ваш экран', en: 'Your screen' },
+      theirScreen: { uz: '{name} ekrani', ru: 'Экран {name}', en: "{name}'s screen" },
+      flipTip:     { uz: 'Ekranni almashtirish', ru: 'Переключить экран', en: 'Flip screen' },
+      bothViews:   { uz: 'Ikki tomon koʻrinishi — almashib turadi', ru: 'Вид обеих сторон — чередуется', en: 'Both sides — alternating view' },
+      connected:   { uz: 'Suhbat ulandi', ru: 'Разговор подключён', en: 'Call connected' },
+      calling:     { uz: 'Chaqirilmoqda…', ru: 'Вызов…', en: 'Calling…' },
+      incoming:    { uz: "Kiruvchi qoʻngʻiroq…", ru: 'Входящий вызов…', en: 'Incoming call…' },
+      mute:        { uz: 'Mute', ru: 'Микр.', en: 'Mute' },
+      unmute:      { uz: 'Unmute', ru: 'Вкл.', en: 'Unmute' },
+      end:         { uz: 'Tugatish', ru: 'Завершить', en: 'End' },
+      speaker:     { uz: 'Speaker', ru: 'Динамик', en: 'Speaker' },
+      cancel:      { uz: 'Bekor qilish', ru: 'Отменить', en: 'Cancel' },
+      decline:     { uz: 'Rad etish', ru: 'Отклонить', en: 'Decline' },
+      accept:      { uz: 'Qabul qilish', ru: 'Принять', en: 'Accept' },
+      agreeBtn:    { uz: 'Birga ketishni qabul qilish', ru: 'Поехать вместе', en: 'Ride together' },
+      offerHint:   { uz: "Manzilingiz bir xil — taklifni qabul qilsangiz, birga ketish tizimda rejalashtiriladi", ru: 'Вам по пути — примите предложение, и совместная поездка будет запланирована', en: "You're going the same way — accept to plan the ride together" },
+      offerPending:{ uz: 'Taklif yuborildi · javob kutilmoqda', ru: 'Предложение отправлено · ожидание ответа', en: 'Offer sent · awaiting reply' },
+      agreedTitle: { uz: 'Birga ketish rejalashtirildi', ru: 'Совместная поездка запланирована', en: 'Ride together planned' },
+      agreedSub:   { uz: '{name} bilan sayohatingiz tizimda saqlandi', ru: 'Поездка с {name} сохранена в системе', en: 'Your trip with {name} is saved in the system' },
+    },
+
+    push: {
+      matchTitle:     { uz: 'Mos walker topildi!', ru: 'Найден попутчик!', en: 'Rider matched!' },
+      routeMatchTitle:{ uz: "Marshrut boʻyicha mos topildi!", ru: 'Найдено совпадение по маршруту!', en: 'Match found on your route!' },
+      routeActiveTitle:{ uz: 'Marshrut faol', ru: 'Маршрут активен', en: 'Route active' },
+      routeActiveBody:{ uz: 'Avval joriy marshrutni yakunlang', ru: 'Сначала завершите текущий маршрут', en: 'Finish the current route first' },
+      newMessage:    { uz: 'Yangi xabar', ru: 'Новое сообщение', en: 'New message' },
+      rideAgreedTitle:{ uz: 'Birga ketish rejalashtirildi 🤝', ru: 'Поездка вместе запланирована 🤝', en: 'Ride together planned 🤝' },
+      rideAgreedBody:{ uz: '{name} bilan birga ketishni rejalashtirdingiz', ru: 'Вы запланировали поездку с {name}', en: 'You planned to travel with {name}' },
+    },
+  };
+
+  // ── DUKON (themeStore bilan bir xil API) ───────────────────────────────
+  function read() {
+    try { return localStorage.getItem('otw-lang'); } catch (e) { return null; }
+  }
+  const i18nStore = {
+    mode: read() || DEFAULT_LANG,
+    langs: LANGS,
+    listeners: new Set(),
+    apply() {
+      if (typeof document !== 'undefined') {
+        document.documentElement.setAttribute('lang', this.mode);
+      }
+    },
+    set(mode) {
+      if (!STRINGS || this.mode === mode) { /* baribir qoʻllaymiz */ }
+      this.mode = mode;
+      try { localStorage.setItem('otw-lang', mode); } catch (e) {}
+      this.apply();
+      this.listeners.forEach((l) => l(mode));
+    },
+    subscribe(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); },
+  };
+  i18nStore.apply();
+
+  // ── t() — kalit boʻyicha matn + {token} almashtirish ───────────────────
+  function lookup(path) {
+    const parts = path.split('.');
+    let node = STRINGS;
+    for (const p of parts) { node = node && node[p]; if (node == null) return null; }
+    return node;
+  }
+  function t(path, vars) {
+    const node = lookup(path);
+    if (!node) return path; // topilmasa — kalitning oʻzi (debug uchun)
+    let str = node[i18nStore.mode];
+    if (str == null) str = node[DEFAULT_LANG];
+    if (str == null) return path;
+    if (vars) {
+      str = str.replace(/\{(\w+)\}/g, (m, k) => (vars[k] != null ? vars[k] : m));
+    }
+    return str;
+  }
+
+  global.STRINGS = STRINGS;
+  global.i18nStore = i18nStore;
+  global.t = t;
+  global.I18N_LANGS = LANGS;
+})(typeof window !== 'undefined' ? window : this);
