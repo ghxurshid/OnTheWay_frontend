@@ -1,0 +1,131 @@
+/* ════════════════════════════════════════════════════════════════
+   OnTheWay — GLOBAL STYLES
+   Ported verbatim from the prototype <head>. Component-level styling
+   stays inline (matching the original design system that reads theme
+   tokens at runtime); only truly global rules, keyframes, Leaflet
+   overrides and the responsive shell live here.
+   ════════════════════════════════════════════════════════════════ */
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 100%; height: 100%; background: #0a0c10; font-family: 'DM Sans', sans-serif; overflow: hidden; }
+body { height: 100dvh; display: flex; align-items: center; justify-content: center; }
+#root { width: 100%; height: 100%; }
+
+/* Leaflet overrides */
+.leaflet-container { background: #0d1018 !important; }
+.leaflet-control-attribution { display: none !important; }
+.leaflet-control-zoom { display: none !important; }
+.leaflet-grab { cursor: grab !important; }
+.leaflet-dragging .leaflet-grab { cursor: grabbing !important; }
+
+@keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .6; transform: scale(1.15); } }
+@keyframes fadeUp { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+@keyframes ripple { 0% { transform: scale(.8); opacity: 1; } 100% { transform: scale(2.4); opacity: 0; } }
+@keyframes callPulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(31,200,192,.4); } 50% { box-shadow: 0 0 0 16px rgba(31,200,192,0); } }
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes dotBounce { 0%, 80%, 100% { transform: translateY(0); } 40% { transform: translateY(-6px); } }
+@keyframes markerPop { 0% { transform: scale(0); opacity: 0; } 70% { transform: scale(1.2); opacity: 1; } 100% { transform: scale(1); opacity: 1; } }
+@keyframes antMarch { to { stroke-dashoffset: -20; } }
+
+/* App-owner (foydalanuvchi) marshruti — Yandex uslubida ajralib turadi */
+.owner-route-glow { filter: blur(2.5px); }
+.owner-route-main { filter: drop-shadow(0 0 5px rgba(31,200,192,.95)) drop-shadow(0 2px 4px rgba(0,0,0,.45)); }
+
+/* Nozik, chiroyli overlay-uslubidagi scrollbar — barcha panellar uchun */
+* { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.18) transparent; }
+* { -webkit-overflow-scrolling: touch; }
+*::-webkit-scrollbar { width: 10px; height: 10px; background: transparent; }
+*::-webkit-scrollbar-track { background: transparent; margin: 6px 0; }
+*::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.16);
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+  min-height: 32px;
+  transition: background-color .2s ease;
+}
+*::-webkit-scrollbar-thumb:hover { background: rgba(31,200,192,0.5); background-clip: padding-box; }
+*::-webkit-scrollbar-thumb:active { background: rgba(31,200,192,0.8); background-clip: padding-box; }
+*::-webkit-scrollbar-corner { background: transparent; }
+.leaflet-container::-webkit-scrollbar { display: none; }
+
+.matched-marker {
+  width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center;
+  justify-content: center; font-weight: 700; font-size: 13px; font-family: 'DM Sans', sans-serif;
+  border: 2.5px solid rgba(15,17,23,.9); cursor: pointer;
+  box-shadow: 0 2px 12px rgba(0,0,0,.5);
+  transition: transform .15s ease;
+}
+.matched-marker:hover { transform: scale(1.15); }
+
+/* O'qilmagan xabar badge'i (xarita walker ikonkasi ustida) */
+.msg-badge {
+  position: absolute; top: -7px; right: -7px; min-width: 18px; height: 18px;
+  padding: 0 4px; border-radius: 9px; background: #e8403a; color: #fff;
+  font: 700 11px 'DM Sans', sans-serif; line-height: 18px; text-align: center;
+  border: 2px solid #0d1117; box-shadow: 0 1px 5px rgba(0,0,0,.5);
+  z-index: 3; animation: badgePop .25s cubic-bezier(.34,1.56,.64,1) both;
+}
+@keyframes badgePop { from { transform: scale(0); } to { transform: scale(1); } }
+
+.user-dot {
+  width: 16px; height: 16px; border-radius: 50%; background: #1fc8c0;
+  border: 2.5px solid white; box-shadow: 0 0 10px rgba(31,200,192,.7);
+  position: relative;
+}
+.user-dot::after {
+  content: ''; position: absolute; inset: -6px; border-radius: 50%;
+  background: rgba(31,200,192,.2); animation: pulse 2s ease infinite;
+}
+.leaflet-marker-icon { border: none !important; background: transparent !important; }
+
+/* ── Light tema overrides (data-theme=light) ── */
+html[data-theme="light"] .leaflet-container { background: #e6eaf0 !important; }
+html[data-theme="light"] * { scrollbar-color: rgba(18,22,30,0.22) transparent; }
+html[data-theme="light"] *::-webkit-scrollbar-thumb { background: rgba(18,22,30,0.20); }
+html[data-theme="light"] .matched-marker { border-color: #ffffff; }
+html[data-theme="light"] .user-dot { border-color: #ffffff; }
+
+/* ── Responsive shell: edge-to-edge + safe areas + floating chrome ── */
+:root {
+  --sat: env(safe-area-inset-top, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+  --sal: env(safe-area-inset-left, 0px);
+  --sar: env(safe-area-inset-right, 0px);
+}
+.otw-topbar {
+  top: calc(14px + var(--sat)) !important;
+  left: calc(16px + var(--sal)) !important;
+  right: calc(16px + var(--sar)) !important;
+}
+.otw-edge { right: calc(16px + var(--sar)) !important; }
+.otw-navbar { margin-bottom: calc(20px + var(--sab)) !important; }
+.otw-drawer {
+  width: min(322px, 86vw) !important;
+  padding-top: var(--sat);
+  padding-bottom: var(--sab);
+  padding-left: var(--sal);
+}
+.otw-sheet { max-height: calc(100dvh - 12px) !important; }
+.otw-screen {
+  padding-top: var(--sat);
+  padding-bottom: var(--sab);
+  padding-left: var(--sal);
+  padding-right: var(--sar);
+}
+html[data-theme="light"] .otw-sheet { border-color: rgba(18,22,30,.10) !important; }
+
+/* Push-toast keyframes (were inline in the prototype's PushToast) */
+@keyframes pushSlide {
+  from { opacity: 0; transform: translateY(-32px) scale(.96); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Bottom-nav panel transition keyframes (were inline in BottomNavBar) */
+@keyframes nb-panel-in  { 0% { opacity: 0; transform: translateY(100%); } 60% { opacity: 1; } 100% { opacity: 1; transform: translateY(0); } }
+@keyframes nb-panel-out { 0% { opacity: 1; transform: translateY(0) scale(1); } 100% { opacity: 0; transform: translateY(60%) scale(0.98); } }
+@keyframes nb-bar-out   { 0% { opacity: 1; transform: translateY(0) scale(1); } 100% { opacity: 0; transform: translateY(28px) scale(0.96); } }
+@keyframes nb-bar-in    { 0% { opacity: 0; transform: translateY(20px) scale(0.96); } 100% { opacity: 1; transform: translateY(0) scale(1); } }
+@keyframes nb-fab-sink  { 0% { transform: translateY(-14px) scale(1); } 100% { transform: translateY(0) scale(0.88); } }
+@keyframes nb-fab-rise  { 0% { transform: translateY(0) scale(0.88); } 100% { transform: translateY(-14px) scale(1); } }
