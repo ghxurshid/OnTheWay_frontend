@@ -24,6 +24,11 @@ export const STRINGS = {
       connecting:  { uz: 'Telegramga ulanmoqda…', ru: 'Подключение к Telegram…', en: 'Connecting to Telegram…' },
     },
 
+    auth: {
+      failedTitle: { uz: 'Kirib boʻlmadi', ru: 'Не удалось войти', en: 'Sign-in failed' },
+      retry:       { uz: 'Qayta urinish', ru: 'Повторить', en: 'Retry' },
+    },
+
     home: {
       tagline:        { uz: "Real vaqtda yoʻl hamrohi · Toshkent", ru: 'Подбор попутчиков в реальном времени · Ташкент', en: 'Real-time ride matching · Tashkent' },
       passengerLabel: { uz: "Yoʻlovchi izlash", ru: 'Искать пассажира', en: 'Find a passenger' },
@@ -330,6 +335,8 @@ export const STRINGS = {
     },
 
     call: {
+      failedTitle:   { uz: "Qoʻngʻiroq amalga oshmadi", ru: 'Не удалось позвонить', en: 'Call failed' },
+      unknownCaller: { uz: 'Notanish raqam', ru: 'Неизвестный', en: 'Unknown caller' },
       yourScreen:  { uz: 'Sizning ekraningiz', ru: 'Ваш экран', en: 'Your screen' },
       theirScreen: { uz: '{name} ekrani', ru: 'Экран {name}', en: "{name}'s screen" },
       flipTip:     { uz: 'Ekranni almashtirish', ru: 'Переключить экран', en: 'Flip screen' },

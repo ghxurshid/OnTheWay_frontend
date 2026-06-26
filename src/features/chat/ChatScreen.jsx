@@ -2,12 +2,25 @@ import { useState, useEffect, useRef } from 'react';
 import { T } from '@/constants/theme';
 import { t } from '@/i18n';
 import { CHAT_QUICK_KEYS, CHAT_REPLY_KEYS } from '@/constants/app';
+import { authStore } from '@/services/authStore';
+import { chatClient } from '@/services/realtime/chatClient';
+import { chatApi } from '@/api/chatApi';
 
-/** 1:1 chat screen with quick replies and a simulated auto-responder. */
+const GUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const isRealUser = (id) => GUID_RE.test(String(id || ''));
+const toMsg = (m, myId) => ({
+  id: m.id, from: m.senderId === myId ? 'me' : 'them', text: m.content, at: new Date(m.sentAtUtc),
+});
+
+/** 1:1 chat screen. Talks to the ChatHub for real users (REST back-fills
+    history); falls back to a local auto-responder for simulated walkers. */
 export function ChatScreen({ user, onBack }) {
   const isDriver = user.type === 'driver';
   const color = isDriver ? T.amber : T.purple;
-  const [msgs, setMsgs] = useState([
+  const live = isRealUser(user.id);
+  const myId = authStore.getUser()?.id || null;
+
+  const [msgs, setMsgs] = useState(live ? [] : [
     { id: 1, from: 'them',
       text: isDriver ? t('chat.greetDriverThem') : t('chat.greetPassengerThem'),
       at: new Date(Date.now() - 2 * 60000) },
@@ -17,22 +30,69 @@ export function ChatScreen({ user, onBack }) {
   const [typing, setTyping] = useState(false);
   const scrollRef = useRef(null);
   const idRef = useRef(3);
+  const typingTimerRef = useRef(null);
 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [msgs, typing]);
 
+  // Live mode: back-fill history + subscribe to realtime delivery/typing.
+  useEffect(() => {
+    if (!live) return undefined;
+    let alive = true;
+
+    (async () => {
+      try {
+        const convos = await chatApi.conversations();
+        const convo = convos.find((c) => c.otherParticipantId === user.id);
+        if (!convo || !alive) return;
+        const history = await chatApi.messages(convo.id);
+        if (!alive) return;
+        setMsgs(history.map((m) => toMsg(m, myId)).sort((a, b) => a.at - b.at));
+      } catch { /* no history yet — start empty */ }
+    })();
+
+    const offMsg = chatClient.on('ReceiveMessage', (m) => {
+      if (m.senderId !== user.id && m.senderId !== myId) return; // other conversation
+      if (m.senderId === user.id) setTyping(false);
+      setMsgs((cur) => (cur.some((x) => x.id === m.id) ? cur : [...cur, toMsg(m, myId)]));
+    });
+    const offTyping = chatClient.on('TypingIndicator', (fromUserId, isTyping) => {
+      if (fromUserId === user.id) setTyping(isTyping);
+    });
+
+    return () => { alive = false; offMsg(); offTyping(); };
+  }, [live, user.id, myId]);
+
   const send = (text) => {
     const txt = (text || '').trim();
     if (!txt) return;
-    setMsgs((m) => [...m, { id: idRef.current++, from: 'me', text: txt, at: new Date() }]);
     setInput('');
+
+    if (live) {
+      // The hub echoes the persisted message back to us, so we don't append
+      // optimistically. Fall back to REST if the socket is down.
+      chatClient.sendMessage(user.id, txt).catch(() => chatApi.send(user.id, txt).catch(() => {}));
+      return;
+    }
+
+    // Demo fallback: local echo + simulated auto-reply.
+    setMsgs((m) => [...m, { id: idRef.current++, from: 'me', text: txt, at: new Date() }]);
     setTimeout(() => setTyping(true), 600);
     setTimeout(() => {
       const reply = t(CHAT_REPLY_KEYS[Math.floor(Math.random() * CHAT_REPLY_KEYS.length)]);
       setTyping(false);
       setMsgs((m) => [...m, { id: idRef.current++, from: 'them', text: reply, at: new Date() }]);
     }, 1700 + Math.random() * 1400);
+  };
+
+  // Live typing indicator (debounced "stopped typing").
+  const onInput = (val) => {
+    setInput(val);
+    if (!live) return;
+    chatClient.sendTyping(user.id, true);
+    clearTimeout(typingTimerRef.current);
+    typingTimerRef.current = setTimeout(() => chatClient.sendTyping(user.id, false), 1500);
   };
 
   const fmtT = (d) => d.toLocaleTimeString('uz', { hour: '2-digit', minute: '2-digit', hour12: false });
@@ -141,7 +201,7 @@ export function ChatScreen({ user, onBack }) {
           border: `1px solid ${T.border}`, background: T.surface2, color: T.muted,
           cursor: 'pointer', fontSize: 16,
           display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>📎</button>
-        <textarea value={input} onChange={(e) => setInput(e.target.value)}
+        <textarea value={input} onChange={(e) => onInput(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(input); } }}
           placeholder={t('chat.typeMessage')} rows={1}
           style={{ flex: 1, padding: '10px 14px', borderRadius: 18, resize: 'none',

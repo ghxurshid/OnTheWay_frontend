@@ -18,6 +18,10 @@ import { unreadStore } from '@/services/unreadStore';
 import { savedStore } from '@/services/savedStore';
 import { RouteServer } from '@/services/routeService';
 import { listContacts } from '@/services/contactService';
+import { ensureAuth } from '@/services/authService';
+import { connectRealtime, startLocationReporting, callClient } from '@/services/realtime';
+import { initTelegramUi } from '@/services/telegram';
+import { USE_MOCKS } from '@/api/client';
 
 import { LoadingScreen } from '@/pages/LoadingScreen';
 import { HomeScreen } from '@/pages/HomeScreen';
@@ -36,6 +40,9 @@ import { PrivacyScreen } from '@/features/privacy/PrivacyScreen';
 
 const Sim = WalkerSim;
 
+const GUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const isRealUser = (id) => !USE_MOCKS && GUID_RE.test(String(id || ''));
+
 export function App() {
   const [screen, setScreen] = useState('loading');
   const [mode, setMode] = useState(null);
@@ -53,6 +60,11 @@ export function App() {
   const [navTask, setNavTask] = useState(null); // {type:'pick'|'preview', ...}
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [overlayPanel, setOverlayPanel] = useState(null); // 'settings' | 'complaint' | 'privacy'
+  const [authReady, setAuthReady] = useState(USE_MOCKS); // mock mode needs no auth
+  const [authError, setAuthError] = useState(null);
+  const [loaderDone, setLoaderDone] = useState(false);
+  const [bootNonce, setBootNonce] = useState(0);
+  const bootRef = useRef(false);
   const mapContainerRef = useRef(null);
 
   const userLocRef = useRef(null);
@@ -66,8 +78,33 @@ export function App() {
 
   const mapHook = useMap(mapContainerRef, screen === 'map');
 
-  // Contacts loaded once via the service (used by the push-message simulation).
-  useEffect(() => { listContacts().then((c) => { contactsRef.current = c; }); }, []);
+  // One-time auth + realtime bootstrap (skipped entirely in mock mode).
+  useEffect(() => {
+    initTelegramUi();
+    if (USE_MOCKS || bootRef.current) return;
+    bootRef.current = true;
+    (async () => {
+      try {
+        await ensureAuth();
+        setAuthReady(true);
+        await connectRealtime();
+        startLocationReporting();
+      } catch (e) {
+        setAuthError(e?.message || String(e));
+      }
+    })();
+  }, [bootNonce]);
+
+  // Leave the splash for home only once the loader bar AND auth are both ready.
+  useEffect(() => {
+    if (screen === 'loading' && loaderDone && authReady && !authError) setScreen('home');
+  }, [screen, loaderDone, authReady, authError]);
+
+  // Contacts loaded once authenticated (used by the push-message simulation).
+  useEffect(() => {
+    if (!authReady) return;
+    listContacts().then((c) => { contactsRef.current = c; }).catch(() => {});
+  }, [authReady]);
 
   useEffect(() => { mapHook.setMapStyle && mapHook.setMapStyle(mapStyle); }, [mapStyle, screen]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -238,9 +275,31 @@ export function App() {
     if (userLocRef.current) mapHook.setUserLocation(userLocRef.current);
   };
 
-  const handleCall = (user) => {
+  const handleCall = async (user) => {
     setSelectedUser(null);
+    if (isRealUser(user.id)) {
+      try {
+        await callClient.startCall(user.id, 'audio');
+        setCallState({ user, phase: 'ringing', live: true, role: 'caller' });
+      } catch (e) {
+        setPushNotif({ title: t('call.failedTitle'), body: e?.message || '' });
+      }
+      return;
+    }
     setCallState({ user, phase: 'ringing' });
+  };
+
+  // End/decline helpers that also drive the CallHub for real calls.
+  const endCall = () => {
+    if (callState?.live) callClient.hangup().catch(() => {});
+    setCallState(null);
+  };
+  const declineCall = () => {
+    if (callState?.live) {
+      const reject = callState.role === 'callee' && callState.phase === 'ringing';
+      (reject ? callClient.rejectCall() : callClient.hangup()).catch(() => {});
+    }
+    setCallState(null);
   };
 
   const walkerToCallUser = (w) => ({
@@ -291,6 +350,23 @@ export function App() {
     sub: c.type === 'driver' ? (c.vehicle || t('common.driver')) : t('common.passenger'),
     rating: c.rating, latlng: c.latlng,
   });
+
+  // Incoming calls + lifecycle transitions from the CallHub.
+  useEffect(() => {
+    if (USE_MOCKS || !authReady) return undefined;
+    const offIncoming = callClient.on('incoming', (invite) => {
+      if (callStateRef.current) return; // already on a call
+      const c = contactsRef.current.find((x) => x.id === invite.fromUserId);
+      const user = c ? contactToUser(c)
+        : { id: invite.fromUserId, type: 'passenger', initials: '👤', name: t('call.unknownCaller') };
+      setCallState({ user, phase: 'ringing', live: true, role: 'callee' });
+    });
+    const offAccepted = callClient.on('accepted', () =>
+      setCallState((cs) => (cs ? { ...cs, phase: 'active' } : cs)));
+    const offEnded = callClient.on('ended', () => setCallState(null));
+    const offRejected = callClient.on('rejected', () => setCallState(null));
+    return () => { offIncoming(); offAccepted(); offEnded(); offRejected(); };
+  }, [authReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { if (chatUser) unreadStore.clear(chatUser.id); }, [chatUser]);
 
@@ -354,6 +430,7 @@ export function App() {
   };
 
   const handleAcceptCall = () => {
+    if (callState?.live) callClient.acceptCall().catch(() => {});
     setCallState((c) => ({ ...c, phase: 'active' }));
     const userLoc = userLocRef.current || TASHKENT;
     const from = (callState && callState.user && callState.user.latlng) || [41.310, 69.255];
@@ -379,7 +456,22 @@ export function App() {
         style={{ position: 'absolute', inset: 0, zIndex: 0,
           display: screen === 'map' ? 'block' : 'none' }} />
 
-      {screen === 'loading' && <LoadingScreen onDone={() => setScreen('home')} />}
+      {screen === 'loading' && !authError && <LoadingScreen onDone={() => setLoaderDone(true)} />}
+      {screen === 'loading' && authError && (
+        <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
+          alignItems: 'center', justifyContent: 'center', gap: 16, padding: 32, textAlign: 'center',
+          background: T.bg }}>
+          <div style={{ fontSize: 34 }}>⚠️</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: T.text }}>{t('auth.failedTitle')}</div>
+          <div style={{ fontSize: 13, color: T.muted, lineHeight: 1.6, maxWidth: 360 }}>{authError}</div>
+          <button onClick={() => { setAuthError(null); bootRef.current = false; setLoaderDone(false); setBootNonce((n) => n + 1); }}
+            style={{ marginTop: 8, padding: '11px 22px', borderRadius: 12, border: 'none',
+              background: `linear-gradient(135deg,${T.teal},#0e9e97)`, color: 'white', fontSize: 14,
+              fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans,sans-serif' }}>
+            {t('auth.retry')}
+          </button>
+        </div>
+      )}
 
       {screen === 'home' && (
         <HomeScreen onSelect={(m) => { setMode(m); setScreen('map'); }} />
@@ -467,10 +559,13 @@ export function App() {
         <CallScreen
           callee={callState.user}
           phase={callState.phase}
+          live={!!callState.live}
+          role={callState.role || 'caller'}
           onAccept={handleAcceptCall}
           onAgree={handleAgreeRide}
-          onDecline={() => setCallState(null)}
-          onEnd={() => setCallState(null)}
+          onMuteToggle={(m) => callState.live && callClient.setMuted(m)}
+          onDecline={declineCall}
+          onEnd={endCall}
         />
       )}
 

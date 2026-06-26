@@ -5,25 +5,28 @@ import { ME } from '@/constants/app';
 
 const partyColor = (p) => (p.accent ? p.accent : (p.type === 'driver' ? T.amber : T.purple));
 
-/** Dual-perspective call screen (ringing/active) with a "ride together" offer. */
-export function CallScreen({ callee, phase, onAccept, onDecline, onEnd, onAgree }) {
+/** Dual-perspective call screen (ringing/active) with a "ride together" offer.
+    For real calls (`live`) the view locks to the owner's perspective and the
+    action buttons drive the CallHub via the parent's handlers. */
+export function CallScreen({ callee, phase, onAccept, onDecline, onEnd, onAgree, onMuteToggle, live = false, role = 'caller' }) {
   const caller = { ...ME, accent: T.teal }; // you
   const [secs, setSecs] = useState(0);
   const [muted, setMuted] = useState(false);
-  const [view, setView] = useState('caller'); // 'caller' | 'callee'
+  const [view, setView] = useState(role === 'callee' ? 'callee' : 'caller'); // 'caller' | 'callee'
   const ringing = phase === 'ringing';
   const [agreed, setAgreed] = useState(false);
   const agree = () => { setAgreed(true); onAgree && onAgree(); };
+  const toggleMute = () => setMuted((m) => { onMuteToggle && onMuteToggle(!m); return !m; });
 
   useEffect(() => {
     if (phase === 'active') { const i = setInterval(() => setSecs((c) => c + 1), 1000); return () => clearInterval(i); }
   }, [phase]);
 
   useEffect(() => {
-    if (!ringing) return;
+    if (!ringing || live) return; // real calls stay on the owner's perspective
     const i = setInterval(() => setView((v) => (v === 'caller' ? 'callee' : 'caller')), 2800);
     return () => clearInterval(i);
-  }, [ringing]);
+  }, [ringing, live]);
 
   const fmt = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 
@@ -134,7 +137,7 @@ export function CallScreen({ callee, phase, onAccept, onDecline, onEnd, onAgree 
                       lineHeight: 1.45, maxWidth: 280 }}>{t('call.offerHint')}</div>
                   </div>}
             <div style={{ display: 'flex', gap: 20 }}>
-              <CallBtn icon={muted ? '🔇' : '🎙'} label={muted ? t('call.unmute') : t('call.mute')} color={T.surface2} small onClick={() => setMuted((m) => !m)} />
+              <CallBtn icon={muted ? '🔇' : '🎙'} label={muted ? t('call.unmute') : t('call.mute')} color={T.surface2} small onClick={toggleMute} />
               <CallBtn icon="✕" label={t('call.end')} color={T.red} onClick={onEnd} />
               <CallBtn icon="📢" label={t('call.speaker')} color={T.surface2} small />
             </div>
