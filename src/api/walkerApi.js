@@ -12,6 +12,13 @@ export const walkerApi = {
     return http('/walkers').then((rows) => (rows || []).map(reviveWhen));
   },
 
+  /** GET /walkers/online — profiles of currently-online walkers (WalkerProfileDto[]),
+      merged client-side with live positions from the PresenceHub by user id. */
+  online() {
+    if (USE_MOCKS) return mockResponse([]);
+    return http('/walkers/online').then((rows) => rows || []);
+  },
+
   /** Resolve one walker from the scheduled list (no dedicated backend route). */
   getById(id) {
     if (USE_MOCKS) return mockResponse(WALKERS_DATA.find((w) => w.id === id) || null);

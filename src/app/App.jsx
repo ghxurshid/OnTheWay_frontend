@@ -19,8 +19,10 @@ import { savedStore } from '@/services/savedStore';
 import { RouteServer } from '@/services/routeService';
 import { listContacts } from '@/services/contactService';
 import { ensureAuth } from '@/services/authService';
-import { connectRealtime, startLocationReporting, callClient } from '@/services/realtime';
+import { connectRealtime, startLocationReporting, callClient, presenceClient } from '@/services/realtime';
 import { initTelegramUi } from '@/services/telegram';
+import { walkerApi } from '@/api/walkerApi';
+import { enrichLiveWalker } from '@/services/liveWalkers';
 import { USE_MOCKS } from '@/api/client';
 
 import { LoadingScreen } from '@/pages/LoadingScreen';
@@ -42,6 +44,32 @@ const Sim = WalkerSim;
 
 const GUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const isRealUser = (id) => !USE_MOCKS && GUID_RE.test(String(id || ''));
+
+/** Map an OSRM route ([lat,lng] coords + distance/duration) → RoutePublishDto. */
+function toRoutePublishDto(coords, route) {
+  const pts = coords.map(([lat, lng]) => ({ lat, lng }));
+  return {
+    origin: pts[0],
+    originLabel: null,
+    destination: pts[pts.length - 1],
+    destinationLabel: null,
+    points: pts,
+    distanceKm: route?.distance ? route.distance / 1000 : null,
+    etaMinutes: route?.duration ? Math.round(route.duration / 60) : null,
+  };
+}
+
+/** One-shot device location → [lat,lng], or null if denied/unavailable. */
+function getCurrentLatLng() {
+  return new Promise((resolve) => {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) return resolve(null);
+    navigator.geolocation.getCurrentPosition(
+      (p) => resolve([p.coords.latitude, p.coords.longitude]),
+      () => resolve(null),
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 10000 },
+    );
+  });
+}
 
 export function App() {
   const [screen, setScreen] = useState('loading');
@@ -75,6 +103,7 @@ export function App() {
   const navProgRef = useRef(0);
   const activeRouteRef = useRef(null);
   const contactsRef = useRef([]);
+  const liveWalkersRef = useRef(new Map()); // userId → enriched live walker
 
   const mapHook = useMap(mapContainerRef, screen === 'map');
 
@@ -112,17 +141,20 @@ export function App() {
     const userLoc = userLocRef.current || Sim.TASHKENT || TASHKENT;
     const km = Sim ? Sim.haversine(userLoc, w.position) : 0;
     const etaMin = Math.max(1, Math.round(km / 0.4));
+    const driverSub = w.vehicle
+      ? (w.seats ? `${w.vehicle} · ${w.seats} ${t('common.seats')}` : w.vehicle)
+      : t('common.driver');
     return {
       id: w.id, type: w.type, initials: w.initials, name: w.name, color: w.color,
-      sub: w.type === 'driver' ? `${w.vehicle} · ${w.seats} ${t('common.seats')}` : t('userPopup.sub'),
+      sub: w.type === 'driver' ? driverSub : t('userPopup.sub'),
       dist: km.toFixed(1) + ' km', eta: etaMin + ' min',
-      rating: (typeof w.rating === 'number' ? w.rating.toFixed(1) : w.rating),
-      trips: w.trips, latlng: w.position,
+      rating: (typeof w.rating === 'number' ? w.rating.toFixed(1) : (w.rating ?? '—')),
+      trips: w.trips ?? 0, latlng: w.position,
     };
   }, []);
 
   const openWalker = useCallback((id) => {
-    const w = simWalkersRef.current.find((x) => x.id === id);
+    const w = simWalkersRef.current.find((x) => x.id === id) || liveWalkersRef.current.get(id);
     if (w) setSelectedUser(formatForPopup(w));
   }, [formatForPopup]);
 
@@ -164,15 +196,98 @@ export function App() {
   }, [screen, mode, mapHook, openWalker, formatForPopup]);
 
   useEffect(() => {
-    if (screen === 'map' && mode) buildSim();
+    if (USE_MOCKS && screen === 'map' && mode) buildSim();
     return () => { if (simRef.current) { simRef.current.stop(); simRef.current = null; } };
   }, [screen, mode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
+    if (!USE_MOCKS) return undefined; // sim count only drives the mock simulation
     const h = () => { if (screen === 'map' && mode) buildSim(); };
     window.addEventListener('ontheway:simcount', h);
     return () => window.removeEventListener('ontheway:simcount', h);
   }, [screen, mode, buildSim]);
+
+  // ── LIVE map: render real online walkers from presence (replaces the sim) ──
+  useEffect(() => {
+    if (USE_MOCKS || screen !== 'map' || !mode) return undefined;
+    let alive = true;
+    const profiles = new Map(); // userId → WalkerProfileDto
+    let refreshTimer = null;
+
+    const render = () => {
+      if (!alive) return;
+      const positions = presenceClient.getPositions();
+      const seen = new Set();
+      positions.forEach((pos) => {
+        const profile = profiles.get(pos.userId);
+        if (!profile) return; // profile not loaded yet; a refresh will pick it up
+        const w = enrichLiveWalker(profile, pos);
+        liveWalkersRef.current.set(w.id, w);
+        seen.add(w.id);
+        mapHook.upsertWalkerMarker(w, openWalker);
+      });
+      // Drop walkers that are gone / no longer positioned.
+      [...liveWalkersRef.current.keys()].forEach((id) => {
+        if (!seen.has(id)) { liveWalkersRef.current.delete(id); mapHook.removeWalkerMarker(id); }
+      });
+      setMatchCount(liveWalkersRef.current.size);
+    };
+
+    const refresh = async () => {
+      try {
+        const list = await walkerApi.online();
+        if (!alive) return;
+        profiles.clear();
+        list.forEach((p) => profiles.set(p.id, p));
+        render();
+      } catch { /* keep whatever we have */ }
+    };
+    const scheduleRefresh = () => {
+      if (refreshTimer) return;
+      refreshTimer = setTimeout(() => { refreshTimer = null; refresh(); }, 800);
+    };
+
+    const onMoved = (pos) => {
+      if (!alive) return;
+      if (!profiles.has(pos.userId)) { scheduleRefresh(); return; }
+      const w = enrichLiveWalker(profiles.get(pos.userId), pos);
+      liveWalkersRef.current.set(w.id, w);
+      mapHook.upsertWalkerMarker(w, openWalker);
+    };
+    const onGone = (id) => {
+      if (!alive) return;
+      liveWalkersRef.current.delete(id);
+      mapHook.removeWalkerMarker(id);
+      setMatchCount(liveWalkersRef.current.size);
+    };
+
+    const unsubs = [
+      presenceClient.on('WalkerMoved', onMoved),
+      presenceClient.on('WalkerGone', onGone),
+      presenceClient.on('UserOnline', scheduleRefresh),
+      presenceClient.on('Walkers', render),
+    ];
+
+    (async () => {
+      mapHook.clearWalkers();
+      liveWalkersRef.current = new Map();
+      const userLoc = userLocRef.current || await getCurrentLatLng() || TASHKENT;
+      if (!alive) return;
+      userLocRef.current = userLoc;
+      mapHook.setUserLocation(userLoc);
+      await refresh();
+      if (!alive) return;
+      setShowMatching(true);
+      const pts = [userLoc, ...[...liveWalkersRef.current.values()].map((w) => w.position).filter(Boolean)];
+      if (pts.length > 1) mapHook.fitPoints(pts);
+    })();
+
+    return () => {
+      alive = false;
+      if (refreshTimer) clearTimeout(refreshTimer);
+      unsubs.forEach((u) => u());
+    };
+  }, [screen, mode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     mapStyleRef.current = mapStyle;
@@ -202,34 +317,43 @@ export function App() {
   const handleRouteSelected = async (route) => {
     setShowSheet(false);
     setRoutePicking(false);
-    if (!Sim || !route || !route.geometry) return;
+    if (!route || !route.geometry) return;
     const coords = route.geometry.coordinates.map((c) => [c[1], c[0]]);
-    const userLoc = userLocRef.current || Sim.randomUserLocation();
-    userLocRef.current = userLoc;
-    if (simRef.current) { simRef.current.stop(); simRef.current = null; }
-    mapHook.clearWalkers();
-    mapHook.setUserLocation(userLoc);
-    const oppo = mode === 'driver' ? 'passenger' : 'driver';
-    const n = simStore.get();
-    const walkers = await Sim.generateWalkersForRoute(coords, oppo, n);
-    walkers.sort((a, b) => Sim.haversine(userLoc, a.start) - Sim.haversine(userLoc, b.start));
-    const sim = Sim.createSimulation(walkers, {
-      intervalMs: 450,
-      onTick: (ws) => { simWalkersRef.current = ws; mapHook.tickWalkers(ws); },
-    });
-    simRef.current = sim;
-    const enriched = sim.enriched();
-    simWalkersRef.current = enriched;
-    mapHook.renderWalkers(enriched, mapStyleRef.current, openWalker);
-    mapHook.fitWalkers(userLoc, enriched);
-    sim.start();
-    setMatchCount(enriched.length);
-    setShowMatching(true);
-    const nearest = enriched.slice().sort((a, b) =>
-      Sim.haversine(userLoc, a.position) - Sim.haversine(userLoc, b.position))[0];
-    if (nearest) {
-      const f = formatForPopup(nearest);
-      setPushNotif({ title: t('push.routeMatchTitle'), body: `${f.name} • ${f.dist} • ${f.eta}`, user: f });
+
+    if (USE_MOCKS) {
+      // Demo: regenerate simulated walkers along the chosen route.
+      const userLoc = userLocRef.current || Sim.randomUserLocation();
+      userLocRef.current = userLoc;
+      if (simRef.current) { simRef.current.stop(); simRef.current = null; }
+      mapHook.clearWalkers();
+      mapHook.setUserLocation(userLoc);
+      const oppo = mode === 'driver' ? 'passenger' : 'driver';
+      const n = simStore.get();
+      const walkers = await Sim.generateWalkersForRoute(coords, oppo, n);
+      walkers.sort((a, b) => Sim.haversine(userLoc, a.start) - Sim.haversine(userLoc, b.start));
+      const sim = Sim.createSimulation(walkers, {
+        intervalMs: 450,
+        onTick: (ws) => { simWalkersRef.current = ws; mapHook.tickWalkers(ws); },
+      });
+      simRef.current = sim;
+      const enriched = sim.enriched();
+      simWalkersRef.current = enriched;
+      mapHook.renderWalkers(enriched, mapStyleRef.current, openWalker);
+      mapHook.fitWalkers(userLoc, enriched);
+      sim.start();
+      setMatchCount(enriched.length);
+      setShowMatching(true);
+      const nearest = enriched.slice().sort((a, b) =>
+        Sim.haversine(userLoc, a.position) - Sim.haversine(userLoc, b.position))[0];
+      if (nearest) {
+        const f = formatForPopup(nearest);
+        setPushNotif({ title: t('push.routeMatchTitle'), body: `${f.name} • ${f.dist} • ${f.eta}`, user: f });
+      }
+    } else {
+      // Live: keep real walkers on the map and share this route over presence
+      // so watching contacts see it.
+      mapHook.setWalkersDimmed(false);
+      presenceClient.publishRoute(toRoutePublishDto(coords, route)).catch(() => {});
     }
 
     mapHook.setRouteLines([]);
@@ -266,6 +390,7 @@ export function App() {
 
   const endRoute = () => {
     if (navTimerRef.current) { clearInterval(navTimerRef.current); navTimerRef.current = null; }
+    if (!USE_MOCKS) presenceClient.clearRoute().catch(() => {});
     mapHook.clearUserRoute();
     mapHook.clearPlanning();
     activeRouteRef.current = null;
@@ -383,7 +508,7 @@ export function App() {
   }, [mapHook, screen]);
 
   useEffect(() => {
-    if (screen !== 'map' || !mode) return;
+    if (!USE_MOCKS || screen !== 'map' || !mode) return; // demo-only fake messages
     let timer;
     const fire = () => {
       if (!chatUserRef.current && !callStateRef.current) {

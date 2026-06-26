@@ -17,16 +17,34 @@ const EVENTS = [
 let connection = null;
 const listeners = new Map(); // event → Set<handler>
 
+// Live caches, kept current from connect time so a screen that opens later
+// (e.g. the map) reads the present state instead of missing earlier events.
+const positions = new Map(); // userId → { userId, lat, lng, heading, updatedAtUtc }
+const onlineIds = new Set(); // userId
+
 function emit(event, payload) {
   listeners.get(event)?.forEach((fn) => {
     try { fn(payload); } catch (e) { console.error(`[presence] ${event} handler`, e); }
   });
 }
 
+function updateCaches(event, payload) {
+  switch (event) {
+    case 'OnlineUsers': onlineIds.clear(); (payload || []).forEach((id) => onlineIds.add(id)); break;
+    case 'UserOnline': onlineIds.add(payload); break;
+    case 'UserOffline': onlineIds.delete(payload); break;
+    case 'Walkers': (payload || []).forEach((p) => positions.set(p.userId, p)); break;
+    case 'WalkerMoved': if (payload) positions.set(payload.userId, payload); break;
+    case 'WalkerGone': positions.delete(payload); break;
+    default: break;
+  }
+}
+
 function ensureConnection() {
   if (connection) return connection;
   connection = createHubConnection('/hubs/presence');
-  EVENTS.forEach((ev) => connection.on(ev, (payload) => emit(ev, payload)));
+  EVENTS.forEach((ev) => connection.on(ev, (payload) => { updateCaches(ev, payload); emit(ev, payload); }));
+  connection.onreconnected(() => positions.clear()); // server re-seeds via Walkers
   return connection;
 }
 
@@ -49,6 +67,16 @@ export const presenceClient = {
 
   isConnected() {
     return connection?.state === 'Connected';
+  },
+
+  /** Snapshot of all known live positions (array of WalkerPositionDto). */
+  getPositions() {
+    return [...positions.values()];
+  },
+
+  /** Set of currently-online user ids. */
+  getOnlineIds() {
+    return [...onlineIds];
   },
 
   // --- client→server -------------------------------------------------

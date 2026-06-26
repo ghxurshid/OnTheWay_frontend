@@ -179,6 +179,32 @@ export function useMap(containerRef, active) {
     applyWalkerBadges();
   }, [applyWalkerBadges]);
 
+  // ── Live presence walkers (marker-only; no precomputed route) ──
+  // Reuses the same walkers group + walkerLayersRef so badges/highlight/dim
+  // keep working. Incremental: upsert on WalkerMoved, remove on WalkerGone.
+  const upsertWalkerMarker = useCallback((w, onSelect) => {
+    const map = mapRef.current; if (!map) return;
+    const pos = w.position || (w.route && w.route[0]); if (!pos) return;
+    const lm = walkerLayersRef.current;
+    const layer = lm.get(w.id);
+    if (layer && layer.mk) {
+      layer.mk.setLatLng(pos);
+    } else {
+      const mk = L.marker(pos, { icon: makeWalkerIcon(w.color, w.initials), zIndexOffset: 600 })
+        .addTo(layersRef.current.walkers);
+      mk.on('click', () => onSelect && onSelect(w.id));
+      lm.set(w.id, { mk });
+    }
+    applyWalkerBadges();
+  }, [applyWalkerBadges]);
+
+  const removeWalkerMarker = useCallback((id) => {
+    const lm = walkerLayersRef.current; const layer = lm.get(id); if (!layer) return;
+    const grp = layersRef.current.walkers;
+    ['ant', 'trav', 'mk', 'start', 'dest'].forEach((k) => layer[k] && grp.removeLayer(layer[k]));
+    lm.delete(id);
+  }, []);
+
   const clearWalkers = useCallback(() => {
     layersRef.current.walkers.clearLayers();
     walkerLayersRef.current = new Map();
@@ -380,6 +406,7 @@ export function useMap(containerRef, active) {
     mapRef, flyTo, setRouteLines, setWaypointMarkers, showMatchedUsers, clearMatched,
     enableTapPick, disableTapPick, startTracking, setMapStyle, setUserLocation, renderWalkers,
     tickWalkers, clearWalkers, fitWalkers, setWalkersDimmed, highlightWalker, setWalkerBadges,
+    upsertWalkerMarker, removeWalkerMarker,
     getCenter, onMove, onMoveEnd, renderUserRoute, updateUserRoute, clearUserRoute, recolorUserRoute,
     showPreviewRoute, clearPreviewRoute, fitRoute, clearPlanning, hideWalkers, showContactFocus, fitPoints,
   };
