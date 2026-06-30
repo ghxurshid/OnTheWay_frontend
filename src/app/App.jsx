@@ -6,7 +6,7 @@
    ════════════════════════════════════════════════════════════════ */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { T } from '@/constants/theme';
+import { T, themeStore } from '@/constants/theme';
 import { t } from '@/i18n';
 import { TASHKENT } from '@/constants/map';
 import { CHAT_REPLY_KEYS } from '@/constants/app';
@@ -81,7 +81,10 @@ export function App() {
   const [callState, setCallState] = useState(null);
   const [chatUser, setChatUser] = useState(null);
   const [pushNotif, setPushNotif] = useState(null);
-  const [mapStyle, setMapStyle] = useState('dark');
+  // Basemap mode is the user's choice ('theme' follows the app light/dark theme,
+  // 'streets', 'satellite'); mapStyle is the resolved tile id it maps to.
+  const [mapStyleMode, setMapStyleMode] = useState('theme');
+  const [mapStyle, setMapStyle] = useState(themeStore.mode === 'light' ? 'light' : 'dark');
   const [matchCount, setMatchCount] = useState(0);
   const [, setRoutePicking] = useState(false);
   const [activeRoute, setActiveRoute] = useState(null);
@@ -99,7 +102,8 @@ export function App() {
   const userLocRef = useRef(null);
   const simRef = useRef(null);
   const simWalkersRef = useRef([]);
-  const mapStyleRef = useRef('dark');
+  const mapStyleRef = useRef(themeStore.mode === 'light' ? 'light' : 'dark');
+  const mapStyleModeRef = useRef('theme');
   const navTimerRef = useRef(null);
   const navProgRef = useRef(0);
   const activeRouteRef = useRef(null);
@@ -137,6 +141,22 @@ export function App() {
   }, [authReady]);
 
   useEffect(() => { mapHook.setMapStyle && mapHook.setMapStyle(mapStyle); }, [mapStyle, screen]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Resolve a basemap mode to a concrete tile style ('theme' tracks the app theme).
+  const resolveMapStyle = useCallback((modeId) =>
+    modeId === 'theme' ? (themeStore.mode === 'light' ? 'light' : 'dark') : modeId, []);
+
+  // Picker change: remember the mode and apply the resolved tile style.
+  const changeMapStyleMode = useCallback((modeId) => {
+    mapStyleModeRef.current = modeId;
+    setMapStyleMode(modeId);
+    setMapStyle(resolveMapStyle(modeId));
+  }, [resolveMapStyle]);
+
+  // While in 'theme' mode, follow the app's light/dark theme changes live.
+  useEffect(() => themeStore.subscribe(() => {
+    if (mapStyleModeRef.current === 'theme') setMapStyle(themeStore.mode === 'light' ? 'light' : 'dark');
+  }), []);
 
   const formatForPopup = useCallback((w) => {
     const userLoc = userLocRef.current || Sim.TASHKENT || TASHKENT;
@@ -621,8 +641,9 @@ export function App() {
             onMenu={() => setDrawerOpen(true)}
             onContactCall={(c) => handleCall(contactToUser(c))}
             onContactSms={(c) => setChatUser(contactToUser(c))}
-            mapStyle={mapStyle}
-            onMapStyleChange={setMapStyle}
+            mapStyleMode={mapStyleMode}
+            appTheme={themeStore.mode}
+            onMapStyleChange={changeMapStyleMode}
           />
           <SideDrawer
             open={drawerOpen}

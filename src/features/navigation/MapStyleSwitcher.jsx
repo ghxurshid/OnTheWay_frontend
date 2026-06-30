@@ -1,13 +1,22 @@
 import { useState } from 'react';
 import { T } from '@/constants/theme';
 import { t } from '@/i18n';
-import { MAP_STYLES, mapStylePreviewBg } from '@/constants/map';
+import { mapStylePreviewBg } from '@/constants/map';
 
-/** Floating basemap-style picker (dark / streets / light / satellite). */
-export function MapStyleSwitcher({ current, onChange }) {
+// Three basemap modes. "theme" follows the app's selected light/dark theme.
+const MODES = ['theme', 'streets', 'satellite'];
+
+/** Floating basemap-mode picker (app theme / streets / satellite). Designed to
+    sit in a vertical control stack: the root is relative, the popup opens above. */
+export function MapStyleSwitcher({ current, onChange, appTheme = 'dark' }) {
   const [open, setOpen] = useState(false);
+
+  // The preview swatch (and sub-label) for "theme" mirrors the current app theme.
+  const previewFor = (id) => mapStylePreviewBg(id === 'theme' ? (appTheme === 'light' ? 'light' : 'dark') : id);
+  const subFor = (id) => (id === 'theme' ? t('mapStyles.' + (appTheme === 'light' ? 'light' : 'dark')) : t('mapStyles.' + id));
+
   return (
-    <div style={{ position: 'absolute', right: 16, bottom: 200, pointerEvents: 'auto' }}>
+    <div style={{ position: 'relative', pointerEvents: 'auto' }}>
       {open && (
         <div style={{ position: 'absolute', right: 0, bottom: 46, width: 184,
           background: T.glassSolid, backdropFilter: 'blur(20px)',
@@ -19,17 +28,17 @@ export function MapStyleSwitcher({ current, onChange }) {
             padding: '4px 8px 6px', textTransform: 'uppercase', letterSpacing: .6 }}>
             {t('mapui.mapStyle')}
           </div>
-          {MAP_STYLES.map((s) => {
-            const active = current === s.id;
+          {MODES.map((id) => {
+            const active = current === id;
             return (
-              <button key={s.id} onClick={() => { onChange(s.id); setOpen(false); }}
+              <button key={id} onClick={() => { onChange(id); setOpen(false); }}
                 style={{ width: '100%', padding: '6px 8px', borderRadius: 9, border: 'none',
                   background: active ? T.tealDim : 'transparent',
                   display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', marginBottom: 2,
                   fontFamily: 'DM Sans,sans-serif', transition: 'background .15s ease' }}>
                 <div style={{ width: 30, height: 30, borderRadius: 8,
                   border: `1.5px solid ${active ? T.teal : 'rgba(255,255,255,.1)'}`,
-                  position: 'relative', flexShrink: 0, ...mapStylePreviewBg(s.id) }}>
+                  position: 'relative', flexShrink: 0, ...previewFor(id) }}>
                   {active && (
                     <div style={{ position: 'absolute', top: -4, right: -4, width: 14, height: 14, borderRadius: 7,
                       background: T.teal, border: `2px solid ${T.glassSolid}`,
@@ -39,8 +48,8 @@ export function MapStyleSwitcher({ current, onChange }) {
                 </div>
                 <div style={{ textAlign: 'left', flex: 1 }}>
                   <div style={{ fontSize: 12, fontWeight: active ? 600 : 500,
-                    color: active ? T.teal : T.text }}>{t('mapStyles.' + s.id)}</div>
-                  <div style={{ fontSize: 9, color: T.muted }}>{s.sub}</div>
+                    color: active ? T.teal : T.text }}>{t('mapStyles.' + id)}</div>
+                  <div style={{ fontSize: 9, color: T.muted }}>{subFor(id)}</div>
                 </div>
               </button>
             );

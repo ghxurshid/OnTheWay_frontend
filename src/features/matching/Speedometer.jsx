@@ -2,38 +2,31 @@ import { useState, useEffect, useRef } from 'react';
 import { T } from '@/constants/theme';
 import { t } from '@/i18n';
 
-/** Simulated live speedometer + road speed-limit sign (top-left HUD). */
+// Device geolocation has no speed-limit data, so the sign shows a static city
+// reference. Real limits would need a roads/maps API.
+const DEFAULT_LIMIT = 60;
+
+/** Live speedometer driven by the device's GPS speed (top-left HUD). */
 export function Speedometer() {
   const [cur, setCur] = useState(0);
-  const [limit, setLimit] = useState(60);
-  const curRef = useRef(0); const targetRef = useRef(0); const limitRef = useRef(60);
+  const smooth = useRef(0);
 
   useEffect(() => {
-    const LIMITS = [40, 50, 60, 70, 80];
-    let segTick = 0; let tgtTick = 0;
-    const id = setInterval(() => {
-      if (--segTick <= 0) {
-        const nl = LIMITS[Math.floor(Math.random() * LIMITS.length)];
-        limitRef.current = nl; setLimit(nl);
-        segTick = 18 + Math.floor(Math.random() * 12);
-      }
-      if (--tgtTick <= 0) {
-        const lim = limitRef.current;
-        if (Math.random() < 0.35) {
-          targetRef.current = lim * (1.06 + Math.random() * 0.16);
-          tgtTick = 5 + Math.floor(Math.random() * 4);
-        } else {
-          targetRef.current = lim * (0.6 + Math.random() * 0.32);
-          tgtTick = 3 + Math.floor(Math.random() * 4);
-        }
-      }
-      let v = curRef.current + (targetRef.current - curRef.current) * 0.22 + (Math.random() - 0.5) * 1.4;
-      v = Math.max(0, v);
-      curRef.current = v; setCur(Math.round(v));
-    }, 680);
-    return () => clearInterval(id);
+    if (!navigator.geolocation) return undefined;
+    const id = navigator.geolocation.watchPosition(
+      (p) => {
+        // coords.speed is metres/second (or null when unknown / stationary).
+        const mps = p.coords.speed;
+        const kmh = mps != null && mps >= 0 ? mps * 3.6 : 0;
+        smooth.current += (kmh - smooth.current) * 0.5; // light smoothing
+        setCur(Math.round(smooth.current));
+      },
+      () => { /* permission denied / unavailable → stays at 0 */ },
+      { enableHighAccuracy: true, maximumAge: 1000, timeout: 15000 });
+    return () => navigator.geolocation.clearWatch(id);
   }, []);
 
+  const limit = DEFAULT_LIMIT;
   const over = cur > limit;
   return (
     <div style={{ position: 'absolute', top: 64, left: 16, pointerEvents: 'none',

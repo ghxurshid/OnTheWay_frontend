@@ -60,6 +60,7 @@ export const STRINGS = {
     },
 
     mapStyles: {
+      theme:     { uz: 'Mavzu',   ru: 'Тема',       en: 'Theme' },
       dark:      { uz: 'Tungi',   ru: 'Тёмная',     en: 'Dark' },
       streets:   { uz: "Koʻcha",  ru: 'Улицы',      en: 'Streets' },
       light:     { uz: "Yorugʻ",  ru: 'Светлая',    en: 'Light' },

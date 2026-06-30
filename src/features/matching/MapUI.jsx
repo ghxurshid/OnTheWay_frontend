@@ -6,8 +6,8 @@ import { BottomNavBar } from '@/features/navigation/BottomNavBar';
 import { RouteNavBar } from '@/features/route/RouteNavBar';
 
 /** Map screen chrome: top bar, speedometer, match badge, zoom, nav bar. */
-export function MapUI({ mode, mapHook, onRouteSheet, showMatching, matchCount, onMenu, mapStyle,
-  onMapStyleChange, routeActive, activeRoute, navProgress, onEndRoute, userLoc, onMapTask,
+export function MapUI({ mode, mapHook, onRouteSheet, showMatching, matchCount, onMenu, mapStyleMode,
+  appTheme, onMapStyleChange, routeActive, activeRoute, navProgress, onEndRoute, userLoc, onMapTask,
   navHidden, onContactCall, onContactSms }) {
   return (
     <div style={{ position: 'absolute', inset: 0, zIndex: 10, pointerEvents: 'none' }}>
@@ -66,23 +66,21 @@ export function MapUI({ mode, mapHook, onRouteSheet, showMatching, matchCount, o
         </div>
       )}
 
-      {/* Zoom controls */}
+      {/* Right control stack: map-style switcher + zoom, on one vertical line */}
       <div className="otw-edge" style={{ position: 'absolute', right: 16, bottom: 120, display: 'flex',
-        flexDirection: 'column', gap: 2, pointerEvents: 'auto' }}>
-        {['+', '−'].map((s, i) => (
-          <button key={i} onClick={() => (i === 0 ? mapHook.mapRef.current?.zoomIn() : mapHook.mapRef.current?.zoomOut())}
-            style={{ width: 36, height: 36, borderRadius: i === 0 ? '10px 10px 4px 4px' : '4px 4px 10px 10px',
-              background: T.glass, backdropFilter: 'blur(12px)',
-              border: `1px solid ${T.border}`, color: T.text, fontSize: 18, cursor: 'pointer',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 400 }}>
-            {s}
-          </button>
-        ))}
-      </div>
-
-      {/* Map style switcher */}
-      <div className="otw-edge" style={{ position: 'absolute', right: 16, bottom: 208, pointerEvents: 'auto' }}>
-        <MapStyleSwitcher current={mapStyle} onChange={onMapStyleChange} />
+        flexDirection: 'column', alignItems: 'flex-end', gap: 8, pointerEvents: 'auto' }}>
+        <MapStyleSwitcher current={mapStyleMode} onChange={onMapStyleChange} appTheme={appTheme} />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          {['+', '−'].map((s, i) => (
+            <button key={i} onClick={() => (i === 0 ? mapHook.mapRef.current?.zoomIn() : mapHook.mapRef.current?.zoomOut())}
+              style={{ width: 36, height: 36, borderRadius: i === 0 ? '10px 10px 4px 4px' : '4px 4px 10px 10px',
+                background: T.glass, backdropFilter: 'blur(12px)',
+                border: `1px solid ${T.border}`, color: T.text, fontSize: 18, cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 400 }}>
+              {s}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Active route bar */}
