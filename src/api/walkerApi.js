@@ -25,31 +25,50 @@ export const walkerApi = {
     return this.list().then((rows) => rows.find((w) => w.id === id) || null);
   },
 
-  /** POST /walkers — publish the current user's own trip. */
+  /** POST /trips — publish the current user's own trip. The form's role (driver/
+      passenger) maps to a Driver or Passenger trip; the response (TripResponseDto)
+      is mapped back to the walker shape the rest of the app uses. */
   create(form) {
-    if (USE_MOCKS) return mockResponse({ id: 'me_' + Date.now(), ...form });
-    return http('/walkers', {
+    if (USE_MOCKS) return mockResponse({ id: 'me_' + Date.now(), ...form, when: new Date() });
+    return http('/trips', {
       method: 'POST',
-      body: JSON.stringify(toCreateDto(form)),
-    }).then(reviveWhen);
+      body: JSON.stringify(toCreateTripDto(form)),
+    }).then(tripToWalker);
   },
 };
 
 const reviveWhen = (w) => (w && w.when ? { ...w, when: new Date(w.when) } : w);
 
-/** Map the SchedulePanel form → CreateWalkerRequestDto. */
-function toCreateDto(form) {
+/** Map the SchedulePanel form → CreateTripRequestDto. */
+function toCreateTripDto(form) {
+  const fromLL = form.from?.latlng || [0, 0];
+  const toLL = form.to?.latlng || [0, 0];
   return {
-    from: form.from?.label || '',
-    to: form.to?.label || '',
-    fromLatlng: form.from?.latlng || [0, 0],
-    toLatlng: form.to?.latlng || [0, 0],
-    when: combineWhen(form.date, form.tStart),
-    seats: Number(form.seats) || 1,
-    pricePerSeat: form.pricePerSeat ?? null,
+    origin: { latitude: fromLL[0], longitude: fromLL[1], address: form.from?.label || '' },
+    destination: { latitude: toLL[0], longitude: toLL[1], address: form.to?.label || '' },
+    departureTimeUtc: combineWhen(form.date, form.tStart),
+    totalSeats: Number(form.seats) || 1,
+    pricePerSeat: form.pricePerSeat ?? 0,
     distanceKm: form.distanceKm ?? null,
-    etaMinutes: form.etaMinutes ?? null,
+    estimatedMinutes: form.etaMinutes ?? null,
     notes: form.note || null,
+    category: 'Planned',
+    role: form.type === 'driver' ? 'Driver' : 'Passenger',
+  };
+}
+
+/** Map a TripResponseDto back into the walker shape used across the app. */
+function tripToWalker(tp) {
+  if (!tp) return tp;
+  return {
+    id: tp.id,
+    type: (tp.role || 'Driver').toLowerCase(),
+    from: tp.origin?.address || '',
+    to: tp.destination?.address || '',
+    fromLatlng: [tp.origin?.latitude ?? 0, tp.origin?.longitude ?? 0],
+    toLatlng: [tp.destination?.latitude ?? 0, tp.destination?.longitude ?? 0],
+    when: tp.departureTimeUtc ? new Date(tp.departureTimeUtc) : new Date(),
+    seats: tp.totalSeats ?? 1,
   };
 }
 
