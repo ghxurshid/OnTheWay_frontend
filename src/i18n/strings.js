@@ -247,6 +247,8 @@ export const STRINGS = {
       coordOnMap:{ uz: 'xaritada', ru: 'на карте', en: 'on map' },
       routeShown:{ uz: "Hozir yoʻlda — marshruti xaritada koʻrsatildi", ru: 'Сейчас в пути — маршрут показан на карте', en: 'On the way now — route shown on map' },
       noRoute:   { uz: "Faol marshrut yoʻq — faqat joriy joylashuvi", ru: 'Нет активного маршрута — только текущее местоположение', en: 'No active route — current location only' },
+      remove:    { uz: 'Kontaktdan oʻchirish', ru: 'Удалить из контактов', en: 'Remove from contacts' },
+      confirmRemove:{ uz: 'Bu kontaktni oʻchirasizmi?', ru: 'Удалить этот контакт?', en: 'Remove this contact?' },
     },
 
     chat: {

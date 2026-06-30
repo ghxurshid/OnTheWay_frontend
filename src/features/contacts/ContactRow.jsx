@@ -4,12 +4,13 @@ import { t } from '@/i18n';
 import { useUnread } from '@/hooks/useUnread';
 
 /** Single contact list row with presence dot, route badge and unread count. */
-export function ContactRow({ c, onSelect }) {
+export function ContactRow({ c, onSelect, onRemove }) {
   const [p, setP] = useState(false);
   const unread = useUnread()[c.id] || 0;
   const color = c.type === 'driver' ? T.amber : T.purple;
   return (
-    <button onClick={() => onSelect(c)}
+    <div role="button" tabIndex={0} onClick={() => onSelect(c)}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onSelect(c); }}
       onPointerDown={() => setP(true)} onPointerUp={() => setP(false)} onPointerLeave={() => setP(false)}
       style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 12, padding: '11px 12px',
         borderRadius: 14, border: `1px solid ${T.border}`, marginBottom: 8, cursor: 'pointer',
@@ -48,9 +49,19 @@ export function ContactRow({ c, onSelect }) {
               <span style={{ color: T.muted }}> · {c.type === 'driver' ? t('common.driver') : t('common.passenger')}</span></>}
         </div>
       </div>
+      {onRemove && (
+        <button onClick={(e) => { e.stopPropagation(); onRemove(c); }} title={t('contacts.remove')}
+          style={{ width: 30, height: 30, borderRadius: 9, flexShrink: 0, padding: 0,
+            border: `1px solid ${T.border}`, background: T.bg, color: T.muted, cursor: 'pointer',
+            display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
+            <path d="M3 3l8 8M11 3l-8 8" stroke={T.muted} strokeWidth="1.6" strokeLinecap="round" />
+          </svg>
+        </button>
+      )}
       <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ flexShrink: 0 }}>
         <path d="M5 3 L9 7 L5 11" stroke={T.muted} strokeWidth="1.6" strokeLinecap="round" />
       </svg>
-    </button>
+    </div>
   );
 }

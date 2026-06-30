@@ -1,14 +1,26 @@
+import { useState } from 'react';
 import { T } from '@/constants/theme';
 import { t } from '@/i18n';
 import { useContacts } from '@/hooks/useContacts';
-import { groupByPresence } from '@/services/contactService';
+import { groupByPresence, removeContact } from '@/services/contactService';
 import { Spinner } from '@/components/ui/Spinner';
 import { ContactRow } from './ContactRow';
 
 /** Contacts list grouped by online/offline presence. */
 export function ContactsPanel({ onSelect }) {
   const { contacts, loading } = useContacts();
-  const { online, offline } = groupByPresence(contacts);
+  const [removed, setRemoved] = useState(() => new Set());
+
+  // Optimistically hide a removed contact; revert if the request fails.
+  const handleRemove = (c) => {
+    if (!confirm(t('contacts.confirmRemove'))) return;
+    setRemoved((s) => new Set(s).add(c.id));
+    removeContact(c.id).catch(() =>
+      setRemoved((s) => { const n = new Set(s); n.delete(c.id); return n; }));
+  };
+
+  const visible = contacts.filter((c) => !removed.has(c.id));
+  const { online, offline } = groupByPresence(visible);
   return (
     <div style={{ flex: 1, overflowY: 'auto', padding: '12px 16px 32px' }}>
       <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
@@ -36,14 +48,14 @@ export function ContactsPanel({ onSelect }) {
             <span style={{ width: 6, height: 6, borderRadius: 3, background: T.green }} />
             {t('contacts.online')} · {online.length}
           </div>
-          {online.map((c) => <ContactRow key={c.id} c={c} onSelect={onSelect} />)}
+          {online.map((c) => <ContactRow key={c.id} c={c} onSelect={onSelect} onRemove={handleRemove} />)}
 
           <div style={{ fontSize: 11, fontWeight: 600, color: T.muted, margin: '14px 0 10px',
             textTransform: 'uppercase', letterSpacing: .8, display: 'flex', alignItems: 'center', gap: 7 }}>
             <span style={{ width: 6, height: 6, borderRadius: 3, background: T.muted }} />
             {t('contacts.offline')} · {offline.length}
           </div>
-          {offline.map((c) => <ContactRow key={c.id} c={c} onSelect={onSelect} />)}
+          {offline.map((c) => <ContactRow key={c.id} c={c} onSelect={onSelect} onRemove={handleRemove} />)}
         </>
       )}
     </div>
