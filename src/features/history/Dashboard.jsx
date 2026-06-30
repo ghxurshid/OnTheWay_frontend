@@ -5,6 +5,7 @@ import { useHistory } from '@/hooks/useHistory';
 import { weeklyMetrics } from '@/services/dashboardService';
 import { roleSplit } from '@/services/historyService';
 import { Spinner } from '@/components/ui/Spinner';
+import { StatisticsCard } from './StatisticsCard';
 
 const DAYS = ['Du', 'Se', 'Cho', 'Pa', 'Ju', 'Sha', 'Yak'];
 
@@ -49,6 +50,9 @@ export function Dashboard() {
           </div>
         </div>
       </div>
+
+      {/* Full statistics (backend metrics + estimated savings) */}
+      <StatisticsCard />
 
       {/* Weekly chart */}
       <div style={{ background: T.surface2, borderRadius: 16, padding: '14px', border: `1px solid ${T.border}` }}>
