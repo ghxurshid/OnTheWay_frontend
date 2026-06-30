@@ -8,6 +8,11 @@ export function SideDrawer({ open, onClose, mode, onModeChange, onExit, onOpenPa
     { id: 'driver', label: t('home.driverLabel'), icon: '🚗', color: T.amber },
   ];
   const navItems = [
+    { key: 'freemode', label: t('drawer.freeMode'), sub: t('drawer.freeModeSub'),
+      color: T.teal, icon: (c) => (<svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+        <path d="M3.5 12.5l1.2-3.6A2 2 0 016.6 7.5h6.8a2 2 0 011.9 1.4l1.2 3.6" stroke={c} strokeWidth="1.6" strokeLinejoin="round" />
+        <circle cx="6.5" cy="13.5" r="1.3" stroke={c} strokeWidth="1.5" />
+        <circle cx="13.5" cy="13.5" r="1.3" stroke={c} strokeWidth="1.5" /></svg>) },
     { key: 'complaint', label: t('drawer.complaint'), sub: t('drawer.complaintSub'),
       color: T.amber, icon: (c) => (<svg width="20" height="20" viewBox="0 0 20 20" fill="none">
         <path d="M4 4h12v9H8l-4 3V4z" stroke={c} strokeWidth="1.6" strokeLinejoin="round" />

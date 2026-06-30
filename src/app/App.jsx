@@ -39,6 +39,7 @@ import { ChatScreen } from '@/features/chat/ChatScreen';
 import { SettingsScreen } from '@/features/settings/SettingsScreen';
 import { ComplaintScreen } from '@/features/complaint/ComplaintScreen';
 import { PrivacyScreen } from '@/features/privacy/PrivacyScreen';
+import { FreeModeScreen } from '@/features/freemode/FreeModeScreen';
 
 const Sim = WalkerSim;
 
@@ -701,6 +702,7 @@ export function App() {
       {overlayPanel === 'settings' && <SettingsScreen onClose={() => setOverlayPanel(null)} />}
       {overlayPanel === 'complaint' && <ComplaintScreen onClose={() => setOverlayPanel(null)} />}
       {overlayPanel === 'privacy' && <PrivacyScreen onClose={() => setOverlayPanel(null)} />}
+      {overlayPanel === 'freemode' && <FreeModeScreen onClose={() => setOverlayPanel(null)} />}
     </div>
   );
 }
