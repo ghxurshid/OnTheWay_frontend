@@ -24,4 +24,10 @@ export const contactApi = {
       body: JSON.stringify({ contactUserId }),
     });
   },
+
+  /** DELETE /contacts/{contactUserId} — remove a user from the caller's contacts. */
+  remove(contactUserId) {
+    if (USE_MOCKS) return mockResponse(true);
+    return http(`/contacts/${contactUserId}`, { method: 'DELETE' });
+  },
 };

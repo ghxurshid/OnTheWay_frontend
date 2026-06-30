@@ -3,6 +3,11 @@ import { T } from '@/constants/theme';
 import { t } from '@/i18n';
 import { COMPLAINT_CATS } from '@/constants/app';
 import { FullScreenPanel } from '@/components/ui/FullScreenPanel';
+import { feedbackApi } from '@/api/feedbackApi';
+
+// Map the screen's topic to a backend FeedbackCategory (Suggestion/Complaint/BugReport).
+const BACKEND_CATEGORY = { app: 'BugReport', other: 'Suggestion' };
+const APP_VERSION = '1.0.0';
 
 /** Complaint / feedback form with category, subject, detail and a sent state. */
 export function ComplaintScreen({ onClose }) {
@@ -10,7 +15,29 @@ export function ComplaintScreen({ onClose }) {
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
   const [sent, setSent] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
   const valid = cat && subject.trim().length >= 3 && body.trim().length >= 10;
+
+  async function submit() {
+    if (!valid || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const topicLabel = t('complaint.cat' + cat.charAt(0).toUpperCase() + cat.slice(1));
+      await feedbackApi.submit({
+        category: BACKEND_CATEGORY[cat] || 'Complaint',
+        title: subject.trim(),
+        description: `[${topicLabel}] ${body.trim()}`,
+        appVersion: APP_VERSION,
+      });
+      setSent(true);
+    } catch (e) {
+      setError(e?.message || t('common.error'));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   if (sent) {
     return (
@@ -94,12 +121,18 @@ export function ComplaintScreen({ onClose }) {
           {t('complaint.attach')}
         </button>
 
-        <button onClick={() => valid && setSent(true)} disabled={!valid} style={{ width: '100%', padding: '15px',
-          borderRadius: 14, border: 'none', cursor: valid ? 'pointer' : 'not-allowed', fontFamily: 'DM Sans,sans-serif',
-          background: valid ? `linear-gradient(135deg,${T.teal},#0e9e97)` : T.surface2,
-          color: valid ? 'white' : T.muted, fontSize: 15, fontWeight: 600,
-          boxShadow: valid ? `0 4px 20px ${T.tealGlow}` : 'none', transition: 'all .2s ease' }}>
-          {t('common.send')}
+        {error && (
+          <div style={{ fontSize: 12.5, color: T.amber, marginBottom: 12, textAlign: 'center' }}>
+            {error}
+          </div>
+        )}
+
+        <button onClick={submit} disabled={!valid || busy} style={{ width: '100%', padding: '15px',
+          borderRadius: 14, border: 'none', cursor: (valid && !busy) ? 'pointer' : 'not-allowed', fontFamily: 'DM Sans,sans-serif',
+          background: (valid && !busy) ? `linear-gradient(135deg,${T.teal},#0e9e97)` : T.surface2,
+          color: (valid && !busy) ? 'white' : T.muted, fontSize: 15, fontWeight: 600,
+          boxShadow: (valid && !busy) ? `0 4px 20px ${T.tealGlow}` : 'none', transition: 'all .2s ease' }}>
+          {busy ? t('common.sending') : t('common.send')}
         </button>
       </div>
     </FullScreenPanel>
