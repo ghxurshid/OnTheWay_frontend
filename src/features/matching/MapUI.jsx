@@ -47,7 +47,9 @@ export function MapUI({ mode, mapHook, onRouteSheet, showMatching, matchCount, o
           background: mode === 'driver' ? T.amberDim : T.tealDim,
           border: `1px solid ${mode === 'driver' ? T.amber + '40' : T.teal + '40'}`,
           display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>
-          {mode === 'driver' ? '🚗' : '🧑‍✈️'}
+          {/* Icon = the role being searched for (matches the home screen): a driver
+              looks for passengers (🧑‍✈️), a passenger looks for drivers (🚗). */}
+          {mode === 'driver' ? '🧑‍✈️' : '🚗'}
         </div>
       </div>
 
@@ -61,7 +63,8 @@ export function MapUI({ mode, mapHook, onRouteSheet, showMatching, matchCount, o
           animation: 'fadeUp .4s ease both', display: 'flex', alignItems: 'center', gap: 6 }}>
           <div style={{ width: 6, height: 6, borderRadius: 3, background: T.teal, animation: 'pulse 1s ease infinite' }} />
           <span style={{ fontSize: 12, color: T.teal, fontWeight: 600 }}>
-            {t('mapui.matchFound', { n: matchCount })}
+            {/* A driver discovers passengers; a passenger discovers drivers. */}
+            {t(mode === 'driver' ? 'mapui.matchFoundPassengers' : 'mapui.matchFoundDrivers', { n: matchCount })}
           </span>
         </div>
       )}

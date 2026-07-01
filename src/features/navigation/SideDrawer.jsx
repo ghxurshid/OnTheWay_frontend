@@ -1,12 +1,11 @@
 import { T } from '@/constants/theme';
 import { t } from '@/i18n';
 
-/** Left drawer: profile, search-mode switch, Free Mode toggle, settings + account panels, exit. */
-export function SideDrawer({ open, onClose, mode, onModeChange, freeMode, onToggleFreeMode, onExit, onOpenPanel }) {
-  const modeOpts = [
-    { id: 'passenger', label: t('home.passengerLabel'), icon: '🧑‍✈️', color: T.teal },
-    { id: 'driver', label: t('home.driverLabel'), icon: '🚗', color: T.amber },
-  ];
+/** Left drawer: profile, Free Mode toggle, settings + account panels, exit.
+ *  Search mode (passenger/driver) is chosen once on the home screen at app start
+ *  and is intentionally not switchable here — changing it mid-session caused
+ *  ambiguities, so a user who wants another mode re-opens the app and picks it. */
+export function SideDrawer({ open, onClose, freeMode, onToggleFreeMode, onExit, onOpenPanel }) {
   const navItems = [
     { key: 'complaint', label: t('drawer.complaint'), sub: t('drawer.complaintSub'),
       color: T.amber, icon: (c) => (<svg width="20" height="20" viewBox="0 0 20 20" fill="none">
@@ -65,32 +64,6 @@ export function SideDrawer({ open, onClose, mode, onModeChange, freeMode, onTogg
                 <span style={{ fontSize: 11, color: T.teal }}>⭐ 4.9</span>
                 <span style={{ fontSize: 11, color: T.muted }}>{t('drawer.tripsCount', { n: 312 })}</span>
               </div>
-            </div>
-          </div>
-
-          {/* Search mode */}
-          <div>
-            {sectionLabel(t('drawer.searchMode'))}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {modeOpts.map((o) => {
-                const act = mode === o.id;
-                return (
-                  <button key={o.id} onClick={() => onModeChange(o.id)} style={{
-                    display: 'flex', alignItems: 'center', gap: 12, padding: '11px 12px', borderRadius: 12,
-                    border: `1.5px solid ${act ? o.color + '60' : T.border}`, cursor: 'pointer',
-                    background: act ? `${o.color}14` : 'transparent', fontFamily: 'DM Sans,sans-serif',
-                    transition: 'all .15s ease', textAlign: 'left' }}>
-                    <div style={{ width: 36, height: 36, borderRadius: 10, background: `${o.color}20`, fontSize: 17,
-                      display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{o.icon}</div>
-                    <span style={{ flex: 1, fontSize: 14, fontWeight: act ? 600 : 500, color: act ? T.text : T.muted }}>{o.label}</span>
-                    <div style={{ width: 18, height: 18, borderRadius: 9, flexShrink: 0,
-                      border: `2px solid ${act ? o.color : T.border}`,
-                      display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      {act && <div style={{ width: 8, height: 8, borderRadius: 4, background: o.color }} />}
-                    </div>
-                  </button>
-                );
-              })}
             </div>
           </div>
 

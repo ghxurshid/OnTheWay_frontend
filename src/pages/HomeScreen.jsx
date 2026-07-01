@@ -37,8 +37,10 @@ export function HomeScreen({ onSelect }) {
       <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 12,
         opacity: in_ ? 1 : 0, transform: in_ ? 'none' : 'translateY(30px)',
         transition: 'all .6s .2s cubic-bezier(.34,1.56,.64,1)' }}>
-        <RoleBtn icon="🧑‍✈️" label={t('home.passengerLabel')} sub={t('home.passengerSub')} color={T.teal} onClick={() => onSelect('passenger')} />
-        <RoleBtn icon="🚗" label={t('home.driverLabel')} sub={t('home.driverSub')} color={T.amber} onClick={() => onSelect('driver')} />
+        {/* Icon shows the role being searched for: passenger mode finds drivers (🚗),
+            driver mode finds passengers (🧑‍✈️). */}
+        <RoleBtn icon="🚗" label={t('home.passengerLabel')} sub={t('home.passengerSub')} color={T.teal} onClick={() => onSelect('passenger')} />
+        <RoleBtn icon="🧑‍✈️" label={t('home.driverLabel')} sub={t('home.driverSub')} color={T.amber} onClick={() => onSelect('driver')} />
       </div>
     </div>
   );

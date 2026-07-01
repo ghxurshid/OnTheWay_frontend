@@ -771,8 +771,6 @@ export function App() {
           <SideDrawer
             open={drawerOpen}
             onClose={() => setDrawerOpen(false)}
-            mode={mode}
-            onModeChange={(m) => { if (m !== mode) setMode(m); }}
             freeMode={freeMode}
             onToggleFreeMode={() => setFreeMode((f) => !f)}
             onExit={() => { setDrawerOpen(false); exitToHome(); }}

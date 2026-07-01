@@ -38,9 +38,12 @@ export const STRINGS = {
 
     home: {
       tagline:        { uz: "Real vaqtda yoʻl hamrohi · Toshkent", ru: 'Подбор попутчиков в реальном времени · Ташкент', en: 'Real-time ride matching · Tashkent' },
-      passengerLabel: { uz: "Yoʻlovchi izlash", ru: 'Искать пассажира', en: 'Find a passenger' },
+      // The key prefix is the button's own mode (the user's role); the label +
+      // sub advertise the *opposite* role they will search for. So passenger mode
+      // finds a driver, and driver mode finds passengers.
+      passengerLabel: { uz: 'Haydovchi izlash', ru: 'Искать водителя', en: 'Find a driver' },
       passengerSub:   { uz: "Marshrutingiz uchun haydovchi toping", ru: 'Найдите водителя по маршруту', en: 'Find a driver for your route' },
-      driverLabel:    { uz: 'Haydovchi izlash', ru: 'Искать водителя', en: 'Find a driver' },
+      driverLabel:    { uz: "Yoʻlovchi izlash", ru: 'Искать пассажира', en: 'Find a passenger' },
       driverSub:      { uz: "Yoʻlingizda yoʻlovchilar toping", ru: 'Найдите пассажиров по пути', en: 'Find passengers along your way' },
     },
 
@@ -48,7 +51,10 @@ export const STRINGS = {
       location:   { uz: "Toshkent, Oʻzbekiston", ru: 'Ташкент, Узбекистан', en: 'Tashkent, Uzbekistan' },
       live:       { uz: 'Jonli', ru: 'Прямой', en: 'Live' },
       menu:       { uz: 'Menyu', ru: 'Меню', en: 'Menu' },
-      matchFound: { uz: "{n} ta mos haydovchi / yoʻlovchi topildi", ru: 'Найдено {n} подходящих водителей / пассажиров', en: '{n} matching drivers / passengers found' },
+      // Shown to the seeker; the role is the *opposite* of their own search mode
+      // (a passenger discovers drivers, a driver discovers passengers).
+      matchFoundDrivers:    { uz: "{n} ta mos haydovchi topildi", ru: 'Найдено {n} подходящих водителей', en: '{n} matching drivers found' },
+      matchFoundPassengers: { uz: "{n} ta mos yoʻlovchi topildi", ru: 'Найдено {n} подходящих пассажиров', en: '{n} matching passengers found' },
       mapStyle:   { uz: 'Xarita stili', ru: 'Стиль карты', en: 'Map style' },
       follow:     { uz: 'Joylashuvni kuzatish', ru: 'Следить за локацией', en: 'Follow location' },
       you:        { uz: 'SIZ', ru: 'ВЫ', en: 'YOU' },
@@ -179,7 +185,6 @@ export const STRINGS = {
       profileName:  { uz: 'Alisher Karimov', ru: 'Алишер Каримов', en: 'Alisher Karimov' },
       profileMeta:  { uz: '@alisher_k · Toshkent', ru: '@alisher_k · Ташкент', en: '@alisher_k · Tashkent' },
       tripsCount:   { uz: '· {n} ta sayohat', ru: '· {n} поездок', en: '· {n} trips' },
-      searchMode:   { uz: 'Qidiruv rejimi', ru: 'Режим поиска', en: 'Search mode' },
       settings:     { uz: 'Sozlamalar', ru: 'Настройки', en: 'Settings' },
       settingsSub:  { uz: "Til, koʻrinish, bildirishnomalar", ru: 'Язык, внешний вид, уведомления', en: 'Language, appearance, notifications' },
       account:      { uz: 'Hisob', ru: 'Аккаунт', en: 'Account' },
