@@ -263,7 +263,7 @@ export function App() {
 
     const refresh = async () => {
       try {
-        const list = await walkerApi.online();
+        const list = await walkerApi.online(mode); // server returns only the opposite role
         if (!alive) return;
         profiles.clear();
         list.forEach((p) => profiles.set(p.id, p));
@@ -295,6 +295,10 @@ export function App() {
       presenceClient.on('UserOnline', scheduleRefresh),
       presenceClient.on('Walkers', render),
     ];
+
+    // Announce our search role so the hub groups us and streams only the
+    // opposite role's positions (spec rules 1–2). Re-runs when mode switches.
+    presenceClient.setMode(mode).catch(() => {});
 
     (async () => {
       mapHook.clearWalkers();

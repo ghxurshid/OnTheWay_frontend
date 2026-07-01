@@ -15,11 +15,12 @@ const EVENTS = [
 ];
 
 let connection = null;
+let currentMode = null; // last announced search role ('driver' | 'passenger')
 const listeners = new Map(); // event → Set<handler>
 
 // Live caches, kept current from connect time so a screen that opens later
 // (e.g. the map) reads the present state instead of missing earlier events.
-const positions = new Map(); // userId → { userId, lat, lng, heading, updatedAtUtc }
+const positions = new Map(); // userId → { userId, lat, lng, heading, updatedAtUtc, role }
 const onlineIds = new Set(); // userId
 
 function emit(event, payload) {
@@ -44,7 +45,10 @@ function ensureConnection() {
   if (connection) return connection;
   connection = createHubConnection('/hubs/presence');
   EVENTS.forEach((ev) => connection.on(ev, (payload) => { updateCaches(ev, payload); emit(ev, payload); }));
-  connection.onreconnected(() => positions.clear()); // server re-seeds via Walkers
+  connection.onreconnected(() => {
+    positions.clear(); // server re-seeds via Walkers…
+    if (currentMode) connection.invoke('SetRole', currentMode).catch(() => {}); // …once we re-announce our role
+  });
   return connection;
 }
 
@@ -80,6 +84,15 @@ export const presenceClient = {
   },
 
   // --- client→server -------------------------------------------------
+
+  /** Announce the caller's current search role so the server only sends (and
+      seeds) opposite-role walkers. Remembered for re-announce on reconnect. */
+  setMode(role) {
+    currentMode = role || null;
+    if (currentMode && this.isConnected()) return connection.invoke('SetRole', currentMode);
+    return Promise.resolve();
+  },
+
   updateLocation(lat, lng, heading = null) {
     if (this.isConnected()) return connection.invoke('UpdateLocation', lat, lng, heading);
     return Promise.resolve();

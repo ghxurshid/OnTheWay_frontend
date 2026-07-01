@@ -12,11 +12,13 @@ export const walkerApi = {
     return http('/walkers').then((rows) => (rows || []).map(reviveWhen));
   },
 
-  /** GET /walkers/online — profiles of currently-online walkers (WalkerProfileDto[]),
-      merged client-side with live positions from the PresenceHub by user id. */
-  online() {
+  /** GET /walkers/online — profiles of the online walkers the caller may discover
+      (the opposite of their own `role`), merged client-side with live positions
+      from the PresenceHub by user id. */
+  online(role) {
     if (USE_MOCKS) return mockResponse([]);
-    return http('/walkers/online').then((rows) => rows || []);
+    const qs = role ? `?role=${encodeURIComponent(role)}` : '';
+    return http(`/walkers/online${qs}`).then((rows) => rows || []);
   },
 
   /** Resolve one walker from the scheduled list (no dedicated backend route). */
