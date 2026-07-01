@@ -140,6 +140,56 @@ export function splitRoute(route, progress) {
   return { position: pos, traveled, remaining };
 }
 
+/** Project a real [lat,lng] point onto the route polyline.
+ *  Returns the closest on-route point, its progress (0..1 along the route by
+ *  length) and how far off-route the input was — used to drive live navigation
+ *  from a device's actual GPS fix instead of a simulated tween. */
+export function projectOnRoute(route, point) {
+  if (!route || route.length < 2 || !point) {
+    return { progress: 0, position: route ? route[0] : point, offRouteKm: 0 };
+  }
+  // Local equirectangular projection (metres) centred on the fix; accurate
+  // enough at city scale and cheap to run on every location update.
+  const mPerDegLat = 111320;
+  const mPerDegLng = 111320 * Math.cos((point[0] * Math.PI) / 180);
+  const toXY = (p) => [(p[1] - point[1]) * mPerDegLng, (p[0] - point[0]) * mPerDegLat];
+
+  const segLens = [];
+  let total = 0;
+  for (let i = 1; i < route.length; i++) {
+    const d = haversine(route[i - 1], route[i]);
+    segLens.push(d);
+    total += d;
+  }
+
+  let best = { d2: Infinity, seg: 0, t: 0 };
+  for (let i = 1; i < route.length; i++) {
+    const a = toXY(route[i - 1]);
+    const b = toXY(route[i]);
+    const abx = b[0] - a[0];
+    const aby = b[1] - a[1];
+    const len2 = abx * abx + aby * aby;
+    let tt = len2 === 0 ? 0 : -(a[0] * abx + a[1] * aby) / len2; // project origin (the fix) onto the segment
+    tt = Math.max(0, Math.min(1, tt));
+    const px = a[0] + abx * tt;
+    const py = a[1] + aby * tt;
+    const d2 = px * px + py * py;
+    if (d2 < best.d2) best = { d2, seg: i - 1, t: tt };
+  }
+
+  let acc = 0;
+  for (let i = 0; i < best.seg; i++) acc += segLens[i];
+  acc += segLens[best.seg] * best.t;
+  const a = route[best.seg];
+  const b = route[best.seg + 1];
+  const position = [a[0] + (b[0] - a[0]) * best.t, a[1] + (b[1] - a[1]) * best.t];
+  return {
+    progress: total === 0 ? 0 : acc / total,
+    position,
+    offRouteKm: Math.sqrt(best.d2) / 1000,
+  };
+}
+
 /** Generate N walkers nearest to userLoc, of the opposite type. */
 export async function generateWalkers(userLoc, oppositeType, n) {
   n = Math.max(1, Math.min(10, (n | 0) || 5));
@@ -245,7 +295,7 @@ export function createSimulation(walkers, opts) {
 // keep calling `Sim.generateWalkers(...)`, `Sim.splitRoute(...)`, etc.
 export const WalkerSim = {
   TASHKENT, haversine, randomPoint, randomUserLocation, fetchRoute,
-  routeLength, splitRoute, generateWalkers, generateWalkersForRoute,
+  routeLength, splitRoute, projectOnRoute, generateWalkers, generateWalkersForRoute,
   createSimulation, bearing,
 };
 

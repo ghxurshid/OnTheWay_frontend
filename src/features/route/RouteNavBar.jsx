@@ -5,8 +5,10 @@ import { t } from '@/i18n';
 export function RouteNavBar({ route, progress, onEnd }) {
   const pct = Math.round(progress * 100);
   const done = progress >= 1;
-  const remMin = Math.max(0, Math.round(route.durationMin * (1 - progress)));
-  const remKm = Math.max(0, route.distanceKm * (1 - progress)).toFixed(1);
+  // Prefer the live ETA derived from the device's real speed; fall back to the
+  // route's static estimate scaled by progress when no speed is available.
+  const remMin = route.liveEta ? route.liveEta.remMin : Math.max(0, Math.round(route.durationMin * (1 - progress)));
+  const remKm = route.liveEta ? route.liveEta.remKm : Math.max(0, route.distanceKm * (1 - progress)).toFixed(1);
   const arrival = new Date(Date.now() + remMin * 60000)
     .toLocaleTimeString('uz', { hour: '2-digit', minute: '2-digit', hour12: false });
   return (

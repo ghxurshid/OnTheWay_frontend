@@ -104,7 +104,10 @@ export function App() {
   const simWalkersRef = useRef([]);
   const mapStyleRef = useRef(themeStore.mode === 'light' ? 'light' : 'dark');
   const mapStyleModeRef = useRef('theme');
-  const navTimerRef = useRef(null);
+  const navTimerRef = useRef(null);        // mock-mode simulated-nav interval
+  const navWatchRef = useRef(null);        // navigator.geolocation.watchPosition id
+  const lastRealPosRef = useRef(null);     // previous real fix (heading fallback)
+  const navSpeedRef = useRef(0);           // smoothed real speed (km/h)
   const navProgRef = useRef(0);
   const activeRouteRef = useRef(null);
   const contactsRef = useRef([]);
@@ -383,34 +386,102 @@ export function App() {
     startUserNav(route, coords);
   };
 
-  const startUserNav = (route, coords) => {
+  // Stop every navigation source (the real GPS watch and the mock-mode tween).
+  // Safe to call repeatedly.
+  const stopNav = () => {
     if (navTimerRef.current) { clearInterval(navTimerRef.current); navTimerRef.current = null; }
+    if (navWatchRef.current != null && typeof navigator !== 'undefined' && navigator.geolocation) {
+      navigator.geolocation.clearWatch(navWatchRef.current);
+    }
+    navWatchRef.current = null;
+  };
+
+  // Render one navigation frame: advance the progress (monotonic — GPS jitter
+  // never rewinds it), redraw traveled/remaining, point the "me" marker along
+  // the real heading and refresh the live ETA from real speed.
+  const applyNav = (rawProgress, markerPos, heading, speedKmh) => {
+    const base = activeRouteRef.current; if (!base) return;
+    const { coords } = base;
+    const p = Math.max(navProgRef.current, Math.min(1, rawProgress));
+    navProgRef.current = p;
+    const s = Sim.splitRoute(coords, p);
+    mapHook.updateUserRoute(s.traveled, s.remaining);
+    let hd = heading;
+    if (hd == null) {
+      if (s.remaining && s.remaining.length >= 2) hd = Sim.bearing(s.remaining[0], s.remaining[1]);
+      else if (s.traveled && s.traveled.length >= 2) hd = Sim.bearing(s.traveled[s.traveled.length - 2], s.traveled[s.traveled.length - 1]);
+    }
+    const pos = markerPos || s.position;
+    if (pos) mapHook.setUserLocation(pos, hd);
+    const remKm = Math.max(0, base.distanceKm * (1 - p));
+    const liveEta = speedKmh && speedKmh > 3
+      ? { remMin: Math.round((remKm / speedKmh) * 60), remKm: remKm.toFixed(1) }
+      : null;
+    setActiveRoute(liveEta ? { ...base, liveEta } : base);
+    setNavProgress(p);
+    if (p >= 0.999) stopNav();
+  };
+
+  // Real device navigation: project each GPS fix onto the route, deriving speed
+  // and heading from the device where available and from movement otherwise.
+  const onRealFix = (position) => {
+    const base = activeRouteRef.current; if (!base) return;
+    const real = [position.coords.latitude, position.coords.longitude];
+    const { progress } = Sim.projectOnRoute(base.coords, real);
+    const speedMps = position.coords.speed != null && position.coords.speed >= 0 ? position.coords.speed : null;
+    const speedKmh = speedMps != null ? speedMps * 3.6 : null;
+    if (speedKmh != null) navSpeedRef.current += (speedKmh - navSpeedRef.current) * 0.4; // light smoothing
+
+    let heading = null;
+    const gpsHeading = position.coords.heading;
+    if (gpsHeading != null && !Number.isNaN(gpsHeading) && (speedMps == null || speedMps > 0.5)) {
+      heading = gpsHeading; // device compass/course, trustworthy while actually moving
+    } else if (lastRealPosRef.current && haversineKm(lastRealPosRef.current, real) > 0.003) {
+      heading = Sim.bearing(lastRealPosRef.current, real); // derive from real movement
+    }
+    lastRealPosRef.current = real;
+    applyNav(progress, real, heading, navSpeedRef.current || speedKmh || null);
+  };
+
+  // Mock/demo mode only: no real movement exists, so animate the demo tween.
+  const startSimulatedNav = (coords, distanceKm) => {
+    if (navTimerRef.current) return;
+    const intervalMs = 500;
+    const demoMs = Math.min(360000, Math.max(150000, distanceKm * 150000));
+    const stepInc = intervalMs / demoMs;
+    navTimerRef.current = setInterval(() => {
+      applyNav(navProgRef.current + stepInc, null, null, null);
+    }, intervalMs);
+  };
+
+  const startUserNav = (route, coords) => {
+    stopNav();
     navProgRef.current = 0;
+    navSpeedRef.current = 0;
+    lastRealPosRef.current = null;
     setNavProgress(0);
     const distanceKm = route.distance / 1000;
     const durationMin = route.duration / 60;
     const ar = { coords, distanceKm, durationMin };
     activeRouteRef.current = ar;
     setActiveRoute(ar);
-    const intervalMs = 500;
-    const demoMs = Math.min(360000, Math.max(150000, distanceKm * 150000));
-    const stepInc = intervalMs / demoMs;
-    navTimerRef.current = setInterval(() => {
-      navProgRef.current = Math.min(1, navProgRef.current + stepInc);
-      const p = navProgRef.current;
-      const s = Sim.splitRoute(coords, p);
-      mapHook.updateUserRoute(s.traveled, s.remaining);
-      let heading = null;
-      if (s.remaining && s.remaining.length >= 2) heading = Sim.bearing(s.remaining[0], s.remaining[1]);
-      else if (s.traveled && s.traveled.length >= 2) heading = Sim.bearing(s.traveled[s.traveled.length - 2], s.traveled[s.traveled.length - 1]);
-      if (s.position) mapHook.setUserLocation(s.position, heading);
-      setNavProgress(p);
-      if (p >= 1) { clearInterval(navTimerRef.current); navTimerRef.current = null; }
-    }, intervalMs);
+
+    // Mock/demo mode has no real movement — animate the tween.
+    if (USE_MOCKS) { startSimulatedNav(coords, distanceKm); return; }
+
+    // Live mode: drive navigation only from the device's real GPS. There is no
+    // simulation fallback — if geolocation is unavailable/denied the route
+    // simply stays at 0% until real fixes start arriving.
+    if (typeof navigator === 'undefined' || !navigator.geolocation) return;
+    navWatchRef.current = navigator.geolocation.watchPosition(
+      onRealFix,
+      () => { /* denied / unavailable → wait for a real fix, no simulation */ },
+      { enableHighAccuracy: true, maximumAge: 1000, timeout: 20000 },
+    );
   };
 
   const endRoute = () => {
-    if (navTimerRef.current) { clearInterval(navTimerRef.current); navTimerRef.current = null; }
+    stopNav();
     if (!USE_MOCKS) presenceClient.clearRoute().catch(() => {});
     mapHook.clearUserRoute();
     mapHook.clearPlanning();
@@ -586,7 +657,7 @@ export function App() {
 
   const exitToHome = () => {
     setScreen('home'); setShowMatching(false); setShowSheet(false); setRoutePicking(false);
-    if (navTimerRef.current) { clearInterval(navTimerRef.current); navTimerRef.current = null; }
+    stopNav();
     activeRouteRef.current = null; setActiveRoute(null); setNavProgress(0);
     mapHook.clearUserRoute(); mapHook.clearPlanning();
     if (simRef.current) { simRef.current.stop(); simRef.current = null; }
