@@ -62,6 +62,18 @@ export function useMap(containerRef, active) {
     mapRef.current?.flyTo(latlng, zoom, { duration: 0.8 });
   }, []);
 
+  // Smoothly keep the current zoom and re-center on a point (used by follow mode).
+  const recenter = useCallback((latlng) => {
+    if (latlng) mapRef.current?.panTo(latlng, { animate: true, duration: 0.5 });
+  }, []);
+
+  // Fires only on a user-initiated pan/drag (not programmatic moves), so follow
+  // mode can release control the moment the user grabs the map.
+  const onUserDrag = useCallback((cb) => {
+    const m = mapRef.current; if (!m) return () => {};
+    m.on('dragstart', cb); return () => m.off('dragstart', cb);
+  }, []);
+
   const setRouteLines = useCallback((routes, primaryIdx = 0) => {
     if (!mapRef.current) return;
     layersRef.current.routes.forEach((l) => mapRef.current.removeLayer(l));
@@ -403,7 +415,7 @@ export function useMap(containerRef, active) {
   }, []);
 
   return {
-    mapRef, flyTo, setRouteLines, setWaypointMarkers, showMatchedUsers, clearMatched,
+    mapRef, flyTo, recenter, onUserDrag, setRouteLines, setWaypointMarkers, showMatchedUsers, clearMatched,
     enableTapPick, disableTapPick, startTracking, setMapStyle, setUserLocation, renderWalkers,
     tickWalkers, clearWalkers, fitWalkers, setWalkersDimmed, highlightWalker, setWalkerBadges,
     upsertWalkerMarker, removeWalkerMarker,

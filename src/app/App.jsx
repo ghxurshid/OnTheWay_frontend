@@ -90,6 +90,7 @@ export function App() {
   const [activeRoute, setActiveRoute] = useState(null);
   const [navProgress, setNavProgress] = useState(0);
   const [navTask, setNavTask] = useState(null); // {type:'pick'|'preview', ...}
+  const [followMe, setFollowMe] = useState(false); // compass: keep the map on the live location
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [overlayPanel, setOverlayPanel] = useState(null); // 'settings' | 'complaint' | 'privacy'
   const [authReady, setAuthReady] = useState(USE_MOCKS); // mock mode needs no auth
@@ -193,9 +194,12 @@ export function App() {
     if (simRef.current) { simRef.current.stop(); simRef.current = null; }
     mapHook.clearWalkers();
     const oppo = mode === 'driver' ? 'passenger' : 'driver';
-    const userLoc = userLocRef.current || Sim.randomUserLocation();
+    // Prefer the device's real current location so the map focuses on where the
+    // user actually is; only fall back to a random point if it's unavailable.
+    const userLoc = userLocRef.current || await getCurrentLatLng() || Sim.randomUserLocation();
     userLocRef.current = userLoc;
     mapHook.setUserLocation(userLoc);
+    mapHook.flyTo(userLoc, 15);
     const n = simStore.get();
     const walkers = await Sim.generateWalkers(userLoc, oppo, n);
     walkers.sort((a, b) => Sim.haversine(userLoc, a.start) - Sim.haversine(userLoc, b.start));
@@ -299,6 +303,7 @@ export function App() {
       if (!alive) return;
       userLocRef.current = userLoc;
       mapHook.setUserLocation(userLoc);
+      mapHook.flyTo(userLoc, 15); // focus the map on the current location on entry
       await refresh();
       if (!alive) return;
       setShowMatching(true);
@@ -320,6 +325,33 @@ export function App() {
     }
     mapHook.recolorUserRoute && mapHook.recolorUserRoute(mapStyle);
   }, [mapStyle]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Compass / follow mode: while on, continuously watch the real location, move
+  // the "me" marker along its heading and keep the map centered on it. Grabbing
+  // the map (user drag) releases follow so panning stays free when it's off.
+  useEffect(() => {
+    if (screen !== 'map' || !followMe) return undefined;
+    if (typeof navigator === 'undefined' || !navigator.geolocation) { setFollowMe(false); return undefined; }
+    let lastPos = null;
+    const id = navigator.geolocation.watchPosition(
+      (p) => {
+        const pos = [p.coords.latitude, p.coords.longitude];
+        const spd = p.coords.speed;
+        let heading = null;
+        const gh = p.coords.heading;
+        if (gh != null && !Number.isNaN(gh) && (spd == null || spd > 0.5)) heading = gh;
+        else if (lastPos && haversineKm(lastPos, pos) > 0.003) heading = Sim.bearing(lastPos, pos);
+        lastPos = pos;
+        userLocRef.current = pos;
+        mapHook.setUserLocation(pos, heading);
+        mapHook.recenter(pos);
+      },
+      () => {},
+      { enableHighAccuracy: true, maximumAge: 1000, timeout: 20000 },
+    );
+    const offDrag = mapHook.onUserDrag(() => setFollowMe(false));
+    return () => { navigator.geolocation.clearWatch(id); offDrag(); };
+  }, [screen, followMe]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const openRouteSheet = () => {
     if (activeRouteRef.current) {
@@ -715,6 +747,8 @@ export function App() {
             mapStyleMode={mapStyleMode}
             appTheme={themeStore.mode}
             onMapStyleChange={changeMapStyleMode}
+            follow={followMe}
+            onToggleFollow={() => setFollowMe((f) => !f)}
           />
           <SideDrawer
             open={drawerOpen}

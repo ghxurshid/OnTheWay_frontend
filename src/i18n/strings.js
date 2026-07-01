@@ -50,6 +50,7 @@ export const STRINGS = {
       menu:       { uz: 'Menyu', ru: 'Меню', en: 'Menu' },
       matchFound: { uz: "{n} ta mos haydovchi / yoʻlovchi topildi", ru: 'Найдено {n} подходящих водителей / пассажиров', en: '{n} matching drivers / passengers found' },
       mapStyle:   { uz: 'Xarita stili', ru: 'Стиль карты', en: 'Map style' },
+      follow:     { uz: 'Joylashuvni kuzatish', ru: 'Следить за локацией', en: 'Follow location' },
       you:        { uz: 'SIZ', ru: 'ВЫ', en: 'YOU' },
     },
 

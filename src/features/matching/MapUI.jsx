@@ -8,7 +8,7 @@ import { RouteNavBar } from '@/features/route/RouteNavBar';
 /** Map screen chrome: top bar, speedometer, match badge, zoom, nav bar. */
 export function MapUI({ mode, mapHook, onRouteSheet, showMatching, matchCount, onMenu, mapStyleMode,
   appTheme, onMapStyleChange, routeActive, activeRoute, navProgress, onEndRoute, userLoc, onMapTask,
-  navHidden, onContactCall, onContactSms }) {
+  navHidden, onContactCall, onContactSms, follow, onToggleFollow }) {
   return (
     <div style={{ position: 'absolute', inset: 0, zIndex: 10, pointerEvents: 'none' }}>
       {/* Top gradient */}
@@ -70,6 +70,18 @@ export function MapUI({ mode, mapHook, onRouteSheet, showMatching, matchCount, o
       <div className="otw-edge" style={{ position: 'absolute', right: 16, bottom: 120, display: 'flex',
         flexDirection: 'column', alignItems: 'flex-end', gap: 8, pointerEvents: 'auto' }}>
         <MapStyleSwitcher current={mapStyleMode} onChange={onMapStyleChange} appTheme={appTheme} />
+        <button onClick={onToggleFollow} title={t('mapui.follow')} aria-pressed={follow}
+          style={{ width: 36, height: 36, borderRadius: 10,
+            background: follow ? T.tealDim : T.glass, backdropFilter: 'blur(12px)',
+            border: `1px solid ${follow ? T.teal + '60' : T.border}`, cursor: 'pointer',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            transition: 'all .15s ease', padding: 0 }}>
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+            <circle cx="9" cy="9" r="6.2" stroke={follow ? T.teal : T.text} strokeWidth="1.4" />
+            <path d="M9 3.4V1.4M9 16.6v-2M3.4 9H1.4M16.6 9h-2" stroke={follow ? T.teal : T.text} strokeWidth="1.4" strokeLinecap="round" />
+            <circle cx="9" cy="9" r="2.1" fill={follow ? T.teal : T.text} />
+          </svg>
+        </button>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
           {['+', '−'].map((s, i) => (
             <button key={i} onClick={() => (i === 0 ? mapHook.mapRef.current?.zoomIn() : mapHook.mapRef.current?.zoomOut())}
