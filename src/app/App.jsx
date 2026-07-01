@@ -19,7 +19,7 @@ import { savedStore } from '@/services/savedStore';
 import { RouteServer } from '@/services/routeService';
 import { listContacts } from '@/services/contactService';
 import { ensureAuth } from '@/services/authService';
-import { connectRealtime, startLocationReporting, callClient, presenceClient } from '@/services/realtime';
+import { connectRealtime, startLocationReporting, stopLocationReporting, callClient, presenceClient } from '@/services/realtime';
 import { initTelegramUi } from '@/services/telegram';
 import { walkerApi } from '@/api/walkerApi';
 import { enrichLiveWalker } from '@/services/liveWalkers';
@@ -39,7 +39,6 @@ import { ChatScreen } from '@/features/chat/ChatScreen';
 import { SettingsScreen } from '@/features/settings/SettingsScreen';
 import { ComplaintScreen } from '@/features/complaint/ComplaintScreen';
 import { PrivacyScreen } from '@/features/privacy/PrivacyScreen';
-import { FreeModeScreen } from '@/features/freemode/FreeModeScreen';
 
 const Sim = WalkerSim;
 
@@ -91,6 +90,7 @@ export function App() {
   const [navProgress, setNavProgress] = useState(0);
   const [navTask, setNavTask] = useState(null); // {type:'pick'|'preview', ...}
   const [followMe, setFollowMe] = useState(false); // compass: keep the map on the live location
+  const [freeMode, setFreeMode] = useState(false); // share live location without a trip (asks permission on enable)
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [overlayPanel, setOverlayPanel] = useState(null); // 'settings' | 'complaint' | 'privacy'
   const [authReady, setAuthReady] = useState(USE_MOCKS); // mock mode needs no auth
@@ -126,7 +126,8 @@ export function App() {
         await ensureAuth();
         setAuthReady(true);
         await connectRealtime();
-        startLocationReporting();
+        // Location is NOT shared on entry — no permission prompt until the user
+        // creates a trip or turns on Free Mode (see the freeMode effect below).
       } catch (e) {
         setAuthError(e?.message || String(e));
       }
@@ -357,6 +358,16 @@ export function App() {
     return () => { navigator.geolocation.clearWatch(id); offDrag(); };
   }, [screen, followMe]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Free Mode / live-location sharing. When on we stream our position into
+  // presence (asking permission the first time) so the opposite role can see us
+  // without us having created a trip; when off we stop and drop off their maps.
+  useEffect(() => {
+    if (USE_MOCKS) return undefined;
+    if (freeMode) startLocationReporting();
+    else { stopLocationReporting(); presenceClient.stopSharing().catch(() => {}); }
+    return undefined;
+  }, [freeMode]);
+
   const openRouteSheet = () => {
     if (activeRouteRef.current) {
       setPushNotif({ title: t('push.routeActiveTitle'), body: t('push.routeActiveBody') });
@@ -411,9 +422,11 @@ export function App() {
       }
     } else {
       // Live: keep real walkers on the map and share this route over presence
-      // so watching contacts see it.
+      // so watching contacts see it. Creating a trip also starts live-location
+      // sharing (permission is asked here) — the Free Mode switch reflects it.
       mapHook.setWalkersDimmed(false);
       presenceClient.publishRoute(toRoutePublishDto(coords, route)).catch(() => {});
+      setFreeMode(true);
     }
 
     mapHook.setRouteLines([]);
@@ -694,6 +707,7 @@ export function App() {
   const exitToHome = () => {
     setScreen('home'); setShowMatching(false); setShowSheet(false); setRoutePicking(false);
     stopNav();
+    setFreeMode(false); // stop sharing our live location when leaving the map
     activeRouteRef.current = null; setActiveRoute(null); setNavProgress(0);
     mapHook.clearUserRoute(); mapHook.clearPlanning();
     if (simRef.current) { simRef.current.stop(); simRef.current = null; }
@@ -759,6 +773,8 @@ export function App() {
             onClose={() => setDrawerOpen(false)}
             mode={mode}
             onModeChange={(m) => { if (m !== mode) setMode(m); }}
+            freeMode={freeMode}
+            onToggleFreeMode={() => setFreeMode((f) => !f)}
             onExit={() => { setDrawerOpen(false); exitToHome(); }}
             onOpenPanel={(key) => { setDrawerOpen(false); setOverlayPanel(key); }}
           />
@@ -832,7 +848,6 @@ export function App() {
       {overlayPanel === 'settings' && <SettingsScreen onClose={() => setOverlayPanel(null)} />}
       {overlayPanel === 'complaint' && <ComplaintScreen onClose={() => setOverlayPanel(null)} />}
       {overlayPanel === 'privacy' && <PrivacyScreen onClose={() => setOverlayPanel(null)} />}
-      {overlayPanel === 'freemode' && <FreeModeScreen onClose={() => setOverlayPanel(null)} />}
     </div>
   );
 }

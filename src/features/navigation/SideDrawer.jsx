@@ -1,18 +1,13 @@
 import { T } from '@/constants/theme';
 import { t } from '@/i18n';
 
-/** Left drawer: profile, search-mode switch, settings + account panels, exit. */
-export function SideDrawer({ open, onClose, mode, onModeChange, onExit, onOpenPanel }) {
+/** Left drawer: profile, search-mode switch, Free Mode toggle, settings + account panels, exit. */
+export function SideDrawer({ open, onClose, mode, onModeChange, freeMode, onToggleFreeMode, onExit, onOpenPanel }) {
   const modeOpts = [
     { id: 'passenger', label: t('home.passengerLabel'), icon: '🧑‍✈️', color: T.teal },
     { id: 'driver', label: t('home.driverLabel'), icon: '🚗', color: T.amber },
   ];
   const navItems = [
-    { key: 'freemode', label: t('drawer.freeMode'), sub: t('drawer.freeModeSub'),
-      color: T.teal, icon: (c) => (<svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-        <path d="M3.5 12.5l1.2-3.6A2 2 0 016.6 7.5h6.8a2 2 0 011.9 1.4l1.2 3.6" stroke={c} strokeWidth="1.6" strokeLinejoin="round" />
-        <circle cx="6.5" cy="13.5" r="1.3" stroke={c} strokeWidth="1.5" />
-        <circle cx="13.5" cy="13.5" r="1.3" stroke={c} strokeWidth="1.5" /></svg>) },
     { key: 'complaint', label: t('drawer.complaint'), sub: t('drawer.complaintSub'),
       color: T.amber, icon: (c) => (<svg width="20" height="20" viewBox="0 0 20 20" fill="none">
         <path d="M4 4h12v9H8l-4 3V4z" stroke={c} strokeWidth="1.6" strokeLinejoin="round" />
@@ -97,6 +92,36 @@ export function SideDrawer({ open, onClose, mode, onModeChange, onExit, onOpenPa
                 );
               })}
             </div>
+          </div>
+
+          {/* Free Mode: share live location without a trip (asks permission on enable) */}
+          <div>
+            {sectionLabel(t('drawer.freeMode'))}
+            <button onClick={onToggleFreeMode} role="switch" aria-checked={!!freeMode}
+              style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderRadius: 13,
+                width: '100%', textAlign: 'left', cursor: 'pointer', fontFamily: 'DM Sans,sans-serif',
+                border: `1.5px solid ${freeMode ? T.teal + '60' : T.border}`,
+                background: freeMode ? `${T.teal}14` : T.surface2, transition: 'all .15s ease' }}>
+              <div style={{ width: 38, height: 38, borderRadius: 11, flexShrink: 0,
+                background: `${T.teal}18`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                  <path d="M10 2.5l6 2.2v4.3c0 3.6-2.5 6.6-6 8-3.5-1.4-6-4.4-6-8V4.7l6-2.2z" stroke={T.teal} strokeWidth="1.6" strokeLinejoin="round" opacity=".35" />
+                  <circle cx="10" cy="9" r="2.4" stroke={T.teal} strokeWidth="1.6" />
+                  <path d="M10 11.4v3" stroke={T.teal} strokeWidth="1.6" strokeLinecap="round" />
+                </svg>
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: T.text }}>{t('drawer.freeMode')}</div>
+                <div style={{ fontSize: 11.5, color: freeMode ? T.teal : T.muted }}>{t('drawer.freeModeSub')}</div>
+              </div>
+              {/* Pill switch */}
+              <div style={{ width: 40, height: 23, borderRadius: 12, flexShrink: 0, position: 'relative',
+                background: freeMode ? T.teal : T.border, transition: 'background .2s ease' }}>
+                <div style={{ position: 'absolute', top: 2.5, left: freeMode ? 19.5 : 2.5, width: 18, height: 18,
+                  borderRadius: 9, background: '#fff', transition: 'left .2s ease',
+                  boxShadow: '0 1px 3px rgba(0,0,0,.3)' }} />
+              </div>
+            </button>
           </div>
 
           {/* Settings */}

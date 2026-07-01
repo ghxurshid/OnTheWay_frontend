@@ -98,6 +98,13 @@ export const presenceClient = {
     return Promise.resolve();
   },
 
+  /** Stop sharing our live position (Free Mode off) — others drop us from their
+      maps, but we keep our role and can still discover them. */
+  stopSharing() {
+    if (this.isConnected()) return connection.invoke('StopSharing');
+    return Promise.resolve();
+  },
+
   publishRoute(routeDto) {
     if (this.isConnected()) return connection.invoke('PublishRoute', routeDto);
     return Promise.resolve();

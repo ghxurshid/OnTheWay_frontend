@@ -186,7 +186,7 @@ export const STRINGS = {
       complaint:    { uz: 'Shikoyat yuborish', ru: 'Отправить жалобу', en: 'Send a complaint' },
       complaintSub: { uz: 'Muammo yoki taklif bildiring', ru: 'Сообщите о проблеме или идее', en: 'Report a problem or suggestion' },
       freeMode:     { uz: 'Erkin rejim', ru: 'Свободный режим', en: 'Free Mode' },
-      freeModeSub:  { uz: 'Manzilsiz mavjud boʻling', ru: 'Доступность без пункта назначения', en: 'Be available without a destination' },
+      freeModeSub:  { uz: 'Trip yaratmasdan joylashuvni ulashish', ru: 'Делиться локацией без поездки', en: 'Share your location without a trip' },
       privacy:      { uz: 'Maxfiylik siyosati', ru: 'Политика конфиденциальности', en: 'Privacy policy' },
       privacySub:   { uz: "Maʼlumotlaringiz himoyasi", ru: 'Защита ваших данных', en: 'Protection of your data' },
       exit:         { uz: 'Ilovadan chiqish', ru: 'Выйти из приложения', en: 'Exit app' },
@@ -303,21 +303,6 @@ export const STRINGS = {
       estimatedSavings:{ uz: 'Taxminiy tejamkorlik', ru: 'Оценка экономии', en: 'Estimated savings' },
       fuel:        { uz: 'Yoqilgʻi', ru: 'Топливо', en: 'Fuel' },
       estimateNote:{ uz: 'Taxminiy qiymatlar — aniq emas.', ru: 'Это оценки, не точные значения.', en: 'Estimated values, not exact.' },
-    },
-
-    freeMode: {
-      title:       { uz: 'Erkin rejim', ru: 'Свободный режим', en: 'Free Mode' },
-      intro:       { uz: "Manzilsiz, faqat joriy joylashuvingizni ulashib mavjud boʻling. Yoʻlovchilar sizni toʻgʻridan-toʻgʻri topadi.", ru: 'Будьте доступны без пункта назначения, делясь только текущим местоположением. Пассажиры найдут вас напрямую.', en: 'Be available without a destination, sharing only your current location. Passengers can reach you directly.' },
-      availability:{ uz: 'Mavjudlik', ru: 'Доступность', en: 'Availability' },
-      on:          { uz: 'Yoqilgan — joylashuv ulashilmoqda', ru: 'Включено — местоположение передаётся', en: 'On — sharing location' },
-      off:         { uz: "Oʻchirilgan", ru: 'Выключено', en: 'Off' },
-      start:       { uz: 'Yoqish', ru: 'Включить', en: 'Go live' },
-      stop:        { uz: "Toʻxtatish", ru: 'Остановить', en: 'Stop' },
-      nearby:      { uz: 'Yaqindagi haydovchilar', ru: 'Водители рядом', en: 'Nearby drivers' },
-      refresh:     { uz: 'Yangilash', ru: 'Обновить', en: 'Refresh' },
-      tapRefresh:  { uz: "Yaqindagilarni koʻrish uchun yangilang", ru: 'Нажмите «Обновить», чтобы найти', en: 'Tap refresh to find nearby drivers' },
-      none:        { uz: "Yaqin atrofda erkin rejimdagi haydovchi yoʻq", ru: 'Поблизости нет водителей в свободном режиме', en: 'No Free Mode drivers nearby' },
-      noGeo:       { uz: "Joylashuvga ruxsat berilmadi", ru: 'Нет доступа к местоположению', en: 'Location is unavailable' },
     },
 
     route: {
