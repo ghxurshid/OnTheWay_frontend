@@ -32,6 +32,8 @@ import { HomeScreen } from '@/pages/HomeScreen';
 import { MapUI } from '@/features/matching/MapUI';
 import { UserPopup } from '@/features/matching/UserPopup';
 import { WalkerPreviewCard } from '@/features/matching/WalkerPreviewCard';
+import { BookingRequestPrompt } from '@/features/matching/BookingRequestPrompt';
+import { bookingApi } from '@/api/bookingApi';
 import { SideDrawer } from '@/features/navigation/SideDrawer';
 import { PushToast } from '@/features/navigation/PushToast';
 import { RouteSheet } from '@/features/route/RouteSheet';
@@ -93,6 +95,8 @@ export function App() {
   const [activeRoute, setActiveRoute] = useState(null);
   const [navProgress, setNavProgress] = useState(0);
   const [navTask, setNavTask] = useState(null); // {type:'pick'|'preview', ...}
+  const [incomingBooking, setIncomingBooking] = useState(null); // driver's pending request prompt
+  const [bookingBusy, setBookingBusy] = useState(false);
   const [followMe, setFollowMe] = useState(false); // compass: keep the map on the live location
   const [freeMode, setFreeMode] = useState(false); // share live location without a trip (asks permission on enable)
   const [hasCreatedTrip, setHasCreatedTrip] = useState(false); // created a trip this session (route or schedule)
@@ -621,6 +625,31 @@ export function App() {
     sub: w.type === 'driver' ? `${w.vehicle} · ${w.seats} ${t('common.seats')}` : t('common.passenger'),
     rating: w.rating, latlng: w.fromLatlng,
   });
+
+  // --- Ride agreements (bookings) ---
+  // Passenger requests a seat on a driver's trip (walker.id is the trip id).
+  const handleRequestRide = async (w) => {
+    cancelTask();
+    try {
+      await bookingApi.create(w.id, 1);
+      setPushNotif({ title: t('booking.requestSentTitle'), body: t('booking.requestSentBody') });
+    } catch (e) {
+      setPushNotif({ title: t('booking.requestFailedTitle'), body: e?.message || '' });
+    }
+  };
+  // Driver acts on an incoming request.
+  const respondBooking = async (b, action) => {
+    setBookingBusy(true);
+    try {
+      const updated = await bookingApi[action](b.id);
+      if (updated) bookingStore.apply({ type: action === 'accept' ? 'accepted' : 'rejected', booking: updated });
+    } catch (e) {
+      setPushNotif({ title: t('booking.actionFailedTitle'), body: e?.message || '' });
+    } finally {
+      setBookingBusy(false);
+      setIncomingBooking(null);
+    }
+  };
   const handleMapTask = async (task) => {
     if (task.type === 'pick') {
       mapHook.setWalkersDimmed(true);
@@ -689,7 +718,10 @@ export function App() {
     return presenceClient.on('BookingEvent', (evt) => {
       if (!evt || !evt.type) return;
       bookingStore.apply(evt);
-      setPushNotif({ title: t(`booking.${evt.type}Title`), body: t(`booking.${evt.type}Body`) });
+      // A new request (I'm the driver) opens an actionable accept/reject prompt;
+      // every other transition is just a toast.
+      if (evt.type === 'requested') setIncomingBooking(evt.booking);
+      else setPushNotif({ title: t(`booking.${evt.type}Title`), body: t(`booking.${evt.type}Body`) });
     });
   }, [authReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -885,6 +917,15 @@ export function App() {
               onBack={cancelTask}
               onCall={(w) => { cancelTask(); handleCall(walkerToCallUser(w)); }}
               onChat={(w) => { cancelTask(); setChatUser(walkerToCallUser(w)); }}
+              onRequest={handleRequestRide}
+            />
+          )}
+          {incomingBooking && (
+            <BookingRequestPrompt
+              booking={incomingBooking}
+              busy={bookingBusy}
+              onAccept={(b) => respondBooking(b, 'accept')}
+              onReject={(b) => respondBooking(b, 'reject')}
             />
           )}
         </>

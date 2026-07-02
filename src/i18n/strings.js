@@ -413,5 +413,12 @@ export const STRINGS = {
       completedBody:  { uz: 'Sayohatingiz muvaffaqiyatli yakunlandi', ru: 'Ваша поездка успешно завершена', en: 'Your ride was completed' },
       expiredTitle:   { uz: 'Soʻrov muddati tugadi', ru: 'Срок запроса истёк', en: 'Request expired' },
       expiredBody:    { uz: 'Booking soʻrovi javobsiz qoldi', ru: 'Запрос остался без ответа', en: 'The booking request went unanswered' },
+      requestRide:    { uz: 'Birga ketish', ru: 'Поехать вместе', en: 'Request ride' },
+      accept:         { uz: 'Qabul qilish', ru: 'Принять', en: 'Accept' },
+      reject:         { uz: 'Rad etish', ru: 'Отклонить', en: 'Reject' },
+      requestSentTitle:{ uz: 'Soʻrov yuborildi', ru: 'Запрос отправлен', en: 'Request sent' },
+      requestSentBody:{ uz: 'Haydovchi javobini kuting', ru: 'Ожидайте ответа водителя', en: 'Waiting for the driver to respond' },
+      requestFailedTitle:{ uz: 'Soʻrov yuborilmadi', ru: 'Не удалось отправить запрос', en: 'Could not send request' },
+      actionFailedTitle:{ uz: 'Amal bajarilmadi', ru: 'Действие не выполнено', en: 'Action failed' },
     },
   };
