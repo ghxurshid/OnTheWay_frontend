@@ -16,11 +16,12 @@ export const walkerApi = {
 
   /** GET /walkers/online — profiles of the online walkers the caller may discover
       (the opposite of their own `role`), merged client-side with live positions
-      from the PresenceHub by user id. */
+      from the PresenceHub by user id. The id is coerced to a string so it matches
+      the PresenceHub's string UserId (profile Id is a numeric long over JSON). */
   online(role) {
     if (USE_MOCKS) return mockResponse([]);
     const qs = role ? `?role=${encodeURIComponent(role)}` : '';
-    return http(`/walkers/online${qs}`).then((rows) => rows || []);
+    return http(`/walkers/online${qs}`).then((rows) => (rows || []).map((r) => ({ ...r, id: String(r.id) })));
   },
 
   /** Resolve one walker from the scheduled list (no dedicated backend route). */
