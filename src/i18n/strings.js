@@ -192,6 +192,7 @@ export const STRINGS = {
       complaintSub: { uz: 'Muammo yoki taklif bildiring', ru: 'Сообщите о проблеме или идее', en: 'Report a problem or suggestion' },
       freeMode:     { uz: 'Erkin rejim', ru: 'Свободный режим', en: 'Free Mode' },
       freeModeSub:  { uz: 'Trip yaratmasdan joylashuvni ulashish', ru: 'Делиться локацией без поездки', en: 'Share your location without a trip' },
+      freeModePassenger: { uz: 'Faqat haydovchilar uchun. Yo‘lovchi trip yaratib ko‘rinadi.', ru: 'Только для водителей. Пассажир становится виден, создав поездку.', en: 'Drivers only. Passengers become visible by creating a trip.' },
       privacy:      { uz: 'Maxfiylik siyosati', ru: 'Политика конфиденциальности', en: 'Privacy policy' },
       privacySub:   { uz: "Maʼlumotlaringiz himoyasi", ru: 'Защита ваших данных', en: 'Protection of your data' },
       exit:         { uz: 'Ilovadan chiqish', ru: 'Выйти из приложения', en: 'Exit app' },
@@ -391,6 +392,7 @@ export const STRINGS = {
 
     push: {
       matchTitle:     { uz: 'Mos walker topildi!', ru: 'Найден попутчик!', en: 'Rider matched!' },
+      walkerJoinedTitle:{ uz: 'Yangi walker qoʻshildi', ru: 'Новый попутчик рядом', en: 'A walker joined nearby' },
       routeMatchTitle:{ uz: "Marshrut boʻyicha mos topildi!", ru: 'Найдено совпадение по маршруту!', en: 'Match found on your route!' },
       routeActiveTitle:{ uz: 'Marshrut faol', ru: 'Маршрут активен', en: 'Route active' },
       routeActiveBody:{ uz: 'Avval joriy marshrutni yakunlang', ru: 'Сначала завершите текущий маршрут', en: 'Finish the current route first' },

@@ -5,7 +5,13 @@ import { t } from '@/i18n';
  *  Search mode (passenger/driver) is chosen once on the home screen at app start
  *  and is intentionally not switchable here — changing it mid-session caused
  *  ambiguities, so a user who wants another mode re-opens the app and picks it. */
-export function SideDrawer({ open, onClose, freeMode, onToggleFreeMode, onExit, onOpenPanel }) {
+export function SideDrawer({ open, onClose, mode, freeMode, onToggleFreeMode, onExit, onOpenPanel }) {
+  // Free Mode = sharing a live location with no destination. That only makes sense
+  // for drivers (taxi-like: available, will go wherever asked). A passenger has no
+  // destination to share, so they can't enable it — they become visible to drivers
+  // by creating a trip instead. See docs business-spec §9.3.
+  const canFreeMode = mode === 'driver';
+  const freeModeActive = canFreeMode && freeMode;
   const navItems = [
     { key: 'complaint', label: t('drawer.complaint'), sub: t('drawer.complaintSub'),
       color: T.amber, icon: (c) => (<svg width="20" height="20" viewBox="0 0 20 20" fill="none">
@@ -67,14 +73,17 @@ export function SideDrawer({ open, onClose, freeMode, onToggleFreeMode, onExit, 
             </div>
           </div>
 
-          {/* Free Mode: share live location without a trip (asks permission on enable) */}
+          {/* Free Mode: share live location without a trip (asks permission on enable).
+              Drivers only — passengers see a disabled switch explaining why. */}
           <div>
             {sectionLabel(t('drawer.freeMode'))}
-            <button onClick={onToggleFreeMode} role="switch" aria-checked={!!freeMode}
+            <button onClick={canFreeMode ? onToggleFreeMode : undefined} role="switch"
+              aria-checked={!!freeModeActive} aria-disabled={!canFreeMode} disabled={!canFreeMode}
               style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderRadius: 13,
-                width: '100%', textAlign: 'left', cursor: 'pointer', fontFamily: 'DM Sans,sans-serif',
-                border: `1.5px solid ${freeMode ? T.teal + '60' : T.border}`,
-                background: freeMode ? `${T.teal}14` : T.surface2, transition: 'all .15s ease' }}>
+                width: '100%', textAlign: 'left', cursor: canFreeMode ? 'pointer' : 'not-allowed',
+                fontFamily: 'DM Sans,sans-serif', opacity: canFreeMode ? 1 : 0.6,
+                border: `1.5px solid ${freeModeActive ? T.teal + '60' : T.border}`,
+                background: freeModeActive ? `${T.teal}14` : T.surface2, transition: 'all .15s ease' }}>
               <div style={{ width: 38, height: 38, borderRadius: 11, flexShrink: 0,
                 background: `${T.teal}18`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
@@ -85,12 +94,13 @@ export function SideDrawer({ open, onClose, freeMode, onToggleFreeMode, onExit, 
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 14, fontWeight: 600, color: T.text }}>{t('drawer.freeMode')}</div>
-                <div style={{ fontSize: 11.5, color: freeMode ? T.teal : T.muted }}>{t('drawer.freeModeSub')}</div>
+                <div style={{ fontSize: 11.5, color: freeModeActive ? T.teal : T.muted }}>
+                  {canFreeMode ? t('drawer.freeModeSub') : t('drawer.freeModePassenger')}</div>
               </div>
               {/* Pill switch */}
               <div style={{ width: 40, height: 23, borderRadius: 12, flexShrink: 0, position: 'relative',
-                background: freeMode ? T.teal : T.border, transition: 'background .2s ease' }}>
-                <div style={{ position: 'absolute', top: 2.5, left: freeMode ? 19.5 : 2.5, width: 18, height: 18,
+                background: freeModeActive ? T.teal : T.border, transition: 'background .2s ease' }}>
+                <div style={{ position: 'absolute', top: 2.5, left: freeModeActive ? 19.5 : 2.5, width: 18, height: 18,
                   borderRadius: 9, background: '#fff', transition: 'left .2s ease',
                   boxShadow: '0 1px 3px rgba(0,0,0,.3)' }} />
               </div>

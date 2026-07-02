@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { T } from '@/constants/theme';
 import { t } from '@/i18n';
 import { SavedPanel } from '@/features/saved/SavedPanel';
@@ -8,7 +8,7 @@ import { ContactsPanel } from '@/features/contacts/ContactsPanel';
 import { ContactMinimized } from '@/features/contacts/ContactMinimized';
 
 /** Bottom navigation bar + expanding panel host (saved/history/schedule/contacts). */
-export function BottomNavBar({ onRouteSheet, mode, routeActive, userLoc, onMapTask, hidden, onContactCall, onContactSms }) {
+export function BottomNavBar({ onRouteSheet, mode, routeActive, userLoc, onMapTask, hidden, onContactCall, onContactSms, engaged, onTripCreated }) {
   const [panelState, setPanelState] = useState('idle'); // 'idle'|'opening'|'open'|'closing'
   const [active, setActive] = useState(null);
   const [, setNextActive] = useState(null);
@@ -57,6 +57,12 @@ export function BottomNavBar({ onRouteSheet, mode, routeActive, userLoc, onMapTa
     }, CLOSE_DUR);
   };
 
+  // Once the viewer is engaged the Planned Trips board is hidden (spec §17); if it
+  // was open when engagement flips on, close it.
+  useEffect(() => {
+    if (engaged && active === 'schedule') closePanel();
+  }, [engaged, active]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleCenter = () => {
     if (routeActive) return;
     if (panelState !== 'idle') { closePanel(); }
@@ -96,7 +102,7 @@ export function BottomNavBar({ onRouteSheet, mode, routeActive, userLoc, onMapTa
   };
   const panelMap = {
     saved: <SavedPanel />, history: <HistoryPanel />,
-    schedule: <SchedulePanel mode={mode} userLoc={userLoc} onMapTask={onMapTask} />,
+    schedule: <SchedulePanel mode={mode} userLoc={userLoc} onMapTask={onMapTask} onTripCreated={onTripCreated} />,
     contacts: <ContactsPanel onSelect={selectContact} />,
   };
 
@@ -129,15 +135,21 @@ export function BottomNavBar({ onRouteSheet, mode, routeActive, userLoc, onMapTa
 
   const renderTab = (tab, isPanel) => {
     const isAct = active === tab.id;
+    // Planned Trips ("schedule") is disabled (not removed, so the bar layout is
+    // preserved) once the viewer is Engaged (spec §17).
+    const disabled = tab.id === 'schedule' && engaged;
+    const color = disabled ? T.border : (isAct ? T.teal : T.muted);
     return (
-      <button key={tab.id} onClick={() => openPanel(tab.id)} style={{
-        flex: 1, background: 'transparent', border: 'none', cursor: 'pointer',
+      <button key={tab.id} onClick={disabled ? undefined : () => openPanel(tab.id)}
+        disabled={disabled} aria-disabled={disabled} style={{
+        flex: 1, background: 'transparent', border: 'none',
+        cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.45 : 1,
         display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
         padding: isPanel ? '6px 0' : '10px 0 8px', fontFamily: 'DM Sans,sans-serif',
-        color: isAct ? T.teal : T.muted,
-        transition: 'color .2s ease',
+        color,
+        transition: 'color .2s ease, opacity .2s ease',
       }}>
-        {tab.icon(isAct ? T.teal : T.muted)}
+        {tab.icon(color)}
         <span style={{ fontSize: 9, fontWeight: isAct ? 600 : 400, letterSpacing: .3 }}>
           {tab.label}
         </span>

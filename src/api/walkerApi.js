@@ -6,10 +6,12 @@ import { USE_MOCKS, mockResponse, http } from './client';
 import { WALKERS_DATA } from '@/mocks/walkers';
 
 export const walkerApi = {
-  /** GET /walkers — all scheduled walkers (others' upcoming trips). */
-  list() {
+  /** GET /walkers — opposite-role planned trips for the separate Planned Trips
+      board (pass the caller's own `role`; the backend returns the opposite). */
+  list(role) {
     if (USE_MOCKS) return mockResponse(WALKERS_DATA);
-    return http('/walkers').then((rows) => (rows || []).map(reviveWhen));
+    const qs = role ? `?role=${encodeURIComponent(role)}` : '';
+    return http(`/walkers${qs}`).then((rows) => (rows || []).map(reviveWhen));
   },
 
   /** GET /walkers/online — profiles of the online walkers the caller may discover

@@ -2,9 +2,10 @@ import { useCallback } from 'react';
 import { useAsync } from './useAsync';
 import { listWalkers } from '@/services/walkerService';
 
-/** Loads all scheduled walkers via the service layer. */
-export function useWalkers() {
-  const loader = useCallback(() => listWalkers(), []);
-  const { data, loading, error, reload } = useAsync(loader, [], []);
+/** Loads the opposite-role planned trips via the service layer. Pass the
+    caller's own search role; reloads if it changes. */
+export function useWalkers(role) {
+  const loader = useCallback(() => listWalkers(role), [role]);
+  const { data, loading, error, reload } = useAsync(loader, [], [role]);
   return { walkers: data || [], loading, error, reload };
 }

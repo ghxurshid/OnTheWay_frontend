@@ -17,8 +17,8 @@ import { FIELD_LABEL } from '@/components/form/fieldStyles';
 import { WalkerCard } from '@/features/matching/WalkerCard';
 
 /** Search/filter scheduled walkers, or add the user's own trip. */
-export function SchedulePanel({ mode, userLoc, onMapTask }) {
-  const { walkers, loading } = useWalkers();
+export function SchedulePanel({ mode, userLoc, onMapTask, onTripCreated }) {
+  const { walkers, loading } = useWalkers(mode);
   const [tab, setTab] = useState('search'); // 'search' | 'add'
 
   const EMPTY = { type: 'all', from: null, to: null, date: '', tStart: 6, tEnd: 23, seats: 'any' };
@@ -49,7 +49,13 @@ export function SchedulePanel({ mode, userLoc, onMapTask }) {
       : setForm((f) => ({ ...f, [slot]: point }))),
   });
 
-  const doSubmit = async () => { await submitTrip(form); setSubmitted(true); };
+  const doSubmit = async () => {
+    await submitTrip(form);
+    setSubmitted(true);
+    // Creating a trip makes the viewer "engaged" — the planned board is hidden
+    // thereafter (spec §17 Shared-Location Visibility).
+    onTripCreated && onTripCreated();
+  };
 
   const addValid = form.from && form.to && form.date;
   const walkerLabel = mode === 'driver' ? t('common.passenger') : t('common.driver');

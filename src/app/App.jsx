@@ -91,6 +91,10 @@ export function App() {
   const [navTask, setNavTask] = useState(null); // {type:'pick'|'preview', ...}
   const [followMe, setFollowMe] = useState(false); // compass: keep the map on the live location
   const [freeMode, setFreeMode] = useState(false); // share live location without a trip (asks permission on enable)
+  const [hasCreatedTrip, setHasCreatedTrip] = useState(false); // created a trip this session (route or schedule)
+  // "Engaged" viewers (created a trip, or a driver in Free Mode) only browse the
+  // live map; the separate Planned Trips board is hidden for them (spec §17).
+  const engaged = hasCreatedTrip || (mode === 'driver' && freeMode);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [overlayPanel, setOverlayPanel] = useState(null); // 'settings' | 'complaint' | 'privacy'
   const [authReady, setAuthReady] = useState(USE_MOCKS); // mock mode needs no auth
@@ -290,7 +294,24 @@ export function App() {
       setMatchCount(liveWalkersRef.current.size);
     };
 
+    // A new opposite-role walker just joined the live map — place the marker and
+    // surface a one-off "joined" notification (spec §17 walker-joined rule).
+    const onJoined = (pos) => {
+      if (!alive) return;
+      onMoved(pos); // add/refresh the marker (schedules a profile refresh if new)
+      const profile = profiles.get(pos.userId);
+      const name = profile
+        ? enrichLiveWalker(profile, pos).name
+        : (pos.role === 'driver' ? t('common.driver') : t('common.passenger'));
+      const loc = userLocRef.current;
+      const body = loc && pos.lat != null
+        ? `${name} • ${haversineKm(loc, [pos.lat, pos.lng]).toFixed(1)} km`
+        : name;
+      setPushNotif({ title: t('push.walkerJoinedTitle'), body });
+    };
+
     const unsubs = [
+      presenceClient.on('WalkerJoined', onJoined),
       presenceClient.on('WalkerMoved', onMoved),
       presenceClient.on('WalkerGone', onGone),
       presenceClient.on('UserOnline', scheduleRefresh),
@@ -427,6 +448,7 @@ export function App() {
       mapHook.setWalkersDimmed(false);
       presenceClient.publishRoute(toRoutePublishDto(coords, route)).catch(() => {});
       setFreeMode(true);
+      setHasCreatedTrip(true); // creating a route engages the viewer (planned board hides)
     }
 
     mapHook.setRouteLines([]);
@@ -708,6 +730,7 @@ export function App() {
     setScreen('home'); setShowMatching(false); setShowSheet(false); setRoutePicking(false);
     stopNav();
     setFreeMode(false); // stop sharing our live location when leaving the map
+    setHasCreatedTrip(false); // reset engagement when leaving the map
     activeRouteRef.current = null; setActiveRoute(null); setNavProgress(0);
     mapHook.clearUserRoute(); mapHook.clearPlanning();
     if (simRef.current) { simRef.current.stop(); simRef.current = null; }
@@ -767,12 +790,17 @@ export function App() {
             onMapStyleChange={changeMapStyleMode}
             follow={followMe}
             onToggleFollow={() => setFollowMe((f) => !f)}
+            engaged={engaged}
+            onTripCreated={() => setHasCreatedTrip(true)}
           />
           <SideDrawer
             open={drawerOpen}
             onClose={() => setDrawerOpen(false)}
+            mode={mode}
             freeMode={freeMode}
-            onToggleFreeMode={() => setFreeMode((f) => !f)}
+            // Free Mode (destination-less live sharing) is driver-only; passengers
+            // become visible by creating a trip instead. See business-spec §9.3.
+            onToggleFreeMode={() => { if (mode === 'driver') setFreeMode((f) => !f); }}
             onExit={() => { setDrawerOpen(false); exitToHome(); }}
             onOpenPanel={(key) => { setDrawerOpen(false); setOverlayPanel(key); }}
           />

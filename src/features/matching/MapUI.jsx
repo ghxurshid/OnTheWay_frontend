@@ -8,7 +8,7 @@ import { RouteNavBar } from '@/features/route/RouteNavBar';
 /** Map screen chrome: top bar, speedometer, match badge, zoom, nav bar. */
 export function MapUI({ mode, mapHook, onRouteSheet, showMatching, matchCount, onMenu, mapStyleMode,
   appTheme, onMapStyleChange, routeActive, activeRoute, navProgress, onEndRoute, userLoc, onMapTask,
-  navHidden, onContactCall, onContactSms, follow, onToggleFollow }) {
+  navHidden, onContactCall, onContactSms, follow, onToggleFollow, engaged, onTripCreated }) {
   return (
     <div style={{ position: 'absolute', inset: 0, zIndex: 10, pointerEvents: 'none' }}>
       {/* Top gradient */}
@@ -106,7 +106,8 @@ export function MapUI({ mode, mapHook, onRouteSheet, showMatching, matchCount, o
       {/* Bottom nav */}
       <BottomNavBar onRouteSheet={onRouteSheet} mode={mode} routeActive={routeActive}
         userLoc={userLoc} onMapTask={onMapTask} hidden={navHidden}
-        onContactCall={onContactCall} onContactSms={onContactSms} />
+        onContactCall={onContactCall} onContactSms={onContactSms}
+        engaged={engaged} onTripCreated={onTripCreated} />
     </div>
   );
 }

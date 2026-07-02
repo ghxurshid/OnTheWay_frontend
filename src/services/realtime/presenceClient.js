@@ -10,7 +10,7 @@ import { createHubConnection, startConnection } from './hubConnection';
 // Server→client events (must match the C# IPresenceClient method names).
 const EVENTS = [
   'UserOnline', 'UserOffline', 'OnlineUsers',
-  'Walkers', 'WalkerMoved', 'WalkerGone',
+  'Walkers', 'WalkerJoined', 'WalkerMoved', 'WalkerGone',
   'RoutePublished', 'RouteCleared',
 ];
 
@@ -35,6 +35,7 @@ function updateCaches(event, payload) {
     case 'UserOnline': onlineIds.add(payload); break;
     case 'UserOffline': onlineIds.delete(payload); break;
     case 'Walkers': (payload || []).forEach((p) => positions.set(p.userId, p)); break;
+    case 'WalkerJoined': if (payload) positions.set(payload.userId, payload); break;
     case 'WalkerMoved': if (payload) positions.set(payload.userId, payload); break;
     case 'WalkerGone': positions.delete(payload); break;
     default: break;

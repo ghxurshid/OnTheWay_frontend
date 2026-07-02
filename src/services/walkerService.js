@@ -9,9 +9,10 @@ import { haversineKm } from '@/utils/geo';
 
 const MATCH_RADIUS_KM = 4;
 
-/** Fetch all scheduled walkers. */
-export function listWalkers() {
-  return walkerApi.list();
+/** Fetch opposite-role planned trips for the Planned Trips board (pass the
+    caller's own role; the backend returns the opposite role's plans). */
+export function listWalkers(role) {
+  return walkerApi.list(role);
 }
 
 /** Nearest N walkers to `center`, by start point. */
