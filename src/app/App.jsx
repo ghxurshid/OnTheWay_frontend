@@ -42,8 +42,10 @@ import { PrivacyScreen } from '@/features/privacy/PrivacyScreen';
 
 const Sim = WalkerSim;
 
-const GUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const isRealUser = (id) => !USE_MOCKS && GUID_RE.test(String(id || ''));
+// Real backend user ids are numeric (long, serialized as digits); simulated
+// walkers use 'sim_'/'simr_' ids. A numeric id ⇒ a real, callable/chattable user.
+const REAL_ID_RE = /^\d+$/;
+const isRealUser = (id) => !USE_MOCKS && REAL_ID_RE.test(String(id ?? ''));
 
 /** Map an OSRM route ([lat,lng] coords + distance/duration) → RoutePublishDto. */
 function toRoutePublishDto(coords, route) {
@@ -644,7 +646,7 @@ export function App() {
     if (USE_MOCKS || !authReady) return undefined;
     const offIncoming = callClient.on('incoming', (invite) => {
       if (callStateRef.current) return; // already on a call
-      const c = contactsRef.current.find((x) => x.id === invite.fromUserId);
+      const c = contactsRef.current.find((x) => String(x.id) === String(invite.fromUserId));
       const user = c ? contactToUser(c)
         : { id: invite.fromUserId, type: 'passenger', initials: '👤', name: t('call.unknownCaller') };
       setCallState({ user, phase: 'ringing', live: true, role: 'callee' });

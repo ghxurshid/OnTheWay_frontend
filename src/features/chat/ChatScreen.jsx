@@ -6,10 +6,14 @@ import { authStore } from '@/services/authStore';
 import { chatClient } from '@/services/realtime/chatClient';
 import { chatApi } from '@/api/chatApi';
 
-const GUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const isRealUser = (id) => GUID_RE.test(String(id || ''));
+// Real backend user ids are numeric (long); simulated walkers use 'sim_' ids.
+// Ids arrive as numbers over REST and as strings over the hub, so compare as
+// strings everywhere (sid) to avoid number-vs-string mismatches.
+const REAL_ID_RE = /^\d+$/;
+const sid = (v) => String(v ?? '');
+const isRealUser = (id) => REAL_ID_RE.test(sid(id));
 const toMsg = (m, myId) => ({
-  id: m.id, from: m.senderId === myId ? 'me' : 'them', text: m.content, at: new Date(m.sentAtUtc),
+  id: m.id, from: sid(m.senderId) === myId ? 'me' : 'them', text: m.content, at: new Date(m.sentAtUtc),
 });
 
 /** 1:1 chat screen. Talks to the ChatHub for real users (REST back-fills
@@ -18,7 +22,9 @@ export function ChatScreen({ user, onBack }) {
   const isDriver = user.type === 'driver';
   const color = isDriver ? T.amber : T.purple;
   const live = isRealUser(user.id);
-  const myId = authStore.getUser()?.id || null;
+  const uid = sid(user.id);
+  const authedId = authStore.getUser()?.id;
+  const myId = authedId != null ? sid(authedId) : null;
 
   const [msgs, setMsgs] = useState(live ? [] : [
     { id: 1, from: 'them',
@@ -44,7 +50,7 @@ export function ChatScreen({ user, onBack }) {
     (async () => {
       try {
         const convos = await chatApi.conversations();
-        const convo = convos.find((c) => c.otherParticipantId === user.id);
+        const convo = convos.find((c) => sid(c.otherParticipantId) === uid);
         if (!convo || !alive) return;
         const history = await chatApi.messages(convo.id);
         if (!alive) return;
@@ -53,16 +59,17 @@ export function ChatScreen({ user, onBack }) {
     })();
 
     const offMsg = chatClient.on('ReceiveMessage', (m) => {
-      if (m.senderId !== user.id && m.senderId !== myId) return; // other conversation
-      if (m.senderId === user.id) setTyping(false);
+      const from = sid(m.senderId);
+      if (from !== uid && from !== myId) return; // other conversation
+      if (from === uid) setTyping(false);
       setMsgs((cur) => (cur.some((x) => x.id === m.id) ? cur : [...cur, toMsg(m, myId)]));
     });
     const offTyping = chatClient.on('TypingIndicator', (fromUserId, isTyping) => {
-      if (fromUserId === user.id) setTyping(isTyping);
+      if (sid(fromUserId) === uid) setTyping(isTyping);
     });
 
     return () => { alive = false; offMsg(); offTyping(); };
-  }, [live, user.id, myId]);
+  }, [live, uid, myId]);
 
   const send = (text) => {
     const txt = (text || '').trim();
