@@ -50,11 +50,11 @@ export function SchedulePanel({ mode, userLoc, onMapTask, onTripCreated }) {
   });
 
   const doSubmit = async () => {
-    await submitTrip(form);
+    const created = await submitTrip(form);
     setSubmitted(true);
     // Creating a trip makes the viewer "engaged" — the planned board is hidden
-    // thereafter (spec §17 Shared-Location Visibility).
-    onTripCreated && onTripCreated();
+    // thereafter (spec §17). The new trip id feeds the walker session state.
+    onTripCreated && onTripCreated(created?.id);
   };
 
   const addValid = form.from && form.to && form.date;

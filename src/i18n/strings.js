@@ -420,5 +420,12 @@ export const STRINGS = {
       requestSentBody:{ uz: 'Haydovchi javobini kuting', ru: 'Ожидайте ответа водителя', en: 'Waiting for the driver to respond' },
       requestFailedTitle:{ uz: 'Soʻrov yuborilmadi', ru: 'Не удалось отправить запрос', en: 'Could not send request' },
       actionFailedTitle:{ uz: 'Amal bajarilmadi', ru: 'Действие не выполнено', en: 'Action failed' },
+      agreementsTitle:{ uz: 'Faol kelishuvlar', ru: 'Активные договорённости', en: 'Active agreements' },
+      agreementsPill: { uz: 'kelishuv', ru: 'договор.', en: 'agreements' },
+      noAgreements:   { uz: 'Faol kelishuvlar yoʻq', ru: 'Нет активных договорённостей', en: 'No active agreements' },
+      complete:       { uz: 'Yakunlash', ru: 'Завершить', en: 'Complete' },
+      cancel:         { uz: 'Bekor', ru: 'Отменить', en: 'Cancel' },
+      roleDriver:     { uz: 'Siz haydovchisiz', ru: 'Вы водитель', en: 'You are the driver' },
+      rolePassenger:  { uz: 'Siz yoʻlovchisiz', ru: 'Вы пассажир', en: 'You are the passenger' },
     },
   };

@@ -33,7 +33,9 @@ import { MapUI } from '@/features/matching/MapUI';
 import { UserPopup } from '@/features/matching/UserPopup';
 import { WalkerPreviewCard } from '@/features/matching/WalkerPreviewCard';
 import { BookingRequestPrompt } from '@/features/matching/BookingRequestPrompt';
+import { BookingAgreementsSheet } from '@/features/matching/BookingAgreementsSheet';
 import { bookingApi } from '@/api/bookingApi';
+import { authStore } from '@/services/authStore';
 import { SideDrawer } from '@/features/navigation/SideDrawer';
 import { PushToast } from '@/features/navigation/PushToast';
 import { RouteSheet } from '@/features/route/RouteSheet';
@@ -97,6 +99,9 @@ export function App() {
   const [navTask, setNavTask] = useState(null); // {type:'pick'|'preview', ...}
   const [incomingBooking, setIncomingBooking] = useState(null); // driver's pending request prompt
   const [bookingBusy, setBookingBusy] = useState(false);
+  const [agreements, setAgreements] = useState([]); // accepted bookings (active agreements)
+  const [showAgreements, setShowAgreements] = useState(false);
+  const [busyBookingId, setBusyBookingId] = useState(null);
   const [followMe, setFollowMe] = useState(false); // compass: keep the map on the live location
   const [freeMode, setFreeMode] = useState(false); // share live location without a trip (asks permission on enable)
   const [hasCreatedTrip, setHasCreatedTrip] = useState(false); // created a trip this session (route or schedule)
@@ -650,6 +655,19 @@ export function App() {
       setIncomingBooking(null);
     }
   };
+  // Cancel (either party) or complete (driver) an active agreement.
+  const actOnAgreement = async (b, action) => {
+    setBusyBookingId(b.id);
+    try {
+      await bookingApi[action](b.id);
+      const status = action === 'cancel' ? 'Cancelled' : 'Completed';
+      bookingStore.apply({ type: action === 'cancel' ? 'cancelled' : 'completed', booking: { ...b, status } });
+    } catch (e) {
+      setPushNotif({ title: t('booking.actionFailedTitle'), body: e?.message || '' });
+    } finally {
+      setBusyBookingId(null);
+    }
+  };
   const handleMapTask = async (task) => {
     if (task.type === 'pick') {
       mapHook.setWalkersDimmed(true);
@@ -724,6 +742,13 @@ export function App() {
       else setPushNotif({ title: t(`booking.${evt.type}Title`), body: t(`booking.${evt.type}Body`) });
     });
   }, [authReady]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Keep the active-agreements list in step with the booking store.
+  useEffect(() => {
+    const sync = () => setAgreements(bookingStore.accepted());
+    sync();
+    return bookingStore.subscribe(sync);
+  }, []);
 
   useEffect(() => { if (chatUser) unreadStore.clear(chatUser.id); }, [chatUser]);
 
@@ -860,7 +885,10 @@ export function App() {
             follow={followMe}
             onToggleFollow={() => setFollowMe((f) => !f)}
             engaged={engaged}
-            onTripCreated={() => setHasCreatedTrip(true)}
+            onTripCreated={(tripId) => {
+              setHasCreatedTrip(true);
+              if (tripId) walkerStateStore.patch({ activeTripId: String(tripId) });
+            }}
           />
           <SideDrawer
             open={drawerOpen}
@@ -926,6 +954,26 @@ export function App() {
               busy={bookingBusy}
               onAccept={(b) => respondBooking(b, 'accept')}
               onReject={(b) => respondBooking(b, 'reject')}
+            />
+          )}
+          {agreements.length > 0 && !navTask && !incomingBooking && (
+            <button onClick={() => setShowAgreements(true)} style={{ position: 'absolute', top: 62,
+              left: '50%', transform: 'translateX(-50%)', zIndex: 26, pointerEvents: 'auto',
+              height: 36, padding: '0 14px', borderRadius: 18, border: `1px solid ${T.teal}55`,
+              background: T.glass, backdropFilter: 'blur(12px)', color: T.teal, fontSize: 13,
+              fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 7,
+              fontFamily: 'DM Sans,sans-serif', boxShadow: `0 4px 14px rgba(0,0,0,.4)` }}>
+              🤝 {agreements.length} {t('booking.agreementsPill')}
+            </button>
+          )}
+          {showAgreements && (
+            <BookingAgreementsSheet
+              bookings={agreements}
+              myId={String(authStore.getUser()?.id ?? '')}
+              busyId={busyBookingId}
+              onCancel={(b) => actOnAgreement(b, 'cancel')}
+              onComplete={(b) => actOnAgreement(b, 'complete')}
+              onClose={() => setShowAgreements(false)}
             />
           )}
         </>
