@@ -12,6 +12,7 @@ const EVENTS = [
   'UserOnline', 'UserOffline', 'OnlineUsers',
   'Walkers', 'WalkerJoined', 'WalkerMoved', 'WalkerGone',
   'RoutePublished', 'RouteCleared',
+  'BookingEvent',
 ];
 
 let connection = null;

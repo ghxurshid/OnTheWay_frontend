@@ -21,6 +21,7 @@ import { listContacts } from '@/services/contactService';
 import { ensureAuth } from '@/services/authService';
 import { connectRealtime, startLocationReporting, stopLocationReporting, callClient, presenceClient } from '@/services/realtime';
 import { walkerStateStore } from '@/services/walkerStateStore';
+import { bookingStore } from '@/services/bookingStore';
 import { initTelegramUi } from '@/services/telegram';
 import { walkerApi } from '@/api/walkerApi';
 import { enrichLiveWalker, colorForId } from '@/services/liveWalkers';
@@ -137,6 +138,7 @@ export function App() {
         // Restore the retained session from the server (role, free mode, active
         // trip, bookings) so a reopened app resumes its pre-close state.
         restoredSessionRef.current = await walkerStateStore.restoreFromServer();
+        if (restoredSessionRef.current) bookingStore.seed(restoredSessionRef.current.bookings);
         // Location is NOT shared on entry — no permission prompt until the user
         // creates a trip or turns on Free Mode (see the freeMode effect below).
       } catch (e) {
@@ -678,6 +680,17 @@ export function App() {
     const offEnded = callClient.on('ended', () => setCallState(null));
     const offRejected = callClient.on('rejected', () => setCallState(null));
     return () => { offIncoming(); offAccepted(); offEnded(); offRejected(); };
+  }, [authReady]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Realtime ride-agreement (booking) events: update the booking store and toast
+  // the affected party (requested→driver, accepted/rejected/…→passenger/other).
+  useEffect(() => {
+    if (USE_MOCKS || !authReady) return undefined;
+    return presenceClient.on('BookingEvent', (evt) => {
+      if (!evt || !evt.type) return;
+      bookingStore.apply(evt);
+      setPushNotif({ title: t(`booking.${evt.type}Title`), body: t(`booking.${evt.type}Body`) });
+    });
   }, [authReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { if (chatUser) unreadStore.clear(chatUser.id); }, [chatUser]);

@@ -400,4 +400,18 @@ export const STRINGS = {
       rideAgreedTitle:{ uz: 'Birga ketish rejalashtirildi 🤝', ru: 'Поездка вместе запланирована 🤝', en: 'Ride together planned 🤝' },
       rideAgreedBody:{ uz: '{name} bilan birga ketishni rejalashtirdingiz', ru: 'Вы запланировали поездку с {name}', en: 'You planned to travel with {name}' },
     },
+    booking: {
+      requestedTitle: { uz: 'Yangi booking soʻrovi', ru: 'Новый запрос на поездку', en: 'New booking request' },
+      requestedBody:  { uz: 'Yoʻlovchi sayohatingizga qoʻshilmoqchi', ru: 'Пассажир хочет присоединиться', en: 'A passenger wants to join your trip' },
+      acceptedTitle:  { uz: 'Booking qabul qilindi 🤝', ru: 'Бронь принята 🤝', en: 'Booking accepted 🤝' },
+      acceptedBody:   { uz: 'Haydovchi soʻrovingizni qabul qildi', ru: 'Водитель принял ваш запрос', en: 'The driver accepted your request' },
+      rejectedTitle:  { uz: 'Booking rad etildi', ru: 'Бронь отклонена', en: 'Booking rejected' },
+      rejectedBody:   { uz: 'Haydovchi soʻrovni rad etdi', ru: 'Водитель отклонил запрос', en: 'The driver rejected the request' },
+      cancelledTitle: { uz: 'Booking bekor qilindi', ru: 'Бронь отменена', en: 'Booking cancelled' },
+      cancelledBody:  { uz: 'Kelishuv bekor qilindi', ru: 'Договорённость отменена', en: 'The agreement was cancelled' },
+      completedTitle: { uz: 'Sayohat yakunlandi ✅', ru: 'Поездка завершена ✅', en: 'Ride completed ✅' },
+      completedBody:  { uz: 'Sayohatingiz muvaffaqiyatli yakunlandi', ru: 'Ваша поездка успешно завершена', en: 'Your ride was completed' },
+      expiredTitle:   { uz: 'Soʻrov muddati tugadi', ru: 'Срок запроса истёк', en: 'Request expired' },
+      expiredBody:    { uz: 'Booking soʻrovi javobsiz qoldi', ru: 'Запрос остался без ответа', en: 'The booking request went unanswered' },
+    },
   };
