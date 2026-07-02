@@ -125,4 +125,20 @@ export const presenceClient = {
     if (this.isConnected()) return connection.invoke('UnwatchRoute', walkerUserId);
     return Promise.resolve();
   },
+
+  // --- session state (retained server-side across disconnects) ---------
+
+  /** Patch the client-owned live fields (freeMode, activeTripId, watchedWalkerIds)
+      on the server. `delta` mirrors the C# WalkerStateDelta. Returns the new state. */
+  syncWalkerState(delta) {
+    if (this.isConnected()) return connection.invoke('SyncWalkerState', delta);
+    return Promise.resolve(null);
+  },
+
+  /** Fetch the full retained session snapshot to restore on app reopen
+      ({ state, activeTrip, bookings }). */
+  getWalkerState() {
+    if (this.isConnected()) return connection.invoke('GetWalkerState');
+    return Promise.resolve(null);
+  },
 };

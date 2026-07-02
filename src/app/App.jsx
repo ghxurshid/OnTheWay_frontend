@@ -20,6 +20,7 @@ import { RouteServer } from '@/services/routeService';
 import { listContacts } from '@/services/contactService';
 import { ensureAuth } from '@/services/authService';
 import { connectRealtime, startLocationReporting, stopLocationReporting, callClient, presenceClient } from '@/services/realtime';
+import { walkerStateStore } from '@/services/walkerStateStore';
 import { initTelegramUi } from '@/services/telegram';
 import { walkerApi } from '@/api/walkerApi';
 import { enrichLiveWalker, colorForId } from '@/services/liveWalkers';
@@ -104,6 +105,7 @@ export function App() {
   const [loaderDone, setLoaderDone] = useState(false);
   const [bootNonce, setBootNonce] = useState(0);
   const bootRef = useRef(false);
+  const restoredSessionRef = useRef(null); // server session snapshot fetched on boot
   const mapContainerRef = useRef(null);
 
   const userLocRef = useRef(null);
@@ -132,6 +134,9 @@ export function App() {
         await ensureAuth();
         setAuthReady(true);
         await connectRealtime();
+        // Restore the retained session from the server (role, free mode, active
+        // trip, bookings) so a reopened app resumes its pre-close state.
+        restoredSessionRef.current = await walkerStateStore.restoreFromServer();
         // Location is NOT shared on entry — no permission prompt until the user
         // creates a trip or turns on Free Mode (see the freeMode effect below).
       } catch (e) {
@@ -399,6 +404,9 @@ export function App() {
   // presence (asking permission the first time) so the opposite role can see us
   // without us having created a trip; when off we stop and drop off their maps.
   useEffect(() => {
+    // Free Mode is a client-owned live field — mirror it into the session model
+    // (which syncs to the server and is restored on reopen).
+    walkerStateStore.patch({ freeMode });
     if (USE_MOCKS) return undefined;
     if (freeMode) startLocationReporting();
     else { stopLocationReporting(); presenceClient.stopSharing().catch(() => {}); }
@@ -780,7 +788,7 @@ export function App() {
       )}
 
       {screen === 'home' && (
-        <HomeScreen onSelect={(m) => { setMode(m); setScreen('map'); }} />
+        <HomeScreen onSelect={(m) => { setMode(m); walkerStateStore.patch({ role: m }); setScreen('map'); }} />
       )}
 
       {screen === 'map' && !callState && (
