@@ -205,7 +205,7 @@ export function useMap(containerRef, active) {
       const mk = L.marker(pos, { icon: makeWalkerIcon(w.color, w.initials), zIndexOffset: 600 })
         .addTo(layersRef.current.walkers);
       mk.on('click', () => onSelect && onSelect(w.id));
-      lm.set(w.id, { mk });
+      lm.set(w.id, { ...(layer || {}), mk }); // preserve a route drawn before the marker
     }
     applyWalkerBadges();
   }, [applyWalkerBadges]);
@@ -215,6 +215,35 @@ export function useMap(containerRef, active) {
     const grp = layersRef.current.walkers;
     ['ant', 'trav', 'mk', 'start', 'dest'].forEach((k) => layer[k] && grp.removeLayer(layer[k]));
     lm.delete(id);
+  }, []);
+
+  // A live walker's shared route (published over presence). Drawn into the same
+  // per-walker layer entry as the marker, so removeWalkerMarker / clearWalkers
+  // also tear the route down. Keyed by the walker's (string) user id.
+  const setWalkerRoute = useCallback((id, coords, color) => {
+    const map = mapRef.current; if (!map || !coords || coords.length < 2) return;
+    const lm = walkerLayersRef.current;
+    const layer = lm.get(id) || {};
+    const grp = layersRef.current.walkers;
+    const theme = themeFor('dark');
+    const c = color || T.teal;
+    ['ant', 'start', 'dest'].forEach((k) => { if (layer[k]) grp.removeLayer(layer[k]); });
+    const ant = makeAntPath(coords, {
+      delay: 10400, dashArray: [10, 22], weight: 5,
+      color: c, pulseColor: theme.pulse, opacity: 0.95, lineCap: 'round',
+      renderer: rendererRef.current,
+    });
+    ant.addTo(grp);
+    const start = L.marker(coords[0], { icon: makeStartIcon(c, theme) }).addTo(grp);
+    const dest = L.marker(coords[coords.length - 1], { icon: makeDestIcon(c, theme) }).addTo(grp);
+    lm.set(id, { ...layer, ant, start, dest });
+  }, []);
+
+  const removeWalkerRoute = useCallback((id) => {
+    const lm = walkerLayersRef.current; const layer = lm.get(id); if (!layer) return;
+    const grp = layersRef.current.walkers;
+    ['ant', 'start', 'dest'].forEach((k) => { if (layer[k]) { grp.removeLayer(layer[k]); delete layer[k]; } });
+    if (layer.mk) lm.set(id, layer); else lm.delete(id);
   }, []);
 
   const clearWalkers = useCallback(() => {
@@ -418,7 +447,7 @@ export function useMap(containerRef, active) {
     mapRef, flyTo, recenter, onUserDrag, setRouteLines, setWaypointMarkers, showMatchedUsers, clearMatched,
     enableTapPick, disableTapPick, startTracking, setMapStyle, setUserLocation, renderWalkers,
     tickWalkers, clearWalkers, fitWalkers, setWalkersDimmed, highlightWalker, setWalkerBadges,
-    upsertWalkerMarker, removeWalkerMarker,
+    upsertWalkerMarker, removeWalkerMarker, setWalkerRoute, removeWalkerRoute,
     getCenter, onMove, onMoveEnd, renderUserRoute, updateUserRoute, clearUserRoute, recolorUserRoute,
     showPreviewRoute, clearPreviewRoute, fitRoute, clearPlanning, hideWalkers, showContactFocus, fitPoints,
   };

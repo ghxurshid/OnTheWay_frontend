@@ -22,7 +22,7 @@ import { ensureAuth } from '@/services/authService';
 import { connectRealtime, startLocationReporting, stopLocationReporting, callClient, presenceClient } from '@/services/realtime';
 import { initTelegramUi } from '@/services/telegram';
 import { walkerApi } from '@/api/walkerApi';
-import { enrichLiveWalker } from '@/services/liveWalkers';
+import { enrichLiveWalker, colorForId } from '@/services/liveWalkers';
 import { USE_MOCKS } from '@/api/client';
 
 import { LoadingScreen } from '@/pages/LoadingScreen';
@@ -292,9 +292,21 @@ export function App() {
     const onGone = (id) => {
       if (!alive) return;
       liveWalkersRef.current.delete(id);
+      mapHook.removeWalkerRoute(id);
       mapHook.removeWalkerMarker(id);
       setMatchCount(liveWalkersRef.current.size);
     };
+
+    // An opposite-role walker published (or cleared) their shared route — draw it
+    // next to their marker so drivers see a passenger's route and vice-versa.
+    const onRoutePublished = (active) => {
+      if (!alive || !active) return;
+      const uid = String(active.userId);
+      const coords = (active.points || []).map((p) => [p.lat, p.lng]);
+      if (coords.length < 2) return;
+      mapHook.setWalkerRoute(uid, coords, colorForId(uid));
+    };
+    const onRouteCleared = (uid) => { if (alive) mapHook.removeWalkerRoute(String(uid)); };
 
     // A new opposite-role walker just joined the live map — place the marker and
     // surface a one-off "joined" notification (spec §17 walker-joined rule).
@@ -316,6 +328,8 @@ export function App() {
       presenceClient.on('WalkerJoined', onJoined),
       presenceClient.on('WalkerMoved', onMoved),
       presenceClient.on('WalkerGone', onGone),
+      presenceClient.on('RoutePublished', onRoutePublished),
+      presenceClient.on('RouteCleared', onRouteCleared),
       presenceClient.on('UserOnline', scheduleRefresh),
       presenceClient.on('Walkers', render),
     ];
