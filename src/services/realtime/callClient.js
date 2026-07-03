@@ -8,11 +8,25 @@
      startCall(toUserId, type) → ring + (on accept) negotiate audio
      acceptCall() / rejectCall() / hangup()
      on('incoming'|'accepted'|'rejected'|'ended'|'remoteStream', handler)
+
+   Sync guarantees (both sides always converge):
+     - accept is SIGNALED FIRST, then the mic is acquired — a slow/denied
+       permission prompt can no longer leave the caller ringing forever;
+     - unanswered calls time out on the caller (hangup → callee dismissed)
+       with a callee-side fallback in case the caller vanished;
+     - a failed P2P connection or a dropped hub connection tears the call
+       down and emits 'ended' — stale state never blocks the next call.
    ════════════════════════════════════════════════════════════════ */
 
 import { createHubConnection, startConnection } from './hubConnection';
 
 const ICE_SERVERS = [{ urls: 'stun:stun.l.google.com:19302' }];
+
+// Unanswered-call limits: the caller gives up first (and tells the server, so
+// the callee is dismissed too); the callee timer is only a safety net for a
+// caller that disappeared without a hangup reaching us.
+const CALLER_RING_TIMEOUT_MS = 40_000;
+const CALLEE_RING_TIMEOUT_MS = 50_000;
 
 let connection = null;
 const listeners = new Map();
@@ -21,7 +35,9 @@ const listeners = new Map();
 let call = null; // { callId, peerId, role: 'caller'|'callee', accepted }
 let pc = null; // RTCPeerConnection
 let localStream = null;
+let micPromise = null; // single-flight getUserMedia (accept + offer can race)
 let remoteAudioEl = null;
+let ringTimer = null; // unanswered-call timeout (either role)
 const pendingIce = []; // ICE candidates that arrived before the remote description
 
 function emit(event, payload) {
@@ -30,51 +46,80 @@ function emit(event, payload) {
   });
 }
 
+function clearRingTimer() {
+  if (ringTimer) { clearTimeout(ringTimer); ringTimer = null; }
+}
+
+/** Ring timeout: notify the server (marks the session Missed and dismisses the
+    peer), tear down locally and surface 'ended' so the UI closes. */
+function armRingTimer(ms) {
+  clearRingTimer();
+  ringTimer = setTimeout(() => {
+    if (!call || call.accepted) return;
+    const callId = call.callId;
+    connection?.invoke('Hangup', callId).catch(() => {});
+    teardown();
+    emit('ended', { callId, reason: 'timeout' });
+  }, ms);
+}
+
 function ensureConnection() {
   if (connection) return connection;
   connection = createHubConnection('/hubs/call');
 
   connection.on('IncomingCall', (invite) => {
-    // Ignore a second incoming call while one is active.
-    if (call) { connection.invoke('RejectCall', invite.callId, invite.fromUserId).catch(() => {}); return; }
+    // Busy: auto-reject a second incoming call while one is active.
+    if (call) { connection.invoke('RejectCall', invite.callId).catch(() => {}); return; }
     call = { callId: invite.callId, peerId: invite.fromUserId, role: 'callee', accepted: false };
+    armRingTimer(CALLEE_RING_TIMEOUT_MS);
     emit('incoming', invite);
   });
 
   connection.on('CallAccepted', async (callId, byUserId) => {
     if (!call || call.callId !== callId) return;
     call.accepted = true;
+    clearRingTimer();
     emit('accepted', { callId, byUserId });
     // The caller drives negotiation once the callee picks up.
-    if (call.role === 'caller') await makeOffer();
+    if (call.role === 'caller') {
+      try { await makeOffer(); } catch (e) { failCall('media-error', e); }
+    }
   });
 
   connection.on('CallRejected', (callId) => {
-    if (call && call.callId !== callId) return;
-    emit('rejected', { callId });
+    if (!call || call.callId !== callId) return;
     teardown();
+    emit('rejected', { callId });
   });
 
   connection.on('CallEnded', (callId) => {
-    if (call && call.callId !== callId) return;
-    emit('ended', { callId });
+    if (!call || call.callId !== callId) return;
     teardown();
+    emit('ended', { callId, reason: 'remote' });
   });
 
   connection.on('ReceiveOffer', async (payload) => {
     if (!call || call.callId !== payload.callId) return;
-    await ensurePeer();
-    await pc.setRemoteDescription({ type: 'offer', sdp: payload.sdp });
-    await drainIce();
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-    await connection.invoke('SendAnswer', call.peerId, call.callId, answer.sdp);
+    try {
+      await ensurePeer();
+      await pc.setRemoteDescription({ type: 'offer', sdp: payload.sdp });
+      await drainIce();
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      await connection.invoke('SendAnswer', call.peerId, call.callId, answer.sdp);
+    } catch (e) {
+      failCall('media-error', e);
+    }
   });
 
   connection.on('ReceiveAnswer', async (payload) => {
     if (!call || call.callId !== payload.callId || !pc) return;
-    await pc.setRemoteDescription({ type: 'answer', sdp: payload.sdp });
-    await drainIce();
+    try {
+      await pc.setRemoteDescription({ type: 'answer', sdp: payload.sdp });
+      await drainIce();
+    } catch (e) {
+      failCall('media-error', e);
+    }
   });
 
   connection.on('ReceiveIceCandidate', async (payload) => {
@@ -88,15 +133,39 @@ function ensureConnection() {
     else pendingIce.push(candidate);
   });
 
+  // The signaling channel died for good (auto-reconnect gave up): the peers can
+  // no longer coordinate, so end the call instead of leaving a stuck screen.
+  connection.onclose(() => {
+    if (!call) return;
+    const callId = call.callId;
+    teardown();
+    emit('ended', { callId, reason: 'connection' });
+  });
+
   return connection;
+}
+
+/** Abort the active call after an unrecoverable local error (mic/SDP/P2P):
+    tell the server (so the peer is dismissed), clean up, surface 'ended'. */
+function failCall(reason, err) {
+  if (err && import.meta.env?.DEV) console.warn(`[call] ${reason}:`, err?.message || err);
+  if (!call) return;
+  const callId = call.callId;
+  connection?.invoke('Hangup', callId).catch(() => {});
+  teardown();
+  emit('ended', { callId, reason });
 }
 
 // --- WebRTC plumbing --------------------------------------------------
 
-async function getMic() {
-  if (localStream) return localStream;
-  localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-  return localStream;
+function getMic() {
+  if (localStream) return Promise.resolve(localStream);
+  if (!micPromise) {
+    micPromise = navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+      .then((stream) => { localStream = stream; return stream; })
+      .finally(() => { micPromise = null; });
+  }
+  return micPromise;
 }
 
 async function ensurePeer() {
@@ -119,8 +188,10 @@ async function ensurePeer() {
     emit('remoteStream', stream);
   };
 
+  // 'failed' is terminal — clean up fully (a lingering `call` would silently
+  // auto-reject every future incoming call) and tell the server/peer.
   pc.onconnectionstatechange = () => {
-    if (pc && (pc.connectionState === 'failed' || pc.connectionState === 'closed')) emit('ended', { callId: call?.callId });
+    if (pc && pc.connectionState === 'failed') failCall('connection');
   };
 
   return pc;
@@ -152,6 +223,7 @@ function attachRemoteAudio(stream) {
 }
 
 function teardown() {
+  clearRingTimer();
   pendingIce.length = 0;
   if (pc) { try { pc.close(); } catch { /* ignore */ } pc = null; }
   if (localStream) { localStream.getTracks().forEach((t) => t.stop()); localStream = null; }
@@ -188,27 +260,40 @@ export const callClient = {
     await getMic(); // prompt for the mic up front so accept is instant
     const callId = await connection.invoke('InitiateCall', toUserId, callType);
     call = { callId, peerId: toUserId, role: 'caller', accepted: false };
+    armRingTimer(CALLER_RING_TIMEOUT_MS);
     return callId;
   },
 
-  /** Callee: accept the current incoming call. */
+  /** Callee: accept the current incoming call. The accept is signaled FIRST —
+      so both screens flip to "connected" together — and only then is the mic
+      acquired in the background (the browser prompt can be slow or denied; a
+      denial ends the call for both sides via the 'ended' event). Rejects only
+      when the server refused the accept (e.g. the caller already hung up). */
   async acceptCall() {
     if (!call || call.role !== 'callee') return;
-    await getMic();
-    await connection.invoke('AcceptCall', call.callId, call.peerId);
+    clearRingTimer();
+    try {
+      await connection.invoke('AcceptCall', call.callId);
+      call.accepted = true;
+    } catch (e) {
+      // Server refused (caller already hung up / session gone) — clean up.
+      teardown();
+      throw e;
+    }
+    getMic().catch((e) => failCall('mic-denied', e));
   },
 
   /** Callee: reject the current incoming call. */
   async rejectCall() {
     if (!call) return;
-    try { await connection.invoke('RejectCall', call.callId, call.peerId); } catch { /* ignore */ }
+    try { await connection.invoke('RejectCall', call.callId); } catch { /* ignore */ }
     teardown();
   },
 
   /** Either side: hang up an in-progress (or ringing) call. */
   async hangup() {
     if (!call) return;
-    try { await connection.invoke('Hangup', call.callId, call.peerId); } catch { /* ignore */ }
+    try { await connection.invoke('Hangup', call.callId); } catch { /* ignore */ }
     teardown();
   },
 

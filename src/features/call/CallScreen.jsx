@@ -5,11 +5,12 @@ import { ME } from '@/constants/app';
 
 const partyColor = (p) => (p.accent ? p.accent : (p.type === 'driver' ? T.amber : T.purple));
 
-/** Dual-perspective call screen (ringing/active) with a "ride together" offer.
-    For real calls (`live`) the view locks to the owner's perspective and the
-    action buttons drive the CallHub via the parent's handlers. */
+/** Call screen (ringing/active) with a "ride together" offer.
+    Real calls (`live`): always shows the REMOTE party (`callee` prop — the
+    actual caller when role='callee') and the buttons drive the CallHub via the
+    parent's handlers. Demo mode keeps the dual-perspective flip view. */
 export function CallScreen({ callee, phase, onAccept, onDecline, onEnd, onAgree, onMuteToggle, live = false, role = 'caller' }) {
-  const caller = { ...ME, accent: T.teal }; // you
+  const caller = { ...ME, accent: T.teal }; // demo-mode "you"
   const [secs, setSecs] = useState(0);
   const [muted, setMuted] = useState(false);
   const [view, setView] = useState(role === 'callee' ? 'callee' : 'caller'); // 'caller' | 'callee'
@@ -30,8 +31,10 @@ export function CallScreen({ callee, phase, onAccept, onDecline, onEnd, onAgree,
 
   const fmt = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 
-  const onCaller = view === 'caller';
-  const shown = onCaller ? callee : caller;
+  // Live calls have no perspective to flip: `onCaller` is fixed by our role and
+  // the person on screen is always the remote party. Demo mode alternates views.
+  const onCaller = live ? role === 'caller' : view === 'caller';
+  const shown = live ? callee : (onCaller ? callee : caller);
   const color = partyColor(shown);
   const flip = () => setView((v) => (v === 'caller' ? 'callee' : 'caller'));
 
@@ -44,24 +47,31 @@ export function CallScreen({ callee, phase, onAccept, onDecline, onEnd, onAgree,
         : `linear-gradient(160deg,${T.surface2} 0%,${T.bg} 50%,${T.stage} 100%)`,
       display: 'flex', flexDirection: 'column', alignItems: 'center', padding: 'calc(24px + env(safe-area-inset-top,0px)) 24px calc(60px + env(safe-area-inset-bottom,0px))' }}>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6,
-        background: T.hover, border: `1px solid ${T.border}`,
-        borderRadius: 999, padding: '6px 8px 6px 14px' }}>
-        <div style={{ width: 7, height: 7, borderRadius: 4, flexShrink: 0,
-          background: onCaller ? T.teal : color,
-          boxShadow: `0 0 8px ${onCaller ? T.teal : color}` }} />
-        <span style={{ fontSize: 12, fontWeight: 600, color: T.text, whiteSpace: 'nowrap' }}>
-          {onCaller ? t('call.yourScreen') : t('call.theirScreen', { name: callee.name.split(' ')[0] })}
-        </span>
-        <button onClick={flip} title={t('call.flipTip')} style={{
-          width: 26, height: 26, borderRadius: 8, flexShrink: 0,
-          border: `1px solid ${T.border}`, background: T.hover,
-          color: T.muted, cursor: 'pointer', fontSize: 13,
-          display: 'flex', alignItems: 'center', justifyContent: 'center' }}>⇄</button>
-      </div>
-      <div style={{ fontSize: 10.5, color: T.muted, letterSpacing: .4, marginBottom: 30 }}>
-        {ringing ? t('call.bothViews') : t('call.connected')}
-      </div>
+      {live
+        ? <div style={{ fontSize: 10.5, color: T.muted, letterSpacing: .4, marginBottom: 30,
+            minHeight: 14 }}>
+            {ringing ? '' : t('call.connected')}
+          </div>
+        : <>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6,
+              background: T.hover, border: `1px solid ${T.border}`,
+              borderRadius: 999, padding: '6px 8px 6px 14px' }}>
+              <div style={{ width: 7, height: 7, borderRadius: 4, flexShrink: 0,
+                background: onCaller ? T.teal : color,
+                boxShadow: `0 0 8px ${onCaller ? T.teal : color}` }} />
+              <span style={{ fontSize: 12, fontWeight: 600, color: T.text, whiteSpace: 'nowrap' }}>
+                {onCaller ? t('call.yourScreen') : t('call.theirScreen', { name: callee.name.split(' ')[0] })}
+              </span>
+              <button onClick={flip} title={t('call.flipTip')} style={{
+                width: 26, height: 26, borderRadius: 8, flexShrink: 0,
+                border: `1px solid ${T.border}`, background: T.hover,
+                color: T.muted, cursor: 'pointer', fontSize: 13,
+                display: 'flex', alignItems: 'center', justifyContent: 'center' }}>⇄</button>
+            </div>
+            <div style={{ fontSize: 10.5, color: T.muted, letterSpacing: .4, marginBottom: 30 }}>
+              {ringing ? t('call.bothViews') : t('call.connected')}
+            </div>
+          </>}
 
       <div style={{ position: 'absolute', top: '22%', left: '50%', transform: 'translateX(-50%)',
         width: 280, height: 280, borderRadius: 140,
@@ -78,8 +88,10 @@ export function CallScreen({ callee, phase, onAccept, onDecline, onEnd, onAgree,
           ))}
           <div style={{ width: 88, height: 88, borderRadius: 28, background: `${color}25`,
             border: `2.5px solid ${color}60`, display: 'flex', alignItems: 'center',
-            justifyContent: 'center', position: 'relative', zIndex: 1 }}>
-            <span style={{ fontSize: 32, fontWeight: 700, color }}>{shown.initials}</span>
+            justifyContent: 'center', position: 'relative', zIndex: 1, overflow: 'hidden' }}>
+            {shown.photoUrl
+              ? <img src={shown.photoUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              : <span style={{ fontSize: 32, fontWeight: 700, color }}>{shown.initials}</span>}
           </div>
         </div>
         <div style={{ fontSize: 22, fontWeight: 700, color: T.text, textAlign: 'center',

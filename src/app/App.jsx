@@ -24,7 +24,7 @@ import { walkerStateStore } from '@/services/walkerStateStore';
 import { bookingStore } from '@/services/bookingStore';
 import { initTelegramUi } from '@/services/telegram';
 import { walkerApi } from '@/api/walkerApi';
-import { enrichLiveWalker, colorForId } from '@/services/liveWalkers';
+import { enrichLiveWalker, colorForId, initialsOf } from '@/services/liveWalkers';
 import { USE_MOCKS } from '@/api/client';
 
 import { LoadingScreen } from '@/pages/LoadingScreen';
@@ -712,20 +712,63 @@ export function App() {
     rating: c.rating, latlng: c.latlng,
   });
 
-  // Incoming calls + lifecycle transitions from the CallHub.
+  // Resolve the incoming caller's display card: the real profile carried in the
+  // invite wins; a live walker already on the map or a contact is the fallback.
+  const inviteToCallUser = (invite) => {
+    const id = String(invite.fromUserId);
+    const p = invite.caller;
+    if (p && p.name) {
+      const type = p.kind === 'driver' ? 'driver' : 'passenger';
+      return {
+        id, type, initials: initialsOf(p.name), name: p.name,
+        sub: p.username ? `@${p.username}`
+          : (type === 'driver' ? (p.vehicle || t('common.driver')) : t('common.passenger')),
+        rating: p.rating, photoUrl: p.photoUrl || null,
+      };
+    }
+    const w = liveWalkersRef.current.get(id);
+    if (w) {
+      return {
+        id, type: w.type, initials: w.initials, name: w.name,
+        sub: w.type === 'driver' ? (w.vehicle || t('common.driver')) : t('common.passenger'),
+        rating: w.rating, photoUrl: w.photoUrl || null,
+      };
+    }
+    const c = contactsRef.current.find((x) => String(x.id) === id);
+    return c ? contactToUser(c)
+      : { id, type: 'passenger', initials: '👤', name: t('call.unknownCaller') };
+  };
+
+  // Incoming calls + lifecycle transitions from the CallHub. Every transition
+  // is driven by hub events so both sides' screens stay in step.
   useEffect(() => {
     if (USE_MOCKS || !authReady) return undefined;
     const offIncoming = callClient.on('incoming', (invite) => {
-      if (callStateRef.current) return; // already on a call
-      const c = contactsRef.current.find((x) => String(x.id) === String(invite.fromUserId));
-      const user = c ? contactToUser(c)
-        : { id: invite.fromUserId, type: 'passenger', initials: '👤', name: t('call.unknownCaller') };
-      setCallState({ user, phase: 'ringing', live: true, role: 'callee' });
+      if (callStateRef.current) return; // already on a call (client auto-rejects)
+      setCallState({ user: inviteToCallUser(invite), phase: 'ringing', live: true, role: 'callee' });
     });
     const offAccepted = callClient.on('accepted', () =>
       setCallState((cs) => (cs ? { ...cs, phase: 'active' } : cs)));
-    const offEnded = callClient.on('ended', () => setCallState(null));
-    const offRejected = callClient.on('rejected', () => setCallState(null));
+    const offEnded = callClient.on('ended', (evt) => {
+      const cs = callStateRef.current;
+      if (cs?.live) {
+        if (evt?.reason === 'timeout') {
+          setPushNotif(cs.role === 'caller'
+            ? { title: t('call.noAnswerTitle'), body: cs.user?.name || '' }
+            : { title: t('call.missedTitle'), body: cs.user?.name || '' });
+        } else if (evt?.reason === 'mic-denied') {
+          setPushNotif({ title: t('call.micDeniedTitle'), body: '' });
+        }
+      }
+      setCallState(null);
+    });
+    const offRejected = callClient.on('rejected', () => {
+      const cs = callStateRef.current;
+      if (cs?.live && cs.role === 'caller') {
+        setPushNotif({ title: t('call.declinedTitle'), body: cs.user?.name || '' });
+      }
+      setCallState(null);
+    });
     return () => { offIncoming(); offAccepted(); offEnded(); offRejected(); };
   }, [authReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -812,12 +855,20 @@ export function App() {
   };
 
   const handleAcceptCall = () => {
-    if (callState?.live) callClient.acceptCall().catch(() => {});
+    if (callState?.live) {
+      // Flip to active only once the server confirmed the accept, so this
+      // screen and the caller's change together. A refused accept (caller
+      // already gone) or a later mic denial closes the UI via 'ended'.
+      callClient.acceptCall()
+        .then(() => setCallState((c) => (c && c.live ? { ...c, phase: 'active' } : c)))
+        .catch(() => setCallState(null));
+      return;
+    }
+    // Demo mode: instant accept + a simulated approach on the map.
     setCallState((c) => ({ ...c, phase: 'active' }));
     const userLoc = userLocRef.current || TASHKENT;
     const from = (callState && callState.user && callState.user.latlng) || [41.310, 69.255];
-    const stop = mapHook.startTracking(from, userLoc, () => { /* ETA */ });
-    return stop;
+    mapHook.startTracking(from, userLoc, () => { /* ETA */ });
   };
 
   const exitToHome = () => {

@@ -369,6 +369,10 @@ export const STRINGS = {
     call: {
       failedTitle:   { uz: "Qoʻngʻiroq amalga oshmadi", ru: 'Не удалось позвонить', en: 'Call failed' },
       unknownCaller: { uz: 'Notanish raqam', ru: 'Неизвестный', en: 'Unknown caller' },
+      noAnswerTitle: { uz: 'Javob berilmadi', ru: 'Нет ответа', en: 'No answer' },
+      missedTitle:   { uz: 'Oʻtkazib yuborilgan qoʻngʻiroq', ru: 'Пропущенный звонок', en: 'Missed call' },
+      declinedTitle: { uz: 'Qoʻngʻiroq rad etildi', ru: 'Вызов отклонён', en: 'Call declined' },
+      micDeniedTitle:{ uz: 'Mikrofonga ruxsat berilmadi', ru: 'Нет доступа к микрофону', en: 'Microphone access denied' },
       yourScreen:  { uz: 'Sizning ekraningiz', ru: 'Ваш экран', en: 'Your screen' },
       theirScreen: { uz: '{name} ekrani', ru: 'Экран {name}', en: "{name}'s screen" },
       flipTip:     { uz: 'Ekranni almashtirish', ru: 'Переключить экран', en: 'Flip screen' },
