@@ -141,7 +141,11 @@ export function RouteSheet({ onClose, onShowRoute, mapHook, userLoc, onPickModeC
   };
 
   const startSelectedRoute = () => {
-    if (routeOptions[selectedRouteIdx]) onShowRoute(routeOptions[selectedRouteIdx]);
+    // Pass the picked waypoints too so the app can persist the journey (origin/
+    // destination labels + coords) as a Live trip, not just draw it.
+    if (routeOptions[selectedRouteIdx]) {
+      onShowRoute(routeOptions[selectedRouteIdx], waypoints.filter((w) => w.latlng));
+    }
   };
 
   const canCalc = waypoints.every((w) => w.latlng);

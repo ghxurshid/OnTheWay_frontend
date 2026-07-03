@@ -246,6 +246,18 @@ export function useMap(containerRef, active) {
     if (layer.mk) lm.set(id, layer); else lm.delete(id);
   }, []);
 
+  // Grey a live walker out while they're offline (grace period): the marker and
+  // any shared route stay on the map, just visibly inactive — they come back to
+  // full strength if the walker reconnects, and are removed only on WalkerGone.
+  const setWalkerOffline = useCallback((id, offline) => {
+    const layer = walkerLayersRef.current.get(id); if (!layer) return;
+    if (layer.mk && layer.mk.setOpacity) layer.mk.setOpacity(offline ? 0.35 : 1);
+    if (layer.ant && layer.ant.setStyle) layer.ant.setStyle({ opacity: offline ? 0.25 : 0.95 });
+    if (layer.trav && layer.trav.setStyle) layer.trav.setStyle({ opacity: offline ? 0.2 : 0.9 });
+    if (layer.start && layer.start.setOpacity) layer.start.setOpacity(offline ? 0.35 : 1);
+    if (layer.dest && layer.dest.setOpacity) layer.dest.setOpacity(offline ? 0.35 : 1);
+  }, []);
+
   const clearWalkers = useCallback(() => {
     layersRef.current.walkers.clearLayers();
     walkerLayersRef.current = new Map();
@@ -447,7 +459,7 @@ export function useMap(containerRef, active) {
     mapRef, flyTo, recenter, onUserDrag, setRouteLines, setWaypointMarkers, showMatchedUsers, clearMatched,
     enableTapPick, disableTapPick, startTracking, setMapStyle, setUserLocation, renderWalkers,
     tickWalkers, clearWalkers, fitWalkers, setWalkersDimmed, highlightWalker, setWalkerBadges,
-    upsertWalkerMarker, removeWalkerMarker, setWalkerRoute, removeWalkerRoute,
+    upsertWalkerMarker, removeWalkerMarker, setWalkerRoute, removeWalkerRoute, setWalkerOffline,
     getCenter, onMove, onMoveEnd, renderUserRoute, updateUserRoute, clearUserRoute, recolorUserRoute,
     showPreviewRoute, clearPreviewRoute, fitRoute, clearPlanning, hideWalkers, showContactFocus, fitPoints,
   };

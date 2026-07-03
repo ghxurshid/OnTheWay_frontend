@@ -36,4 +36,16 @@ export const tripApi = {
     if (USE_MOCKS) return mockResponse({ id: 'live_' + Date.now(), originatingTripId: id });
     return http(`/trips/${id}/start`, { method: 'POST' });
   },
+
+  /** POST /trips/{id}/complete — finish own trip (accepted bookings complete). */
+  complete(id) {
+    if (USE_MOCKS) return mockResponse({ id, status: 'Completed' });
+    return http(`/trips/${id}/complete`, { method: 'POST' });
+  },
+
+  /** POST /trips/{id}/cancel — call off own trip (accepted bookings cancelled). */
+  cancel(id) {
+    if (USE_MOCKS) return mockResponse({ id, status: 'Cancelled' });
+    return http(`/trips/${id}/cancel`, { method: 'POST' });
+  },
 };

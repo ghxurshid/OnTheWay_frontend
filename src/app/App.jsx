@@ -24,6 +24,8 @@ import { walkerStateStore } from '@/services/walkerStateStore';
 import { bookingStore } from '@/services/bookingStore';
 import { initTelegramUi } from '@/services/telegram';
 import { walkerApi } from '@/api/walkerApi';
+import { tripApi } from '@/api/tripApi';
+import { getRoute } from '@/services/routeService';
 import { enrichLiveWalker, colorForId, initialsOf } from '@/services/liveWalkers';
 import { USE_MOCKS } from '@/api/client';
 
@@ -111,11 +113,14 @@ export function App() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [overlayPanel, setOverlayPanel] = useState(null); // 'settings' | 'complaint' | 'privacy'
   const [authReady, setAuthReady] = useState(USE_MOCKS); // mock mode needs no auth
+  const [sessionReady, setSessionReady] = useState(USE_MOCKS); // server snapshot fetched (or failed)
   const [authError, setAuthError] = useState(null);
   const [loaderDone, setLoaderDone] = useState(false);
   const [bootNonce, setBootNonce] = useState(0);
   const bootRef = useRef(false);
   const restoredSessionRef = useRef(null); // server session snapshot fetched on boot
+  const pendingRestoreRef = useRef(null);  // active trip to redraw once the map is up
+  const liveTripIdRef = useRef(null);      // persisted Live trip backing the on-map route
   const mapContainerRef = useRef(null);
 
   const userLocRef = useRef(null);
@@ -148,6 +153,7 @@ export function App() {
         // trip, bookings) so a reopened app resumes its pre-close state.
         restoredSessionRef.current = await walkerStateStore.restoreFromServer();
         if (restoredSessionRef.current) bookingStore.seed(restoredSessionRef.current.bookings);
+        setSessionReady(true); // splash may proceed (and possibly auto-resume)
         // Location is NOT shared on entry — no permission prompt until the user
         // creates a trip or turns on Free Mode (see the freeMode effect below).
       } catch (e) {
@@ -156,10 +162,25 @@ export function App() {
     })();
   }, [bootNonce]);
 
-  // Leave the splash for home only once the loader bar AND auth are both ready.
+  // Leave the splash once the loader bar, auth AND the session snapshot are
+  // ready. A retained session with an active (Scheduled/InProgress) trip resumes
+  // STRAIGHT onto the map in the stored role — no mode-selection screen — and
+  // queues the trip so its route is redrawn once the map is up.
   useEffect(() => {
-    if (screen === 'loading' && loaderDone && authReady && !authError) setScreen('home');
-  }, [screen, loaderDone, authReady, authError]);
+    if (screen !== 'loading' || !loaderDone || !authReady || !sessionReady || authError) return;
+    const snap = restoredSessionRef.current;
+    const trip = snap && snap.activeTrip;
+    const role = snap && snap.state && snap.state.role;
+    const status = trip ? String(trip.status || '').toLowerCase() : '';
+    if (!USE_MOCKS && trip && role && (status === 'scheduled' || status === 'inprogress')) {
+      pendingRestoreRef.current = trip;
+      setMode(role);
+      setHasCreatedTrip(true);
+      setScreen('map');
+    } else {
+      setScreen('home');
+    }
+  }, [screen, loaderDone, authReady, sessionReady, authError]);
 
   // Contacts loaded once authenticated (used by the push-message simulation).
   useEffect(() => {
@@ -265,14 +286,19 @@ export function App() {
     const profiles = new Map(); // userId → WalkerProfileDto
     let refreshTimer = null;
 
+    const oppositeRole = mode === 'driver' ? 'passenger' : 'driver';
+
     const render = () => {
       if (!alive) return;
       const positions = presenceClient.getPositions();
       const seen = new Set();
       positions.forEach((pos) => {
+        if (pos.role && pos.role !== oppositeRole) return; // stale other-role entry
         const profile = profiles.get(pos.userId);
         if (!profile) return; // profile not loaded yet; a refresh will pick it up
         const w = enrichLiveWalker(profile, pos);
+        const prev = liveWalkersRef.current.get(w.id);
+        if (prev && prev.offline) w.offline = true; // keep the greyed state
         liveWalkersRef.current.set(w.id, w);
         seen.add(w.id);
         mapHook.upsertWalkerMarker(w, openWalker);
@@ -288,7 +314,9 @@ export function App() {
       try {
         const list = await walkerApi.online(mode); // server returns only the opposite role
         if (!alive) return;
-        profiles.clear();
+        // Merge, don't clear: a disconnected walker in the offline-grace window
+        // keeps their (greyed) marker, so their profile must survive refreshes
+        // that no longer list them.
         list.forEach((p) => profiles.set(p.id, p));
         render();
       } catch { /* keep whatever we have */ }
@@ -311,6 +339,20 @@ export function App() {
       mapHook.removeWalkerRoute(id);
       mapHook.removeWalkerMarker(id);
       setMatchCount(liveWalkersRef.current.size);
+    };
+
+    // Offline grace: a disconnected walker STAYS on the map — marker and route
+    // greyed — until they return or the server sweeps them (WalkerGone). Their
+    // location simply stops updating, and new searches won't include them.
+    const onUserOffline = (id) => {
+      if (!alive) return;
+      const w = liveWalkersRef.current.get(String(id));
+      if (w) { w.offline = true; mapHook.setWalkerOffline(String(id), true); }
+    };
+    const onUserOnline = (id) => {
+      if (!alive) return;
+      const w = liveWalkersRef.current.get(String(id));
+      if (w) { w.offline = false; mapHook.setWalkerOffline(String(id), false); }
     };
 
     // An opposite-role walker published (or cleared) their shared route — draw it
@@ -347,6 +389,8 @@ export function App() {
       presenceClient.on('RoutePublished', onRoutePublished),
       presenceClient.on('RouteCleared', onRouteCleared),
       presenceClient.on('UserOnline', scheduleRefresh),
+      presenceClient.on('UserOnline', onUserOnline),
+      presenceClient.on('UserOffline', onUserOffline),
       presenceClient.on('Walkers', render),
     ];
 
@@ -367,6 +411,12 @@ export function App() {
       setShowMatching(true);
       const pts = [userLoc, ...[...liveWalkersRef.current.values()].map((w) => w.position).filter(Boolean)];
       if (pts.length > 1) mapHook.fitPoints(pts);
+      // Auto-resume: redraw the retained session's live route once per boot.
+      const restoreTrip = pendingRestoreRef.current;
+      if (restoreTrip) {
+        pendingRestoreRef.current = null;
+        await restoreLiveRoute(restoreTrip);
+      }
     })();
 
     return () => {
@@ -441,7 +491,61 @@ export function App() {
     if (simRef.current) simRef.current.start();
   };
 
-  const handleRouteSelected = async (route) => {
+  // Persist the on-map route as a Live trip so the session survives app
+  // restarts (and the abandoned-session sweeper can close it if we vanish).
+  // Best-effort: the live map keeps working even if persistence fails.
+  const createLiveTrip = async (route, coords, waypoints) => {
+    try {
+      const pts = (waypoints || []).filter((w) => w && w.latlng);
+      const from = pts[0];
+      const to = pts[pts.length - 1];
+      const [oLat, oLng] = (from && from.latlng) || coords[0];
+      const [dLat, dLng] = (to && to.latlng) || coords[coords.length - 1];
+      const trip = await tripApi.create({
+        origin: { latitude: oLat, longitude: oLng, address: (from && from.value) || '' },
+        destination: { latitude: dLat, longitude: dLng, address: (to && to.value) || '' },
+        departureTimeUtc: new Date().toISOString(),
+        totalSeats: mode === 'driver' ? 4 : 1,
+        pricePerSeat: 0,
+        distanceKm: route.distance ? route.distance / 1000 : null,
+        estimatedMinutes: route.duration ? Math.round(route.duration / 60) : null,
+        notes: null,
+        category: 'Live',
+        role: mode === 'driver' ? 'Driver' : 'Passenger',
+      });
+      if (trip && trip.id != null) {
+        liveTripIdRef.current = String(trip.id);
+        walkerStateStore.patch({ activeTripId: String(trip.id) });
+      }
+    } catch (e) {
+      console.warn('[trip] live trip persist failed:', e?.message || e);
+    }
+  };
+
+  // Auto-resume: redraw the retained session's Live trip on reopen — recompute
+  // the road between its persisted origin/destination, draw it, re-share it over
+  // presence and resume navigation. Planned trips restore the map/mode only.
+  const restoreLiveRoute = async (trip) => {
+    try {
+      if (String(trip.category || '').toLowerCase() !== 'live') return;
+      const from = [trip.origin?.latitude, trip.origin?.longitude];
+      const to = [trip.destination?.latitude, trip.destination?.longitude];
+      if (from.some((v) => v == null) || to.some((v) => v == null)) return;
+      const routes = await getRoute([from, to]);
+      const r = routes && routes[0];
+      if (!r || !r.geometry) return;
+      const coords = r.geometry.coordinates.map((c) => [c[1], c[0]]);
+      liveTripIdRef.current = String(trip.id);
+      presenceClient.publishRoute(toRoutePublishDto(coords, r)).catch(() => {});
+      setFreeMode(true); // resume live-location sharing for the restored trip
+      mapHook.setRouteLines([]);
+      mapHook.renderUserRoute(coords, mapStyleRef.current);
+      mapHook.fitRoute(coords);
+      startUserNav(r, coords);
+    } catch { /* restore is best-effort; the map still works without it */ }
+  };
+
+  const handleRouteSelected = async (route, waypoints) => {
     setShowSheet(false);
     setRoutePicking(false);
     if (!route || !route.geometry) return;
@@ -480,10 +584,12 @@ export function App() {
       // Live: keep real walkers on the map and share this route over presence
       // so watching contacts see it. Creating a trip also starts live-location
       // sharing (permission is asked here) — the Free Mode switch reflects it.
+      // The journey is also persisted as a Live trip (restorable on reopen).
       mapHook.setWalkersDimmed(false);
       presenceClient.publishRoute(toRoutePublishDto(coords, route)).catch(() => {});
       setFreeMode(true);
       setHasCreatedTrip(true); // creating a route engages the viewer (planned board hides)
+      createLiveTrip(route, coords, waypoints);
     }
 
     mapHook.setRouteLines([]);
@@ -588,7 +694,20 @@ export function App() {
 
   const endRoute = () => {
     stopNav();
-    if (!USE_MOCKS) presenceClient.clearRoute().catch(() => {});
+    if (!USE_MOCKS) {
+      presenceClient.clearRoute().catch(() => {});
+      // Ending the route finishes the persisted Live trip (accepted bookings
+      // complete, pending ones expire). Only the live trip backing THIS route —
+      // a separately-scheduled planned trip must not be completed here.
+      const liveTripId = liveTripIdRef.current;
+      if (liveTripId) {
+        liveTripIdRef.current = null;
+        tripApi.complete(liveTripId).catch(() => {});
+        if (walkerStateStore.get().activeTripId === liveTripId) {
+          walkerStateStore.patch({ clearActiveTrip: true });
+        }
+      }
+    }
     mapHook.clearUserRoute();
     mapHook.clearPlanning();
     activeRouteRef.current = null;
@@ -874,6 +993,19 @@ export function App() {
   const exitToHome = () => {
     setScreen('home'); setShowMatching(false); setShowSheet(false); setRoutePicking(false);
     stopNav();
+    if (!USE_MOCKS) {
+      // Leaving the map abandons the journey deliberately: withdraw the shared
+      // route and call off the backing Live trip (its agreements cascade).
+      presenceClient.clearRoute().catch(() => {});
+      const liveTripId = liveTripIdRef.current;
+      if (liveTripId) {
+        liveTripIdRef.current = null;
+        tripApi.cancel(liveTripId).catch(() => {});
+        if (walkerStateStore.get().activeTripId === liveTripId) {
+          walkerStateStore.patch({ clearActiveTrip: true });
+        }
+      }
+    }
     setFreeMode(false); // stop sharing our live location when leaving the map
     setHasCreatedTrip(false); // reset engagement when leaving the map
     activeRouteRef.current = null; setActiveRoute(null); setNavProgress(0);
