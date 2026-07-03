@@ -19,8 +19,11 @@
    ════════════════════════════════════════════════════════════════ */
 
 import { createHubConnection, startConnection } from './hubConnection';
+import { callApi } from '@/api/callApi';
 
-const ICE_SERVERS = [{ urls: 'stun:stun.l.google.com:19302' }];
+// Used only when /calls/ice-servers is unreachable: STUN-only still connects
+// direct P2P on open NATs; the TURN relay needs backend-issued credentials.
+const FALLBACK_ICE_SERVERS = [{ urls: 'stun:stun.l.google.com:19302' }];
 
 // Unanswered-call limits: the caller gives up first (and tells the server, so
 // the callee is dismissed too); the callee timer is only a safety net for a
@@ -72,6 +75,7 @@ function ensureConnection() {
     if (call) { connection.invoke('RejectCall', invite.callId).catch(() => {}); return; }
     call = { callId: invite.callId, peerId: invite.fromUserId, role: 'callee', accepted: false };
     armRingTimer(CALLEE_RING_TIMEOUT_MS);
+    getIceServers().catch(() => {}); // warm the TURN credentials while ringing
     emit('incoming', invite);
   });
 
@@ -158,6 +162,29 @@ function failCall(reason, err) {
 
 // --- WebRTC plumbing --------------------------------------------------
 
+let iceCache = null; // { servers, expiresAt } — TURN credentials are ephemeral
+
+/** ICE servers for the next RTCPeerConnection. Cached while the backend-issued
+    TURN credentials are still fresh (80% of their TTL); prefetched on ring so
+    negotiation doesn't wait on the round-trip. Falls back to STUN-only. */
+async function getIceServers() {
+  if (iceCache && Date.now() < iceCache.expiresAt) return iceCache.servers;
+  try {
+    const dto = await callApi.iceServers();
+    const servers = (dto?.iceServers || [])
+      .filter((s) => s && s.urls && s.urls.length)
+      .map((s) => (s.username && s.credential
+        ? { urls: s.urls, username: s.username, credential: s.credential }
+        : { urls: s.urls }));
+    if (servers.length) {
+      const ttlMs = Math.max(60, dto.ttlSeconds || 3600) * 1000 * 0.8;
+      iceCache = { servers, expiresAt: Date.now() + ttlMs };
+      return servers;
+    }
+  } catch { /* backend unreachable — degrade to STUN-only */ }
+  return FALLBACK_ICE_SERVERS;
+}
+
 function getMic() {
   if (localStream) return Promise.resolve(localStream);
   if (!micPromise) {
@@ -168,9 +195,18 @@ function getMic() {
   return micPromise;
 }
 
-async function ensurePeer() {
-  if (pc) return pc;
-  pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+let peerPromise = null; // single-flight: offer handling must not double-create
+
+function ensurePeer() {
+  if (pc) return Promise.resolve(pc);
+  if (!peerPromise) peerPromise = createPeer().finally(() => { peerPromise = null; });
+  return peerPromise;
+}
+
+async function createPeer() {
+  const iceServers = await getIceServers();
+  if (pc) return pc; // created while we awaited
+  pc = new RTCPeerConnection({ iceServers });
 
   const stream = await getMic();
   stream.getTracks().forEach((track) => pc.addTrack(track, stream));
@@ -257,6 +293,7 @@ export const callClient = {
   /** Caller: ring `toUserId`. Audio is negotiated once they accept. */
   async startCall(toUserId, callType = 'audio') {
     if (!this.isConnected()) throw new Error('Call hub not connected');
+    getIceServers().catch(() => {}); // warm the TURN credentials while ringing
     await getMic(); // prompt for the mic up front so accept is instant
     const callId = await connection.invoke('InitiateCall', toUserId, callType);
     call = { callId, peerId: toUserId, role: 'caller', accepted: false };
