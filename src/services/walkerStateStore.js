@@ -58,6 +58,13 @@ export const walkerStateStore = {
 
     const wire = {};
     WIRE_FIELDS.forEach((k) => { if (delta[k] !== undefined) wire[k] = delta[k]; });
+    // Client-side ids are strings (id-string invariant), but the hub's
+    // WalkerStateDelta.ActiveTripId is a long — a string here fails the whole
+    // SyncWalkerState binding silently, so convert on the wire.
+    if (wire.activeTripId != null) {
+      const n = Number(wire.activeTripId);
+      if (Number.isFinite(n)) wire.activeTripId = n; else delete wire.activeTripId;
+    }
     if (Object.keys(wire).length) presenceClient.syncWalkerState(wire).catch(() => {});
     return state;
   },
@@ -69,7 +76,8 @@ export const walkerStateStore = {
       ...state,
       role: serverState.role ?? state.role,
       freeMode: !!serverState.freeMode,
-      activeTripId: serverState.activeTripId ?? null,
+      // The server sends the trip id as a long — keep it a string locally.
+      activeTripId: serverState.activeTripId != null ? String(serverState.activeTripId) : null,
       watchedWalkerIds: serverState.watchedWalkerIds || [],
       lat: serverState.lat ?? state.lat,
       lng: serverState.lng ?? state.lng,
