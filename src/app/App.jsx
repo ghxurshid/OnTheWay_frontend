@@ -480,8 +480,9 @@ export function App() {
   const applyFollow = useCallback((pos, heading, kmh) => {
     if (!followMeRef.current || !pos) return;
     mapHook.setUserLocation(pos, 0); // arrow forward = screen up (map carries heading)
-    const h = heading != null ? heading : sensorHeadingRef.current;
-    if (h != null) { mapHook.setBearing(h); appliedBearingRef.current = h; }
+    // Only a confirmed moving GPS course drives the bearing here; while parked the
+    // (smoothed) device compass owns the rotation via the orientation effect.
+    if (heading != null) { mapHook.rotateTo(heading); appliedBearingRef.current = heading; }
     mapHook.navFollow(pos, zoomForSpeed(kmh));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps -- mapHook methods are stable
 
@@ -511,10 +512,15 @@ export function App() {
         const pos = [p.coords.latitude, p.coords.longitude];
         const spd = p.coords.speed;
         const kmh = spd != null && !Number.isNaN(spd) && spd >= 0 ? spd * 3.6 : null;
+        // Only treat the fix as "moving" when speed confirms it — otherwise a
+        // parked GPS wandering ±5-10m would feed random headings and spin the map.
+        // Movement gates rotation source: GPS course while moving, compass while not.
         let heading = null;
         const gh = p.coords.heading;
-        if (gh != null && !Number.isNaN(gh) && (spd == null || spd > 0.7)) { heading = gh; movingRef.current = true; }
-        else if (lastPos && haversineKm(lastPos, pos) > 0.004) { heading = Sim.bearing(lastPos, pos); movingRef.current = true; }
+        const movingBySpeed = kmh != null && kmh >= 3;
+        if (movingBySpeed && gh != null && !Number.isNaN(gh)) { heading = gh; movingRef.current = true; }
+        else if (movingBySpeed && lastPos && haversineKm(lastPos, pos) > 0.006) { heading = Sim.bearing(lastPos, pos); movingRef.current = true; }
+        else if (kmh == null && lastPos && haversineKm(lastPos, pos) > 0.012) { heading = Sim.bearing(lastPos, pos); movingRef.current = true; }
         else movingRef.current = false;
         lastPos = pos;
         userLocRef.current = pos;
@@ -552,12 +558,12 @@ export function App() {
       smoothHeadingRef.current = sm;
       sensorHeadingRef.current = sm;
       if (!followMeRef.current || movingRef.current) return;
-      // Deadband: only push a new bearing once it has drifted enough to matter,
-      // which stops sub-degree churn from re-rendering the map every event.
+      // Deadband: only retarget the rotation once the smoothed heading has drifted
+      // enough to matter; rotateTo then eases there, so tiny churn never shakes.
       const applied = appliedBearingRef.current;
-      if (applied == null || Math.abs(angleDelta(sm, applied)) >= 1.5) {
+      if (applied == null || Math.abs(angleDelta(sm, applied)) >= 2) {
         appliedBearingRef.current = sm;
-        mapHook.setBearing(sm);
+        mapHook.rotateTo(sm);
       }
     };
     window.addEventListener('deviceorientationabsolute', onOrient, true);
@@ -576,7 +582,9 @@ export function App() {
     if (followMe) {
       if (userLocRef.current) applyFollow(userLocRef.current, null, null);
     } else {
-      mapHook.setBearing(0);
+      appliedBearingRef.current = null;
+      smoothHeadingRef.current = null;
+      mapHook.setBearing(0); // straighten north-up instantly
       if (userLocRef.current) mapHook.setUserLocation(userLocRef.current, null);
     }
   }, [followMe]); // eslint-disable-line react-hooks/exhaustive-deps

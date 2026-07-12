@@ -26,6 +26,8 @@ export function useMap(containerRef, active) {
   const walkerBadgeRef = useRef({});
   const userMarkerRef = useRef(null);
   const userCircleRef = useRef(null);
+  const bearingRafRef = useRef(null);   // rAF id for the eased bearing animation
+  const bearingTargetRef = useRef(0);   // heading the rotation is easing toward
 
   useEffect(() => {
     if (!active || !containerRef.current || mapRef.current) return;
@@ -48,7 +50,10 @@ export function useMap(containerRef, active) {
     mapRef.current = map;
     map.on('zoomstart', () => { zoomingRef.current = true; });
     map.on('zoomend', () => { zoomingRef.current = false; });
-    return () => { map.remove(); mapRef.current = null; tileRef.current = null; userMarkerRef.current = null; userCircleRef.current = null; };
+    return () => {
+      if (bearingRafRef.current) { cancelAnimationFrame(bearingRafRef.current); bearingRafRef.current = null; }
+      map.remove(); mapRef.current = null; tileRef.current = null; userMarkerRef.current = null; userCircleRef.current = null;
+    };
   }, [active, containerRef]);
 
   const setMapStyle = useCallback((styleId) => {
@@ -71,23 +76,44 @@ export function useMap(containerRef, active) {
     if (latlng) mapRef.current?.panTo(latlng, { animate: true, duration: 0.5 });
   }, []);
 
-  // Rotate the whole map so that `deg` (compass degrees, clockwise from north)
-  // points to the top of the screen. Used by compass / heading-up navigation.
-  const setBearing = useCallback((deg) => {
+  // ── Map bearing (compass / heading-up rotation) ──
+  // `rotateTo` eases toward the target over rAF frames so even noisy heading
+  // input turns into a smooth rotation instead of a per-event snap ("drebezg").
+  // `setBearing` is the instant variant (used to straighten north-up on exit).
+  const rotateTo = useCallback((deg) => {
     const m = mapRef.current;
     if (!m || typeof m.setBearing !== 'function' || deg == null || Number.isNaN(deg)) return;
+    bearingTargetRef.current = ((deg % 360) + 360) % 360;
+    if (bearingRafRef.current) return; // a frame loop is already chasing the target
+    const step = () => {
+      const map = mapRef.current;
+      if (!map) { bearingRafRef.current = null; return; }
+      const cur = map.getBearing();
+      const d = ((bearingTargetRef.current - cur + 540) % 360) - 180; // shortest path
+      if (Math.abs(d) < 0.4) { map.setBearing(bearingTargetRef.current); bearingRafRef.current = null; return; }
+      map.setBearing(cur + d * 0.22); // ease 22% of the remaining angle each frame
+      bearingRafRef.current = requestAnimationFrame(step);
+    };
+    bearingRafRef.current = requestAnimationFrame(step);
+  }, []);
+  const setBearing = useCallback((deg) => {
+    const m = mapRef.current;
+    if (bearingRafRef.current) { cancelAnimationFrame(bearingRafRef.current); bearingRafRef.current = null; }
+    if (!m || typeof m.setBearing !== 'function' || deg == null || Number.isNaN(deg)) return;
+    bearingTargetRef.current = ((deg % 360) + 360) % 360;
     m.setBearing(deg);
   }, []);
 
   // Follow/navigation recenter: keep the point centered and hold zoom at the
-  // requested "balanced" level, re-zooming only when it changes meaningfully.
+  // requested "balanced" level. Ignores sub-4m GPS jitter (so a parked user
+  // doesn't get panned around) and only re-zooms when it changes meaningfully.
   const navFollow = useCallback((latlng, zoom) => {
     const m = mapRef.current; if (!m || !latlng) return;
-    if (zoom != null && Math.abs(m.getZoom() - zoom) >= 0.5) {
-      m.setView(latlng, zoom, { animate: true, duration: 0.5 });
-    } else {
-      m.panTo(latlng, { animate: true, duration: 0.5 });
-    }
+    const zoomChange = zoom != null && Math.abs(m.getZoom() - zoom) >= 0.5;
+    const movedM = m.distance(m.getCenter(), L.latLng(latlng));
+    if (!zoomChange && movedM < 4) return; // parked: don't chase GPS micro-noise
+    if (zoomChange) m.setView(latlng, zoom, { animate: true, duration: 0.5 });
+    else m.panTo(latlng, { animate: true, duration: 0.5 });
   }, []);
 
   // Fires only on a user-initiated pan/drag (not programmatic moves), so follow
@@ -479,7 +505,7 @@ export function useMap(containerRef, active) {
   }, []);
 
   return {
-    mapRef, flyTo, recenter, setBearing, navFollow, onUserDrag, setRouteLines, setWaypointMarkers, showMatchedUsers, clearMatched,
+    mapRef, flyTo, recenter, setBearing, rotateTo, navFollow, onUserDrag, setRouteLines, setWaypointMarkers, showMatchedUsers, clearMatched,
     enableTapPick, disableTapPick, startTracking, setMapStyle, setUserLocation, renderWalkers,
     tickWalkers, clearWalkers, fitWalkers, setWalkersDimmed, highlightWalker, setWalkerBadges,
     upsertWalkerMarker, removeWalkerMarker, setWalkerRoute, removeWalkerRoute, setWalkerOffline,
