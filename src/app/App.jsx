@@ -50,7 +50,7 @@ import { PrivacyScreen } from '@/features/privacy/PrivacyScreen';
 
 const Sim = WalkerSim;
 
-// Compass / heading-up navigation helpers ─────────────────────────────────
+// Heading-up navigation helpers ────────────────────────────────────────────
 // Balanced follow-zoom: the faster you move the further ahead you see. Discrete
 // steps (with the navFollow 0.5 threshold) avoid constant re-zoom jitter.
 function zoomForSpeed(kmh) {
@@ -61,28 +61,8 @@ function zoomForSpeed(kmh) {
   return 14;                // fast
 }
 
-// Turn a DeviceOrientation event into a compass heading (degrees clockwise from
-// north), used to keep "heading up" while stationary (GPS course drives it while
-// moving). Mirrors leaflet-rotate's own device-orientation math.
-function compassHeadingFromEvent(e) {
-  if (!e) return null;
-  let angle = null;
-  if (typeof e.webkitCompassHeading === 'number' && !Number.isNaN(e.webkitCompassHeading)) {
-    angle = e.webkitCompassHeading;          // iOS: already clockwise from north
-  } else if (typeof e.alpha === 'number' && !Number.isNaN(e.alpha)) {
-    angle = 360 - e.alpha;                   // spec alpha is counter-clockwise
-  }
-  if (angle == null) return null;
-  const so = (typeof window !== 'undefined' && window.screen && window.screen.orientation
-    && window.screen.orientation.angle) || 0;
-  return ((angle + so) % 360 + 360) % 360;   // compensate screen rotation, normalise
-}
-
-// Shortest signed difference to→from in degrees, range (-180, 180]. Lets us
-// smooth/compare headings across the 360°/0° seam without a discontinuity.
-function angleDelta(to, from) {
-  return ((to - from + 540) % 360) - 180;
-}
+// Bearing used before any real heading has been observed (north up).
+const DEFAULT_HEADING = 0;
 
 // Real backend user ids are numeric (long, serialized as digits); simulated
 // walkers use 'sim_'/'simr_' ids. A numeric id ⇒ a real, callable/chattable user.
@@ -168,11 +148,8 @@ export function App() {
   const navSpeedRef = useRef(0);           // smoothed real speed (km/h)
   const navProgRef = useRef(0);
   const activeRouteRef = useRef(null);
-  const followMeRef = useRef(false);       // compass/heading-up mode active
-  const sensorHeadingRef = useRef(null);   // latest (smoothed) device-compass heading
-  const smoothHeadingRef = useRef(null);   // circular-EMA state for compass smoothing
-  const appliedBearingRef = useRef(null);  // last bearing actually pushed to the map
-  const movingRef = useRef(false);         // GPS heading is currently trustworthy
+  const followMeRef = useRef(false);       // heading-up follow mode active
+  const lastHeadingRef = useRef(null);     // last real heading from movement (frozen while parked)
   const contactsRef = useRef([]);
   const liveWalkersRef = useRef(new Map()); // userId → enriched live walker
 
@@ -474,35 +451,23 @@ export function App() {
   }, [mapStyle]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Apply one "heading-up" follow frame: recenter on the live position, rotate
-  // the map so the current heading (GPS course while moving, device compass while
-  // stationary) points up, keep zoom balanced for the speed, and lock the "me"
-  // arrow pointing forward (up). No-op unless compass/follow mode is on.
-  const applyFollow = useCallback((pos, heading, kmh) => {
+  // the map to the heading, keep zoom balanced for the speed, and lock the "me"
+  // arrow pointing forward (up). The heading comes only from movement (GPS): the
+  // last observed heading is held while parked, falling back to north-up until a
+  // first heading is ever seen — so a stationary device never spins the map.
+  // No-op unless follow mode is on.
+  const applyFollow = useCallback((pos, kmh) => {
     if (!followMeRef.current || !pos) return;
     mapHook.setUserLocation(pos, 0); // arrow forward = screen up (map carries heading)
-    // Only a confirmed moving GPS course drives the bearing here; while parked the
-    // (smoothed) device compass owns the rotation via the orientation effect.
-    if (heading != null) { mapHook.rotateTo(heading); appliedBearingRef.current = heading; }
+    mapHook.rotateTo(lastHeadingRef.current != null ? lastHeadingRef.current : DEFAULT_HEADING);
     mapHook.navFollow(pos, zoomForSpeed(kmh));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps -- mapHook methods are stable
 
-  // Compass button. On enable, request the iOS device-orientation permission
-  // (must happen from the user gesture) so heading-up rotation works there too.
-  const toggleFollow = useCallback(() => {
-    setFollowMe((f) => {
-      const next = !f;
-      if (next && typeof DeviceOrientationEvent !== 'undefined'
-        && typeof DeviceOrientationEvent.requestPermission === 'function') {
-        DeviceOrientationEvent.requestPermission().catch(() => {});
-      }
-      return next;
-    });
-  }, []);
-
   // Always-on location tracking: once permission is granted, continuously watch
-  // the real location and keep the "me" marker in sync — independent of compass.
-  // When compass/follow mode is on, also recenter + rotate (heading up) + zoom.
-  // Paused while an active trip runs (trip navigation owns the marker instead).
+  // the real location and keep the "me" marker in sync — independent of follow.
+  // Heading is derived only from movement (GPS course, or bearing between fixes)
+  // and remembered in lastHeadingRef; when follow mode is on we also recenter +
+  // rotate (heading up) + zoom. Paused while an active trip owns the marker.
   useEffect(() => {
     if (screen !== 'map' || activeRoute) return undefined;
     if (typeof navigator === 'undefined' || !navigator.geolocation) return undefined;
@@ -512,19 +477,18 @@ export function App() {
         const pos = [p.coords.latitude, p.coords.longitude];
         const spd = p.coords.speed;
         const kmh = spd != null && !Number.isNaN(spd) && spd >= 0 ? spd * 3.6 : null;
-        // Only treat the fix as "moving" when speed confirms it — otherwise a
-        // parked GPS wandering ±5-10m would feed random headings and spin the map.
-        // Movement gates rotation source: GPS course while moving, compass while not.
+        // Only trust a heading when speed confirms real movement — a parked GPS
+        // wandering ±5-10m must not produce a heading (the map would spin).
         let heading = null;
         const gh = p.coords.heading;
         const movingBySpeed = kmh != null && kmh >= 3;
-        if (movingBySpeed && gh != null && !Number.isNaN(gh)) { heading = gh; movingRef.current = true; }
-        else if (movingBySpeed && lastPos && haversineKm(lastPos, pos) > 0.006) { heading = Sim.bearing(lastPos, pos); movingRef.current = true; }
-        else if (kmh == null && lastPos && haversineKm(lastPos, pos) > 0.012) { heading = Sim.bearing(lastPos, pos); movingRef.current = true; }
-        else movingRef.current = false;
+        if (movingBySpeed && gh != null && !Number.isNaN(gh)) heading = gh;
+        else if (movingBySpeed && lastPos && haversineKm(lastPos, pos) > 0.006) heading = Sim.bearing(lastPos, pos);
+        else if (kmh == null && lastPos && haversineKm(lastPos, pos) > 0.012) heading = Sim.bearing(lastPos, pos);
+        if (heading != null) lastHeadingRef.current = heading; // remember for parked frames
         lastPos = pos;
         userLocRef.current = pos;
-        if (followMeRef.current) applyFollow(pos, heading, kmh);
+        if (followMeRef.current) applyFollow(pos, kmh);
         else mapHook.setUserLocation(pos, heading);
       },
       () => {},
@@ -535,55 +499,14 @@ export function App() {
     return () => { navigator.geolocation.clearWatch(id); offDrag(); };
   }, [screen, activeRoute]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Device compass: feeds the heading-up rotation while stationary (when GPS
-  // course is unreliable). Active whenever the map is open; only applied while
-  // follow mode is on and we're not moving.
-  useEffect(() => {
-    if (screen !== 'map') return undefined;
-    if (typeof window === 'undefined' || !window.DeviceOrientationEvent) return undefined;
-    const onOrient = (e) => {
-      const raw = compassHeadingFromEvent(e);
-      if (raw == null) return;
-      // Circular exponential smoothing: track the shortest-path delta so noisy
-      // ±few-degree sensor jitter is averaged out instead of shaking the map.
-      // A large delta (real turn / flip) snaps through so we stay responsive.
-      const prev = smoothHeadingRef.current;
-      let sm;
-      if (prev == null) sm = raw;
-      else {
-        const d = angleDelta(raw, prev);
-        sm = Math.abs(d) > 60 ? raw : prev + 0.15 * d;
-      }
-      sm = (sm % 360 + 360) % 360;
-      smoothHeadingRef.current = sm;
-      sensorHeadingRef.current = sm;
-      if (!followMeRef.current || movingRef.current) return;
-      // Deadband: only retarget the rotation once the smoothed heading has drifted
-      // enough to matter; rotateTo then eases there, so tiny churn never shakes.
-      const applied = appliedBearingRef.current;
-      if (applied == null || Math.abs(angleDelta(sm, applied)) >= 3) {
-        appliedBearingRef.current = sm;
-        mapHook.rotateTo(sm);
-      }
-    };
-    window.addEventListener('deviceorientationabsolute', onOrient, true);
-    window.addEventListener('deviceorientation', onOrient, true);
-    return () => {
-      window.removeEventListener('deviceorientationabsolute', onOrient, true);
-      window.removeEventListener('deviceorientation', onOrient, true);
-    };
-  }, [screen]); // eslint-disable-line react-hooks/exhaustive-deps
-
   // Mirror followMe into a ref (read inside watch callbacks) and react to toggles:
-  // on → snap to the live location immediately; off → straighten the map (north up)
-  // and restore the free-pointing "me" arrow.
+  // on → snap to the live location immediately (last/north-up heading); off →
+  // straighten the map (north up) and restore the free-pointing "me" arrow.
   useEffect(() => {
     followMeRef.current = followMe;
     if (followMe) {
-      if (userLocRef.current) applyFollow(userLocRef.current, null, null);
+      if (userLocRef.current) applyFollow(userLocRef.current, null);
     } else {
-      appliedBearingRef.current = null;
-      smoothHeadingRef.current = null;
       mapHook.setBearing(0); // straighten north-up instantly
       if (userLocRef.current) mapHook.setUserLocation(userLocRef.current, null);
     }
@@ -753,9 +676,10 @@ export function App() {
     }
     const pos = markerPos || s.position;
     if (pos) {
-      // Compass follow works during an active trip too: rotate heading-up and
-      // recenter; otherwise just point the marker along the heading.
-      if (followMeRef.current) applyFollow(pos, hd, speedKmh);
+      // Follow works during an active trip too: remember the heading and rotate
+      // heading-up + recenter; otherwise just point the marker along the heading.
+      if (hd != null) lastHeadingRef.current = hd;
+      if (followMeRef.current) applyFollow(pos, speedKmh);
       else mapHook.setUserLocation(pos, hd);
     }
     const remKm = Math.max(0, base.distanceKm * (1 - p));
@@ -1199,7 +1123,7 @@ export function App() {
             appTheme={themeStore.mode}
             onMapStyleChange={changeMapStyleMode}
             follow={followMe}
-            onToggleFollow={toggleFollow}
+            onToggleFollow={() => setFollowMe((f) => !f)}
             engaged={engaged}
             onTripCreated={(tripId) => {
               setHasCreatedTrip(true);
