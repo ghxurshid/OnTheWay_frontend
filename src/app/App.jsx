@@ -561,7 +561,7 @@ export function App() {
       // Deadband: only retarget the rotation once the smoothed heading has drifted
       // enough to matter; rotateTo then eases there, so tiny churn never shakes.
       const applied = appliedBearingRef.current;
-      if (applied == null || Math.abs(angleDelta(sm, applied)) >= 2) {
+      if (applied == null || Math.abs(angleDelta(sm, applied)) >= 3) {
         appliedBearingRef.current = sm;
         mapHook.rotateTo(sm);
       }
