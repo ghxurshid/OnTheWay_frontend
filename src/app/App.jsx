@@ -78,6 +78,12 @@ function compassHeadingFromEvent(e) {
   return ((angle + so) % 360 + 360) % 360;   // compensate screen rotation, normalise
 }
 
+// Shortest signed difference to→from in degrees, range (-180, 180]. Lets us
+// smooth/compare headings across the 360°/0° seam without a discontinuity.
+function angleDelta(to, from) {
+  return ((to - from + 540) % 360) - 180;
+}
+
 // Real backend user ids are numeric (long, serialized as digits); simulated
 // walkers use 'sim_'/'simr_' ids. A numeric id ⇒ a real, callable/chattable user.
 const REAL_ID_RE = /^\d+$/;
@@ -163,7 +169,9 @@ export function App() {
   const navProgRef = useRef(0);
   const activeRouteRef = useRef(null);
   const followMeRef = useRef(false);       // compass/heading-up mode active
-  const sensorHeadingRef = useRef(null);   // latest device-compass heading
+  const sensorHeadingRef = useRef(null);   // latest (smoothed) device-compass heading
+  const smoothHeadingRef = useRef(null);   // circular-EMA state for compass smoothing
+  const appliedBearingRef = useRef(null);  // last bearing actually pushed to the map
   const movingRef = useRef(false);         // GPS heading is currently trustworthy
   const contactsRef = useRef([]);
   const liveWalkersRef = useRef(new Map()); // userId → enriched live walker
@@ -473,7 +481,7 @@ export function App() {
     if (!followMeRef.current || !pos) return;
     mapHook.setUserLocation(pos, 0); // arrow forward = screen up (map carries heading)
     const h = heading != null ? heading : sensorHeadingRef.current;
-    if (h != null) mapHook.setBearing(h);
+    if (h != null) { mapHook.setBearing(h); appliedBearingRef.current = h; }
     mapHook.navFollow(pos, zoomForSpeed(kmh));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps -- mapHook methods are stable
 
@@ -528,10 +536,29 @@ export function App() {
     if (screen !== 'map') return undefined;
     if (typeof window === 'undefined' || !window.DeviceOrientationEvent) return undefined;
     const onOrient = (e) => {
-      const h = compassHeadingFromEvent(e);
-      if (h == null) return;
-      sensorHeadingRef.current = h;
-      if (followMeRef.current && !movingRef.current) mapHook.setBearing(h);
+      const raw = compassHeadingFromEvent(e);
+      if (raw == null) return;
+      // Circular exponential smoothing: track the shortest-path delta so noisy
+      // ±few-degree sensor jitter is averaged out instead of shaking the map.
+      // A large delta (real turn / flip) snaps through so we stay responsive.
+      const prev = smoothHeadingRef.current;
+      let sm;
+      if (prev == null) sm = raw;
+      else {
+        const d = angleDelta(raw, prev);
+        sm = Math.abs(d) > 60 ? raw : prev + 0.15 * d;
+      }
+      sm = (sm % 360 + 360) % 360;
+      smoothHeadingRef.current = sm;
+      sensorHeadingRef.current = sm;
+      if (!followMeRef.current || movingRef.current) return;
+      // Deadband: only push a new bearing once it has drifted enough to matter,
+      // which stops sub-degree churn from re-rendering the map every event.
+      const applied = appliedBearingRef.current;
+      if (applied == null || Math.abs(angleDelta(sm, applied)) >= 1.5) {
+        appliedBearingRef.current = sm;
+        mapHook.setBearing(sm);
+      }
     };
     window.addEventListener('deviceorientationabsolute', onOrient, true);
     window.addEventListener('deviceorientation', onOrient, true);
