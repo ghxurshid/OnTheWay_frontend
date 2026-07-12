@@ -90,8 +90,11 @@ export function useMap(containerRef, active) {
       if (!map) { bearingRafRef.current = null; return; }
       const cur = map.getBearing();
       const d = ((bearingTargetRef.current - cur + 540) % 360) - 180; // shortest path
-      if (Math.abs(d) < 0.4) { map.setBearing(bearingTargetRef.current); bearingRafRef.current = null; return; }
-      map.setBearing(cur + d * 0.22); // ease 22% of the remaining angle each frame
+      if (Math.abs(d) < 0.3) { map.setBearing(bearingTargetRef.current); bearingRafRef.current = null; return; }
+      // Ease a gentle 12% of the remaining angle each frame. Small corrections
+      // (a 10-15° heading nudge) glide instead of snapping; larger real turns
+      // still settle in well under a second.
+      map.setBearing(cur + d * 0.12);
       bearingRafRef.current = requestAnimationFrame(step);
     };
     bearingRafRef.current = requestAnimationFrame(step);
