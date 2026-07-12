@@ -8,6 +8,7 @@
 import { useRef, useEffect, useCallback } from 'react';
 import L from 'leaflet';
 import 'leaflet-ant-path';
+import 'leaflet-rotate'; // patches L.Map with bearing/rotation + two-finger touchRotate
 import { T } from '@/constants/theme';
 import { TASHKENT, MAP_STYLES, themeFor } from '@/constants/map';
 import {
@@ -32,6 +33,9 @@ export function useMap(containerRef, active) {
       center: TASHKENT, zoom: 14,
       zoomControl: false, attributionControl: false,
       renderer: (rendererRef.current = L.svg({ padding: 2 })),
+      // Rotation: two-finger gesture rotates the map; compass/follow mode drives
+      // the bearing programmatically via setBearing. rotateControl off (custom UI).
+      rotate: true, touchRotate: true, bearing: 0, rotateControl: false,
     });
     tileRef.current = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
       subdomains: 'abcd', maxZoom: 19,
@@ -65,6 +69,25 @@ export function useMap(containerRef, active) {
   // Smoothly keep the current zoom and re-center on a point (used by follow mode).
   const recenter = useCallback((latlng) => {
     if (latlng) mapRef.current?.panTo(latlng, { animate: true, duration: 0.5 });
+  }, []);
+
+  // Rotate the whole map so that `deg` (compass degrees, clockwise from north)
+  // points to the top of the screen. Used by compass / heading-up navigation.
+  const setBearing = useCallback((deg) => {
+    const m = mapRef.current;
+    if (!m || typeof m.setBearing !== 'function' || deg == null || Number.isNaN(deg)) return;
+    m.setBearing(deg);
+  }, []);
+
+  // Follow/navigation recenter: keep the point centered and hold zoom at the
+  // requested "balanced" level, re-zooming only when it changes meaningfully.
+  const navFollow = useCallback((latlng, zoom) => {
+    const m = mapRef.current; if (!m || !latlng) return;
+    if (zoom != null && Math.abs(m.getZoom() - zoom) >= 0.5) {
+      m.setView(latlng, zoom, { animate: true, duration: 0.5 });
+    } else {
+      m.panTo(latlng, { animate: true, duration: 0.5 });
+    }
   }, []);
 
   // Fires only on a user-initiated pan/drag (not programmatic moves), so follow
@@ -456,7 +479,7 @@ export function useMap(containerRef, active) {
   }, []);
 
   return {
-    mapRef, flyTo, recenter, onUserDrag, setRouteLines, setWaypointMarkers, showMatchedUsers, clearMatched,
+    mapRef, flyTo, recenter, setBearing, navFollow, onUserDrag, setRouteLines, setWaypointMarkers, showMatchedUsers, clearMatched,
     enableTapPick, disableTapPick, startTracking, setMapStyle, setUserLocation, renderWalkers,
     tickWalkers, clearWalkers, fitWalkers, setWalkersDimmed, highlightWalker, setWalkerBadges,
     upsertWalkerMarker, removeWalkerMarker, setWalkerRoute, removeWalkerRoute, setWalkerOffline,
