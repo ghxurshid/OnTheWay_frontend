@@ -5,13 +5,14 @@
    All data flows through services/hooks; no mock import lives here.
    ════════════════════════════════════════════════════════════════ */
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import { T, themeStore } from '@/constants/theme';
 import { t } from '@/i18n';
 import { TASHKENT } from '@/constants/map';
 import { CHAT_REPLY_KEYS } from '@/constants/app';
 import { haversineKm } from '@/utils/geo';
 import { useMap } from '@/hooks/useMap';
+import { useHeadingFollow } from '@/hooks/useHeadingFollow';
 import WalkerSim from '@/services/simulationService';
 import { simStore } from '@/services/simStore';
 import { unreadStore } from '@/services/unreadStore';
@@ -37,32 +38,21 @@ import { WalkerPreviewCard } from '@/features/matching/WalkerPreviewCard';
 import { BookingRequestPrompt } from '@/features/matching/BookingRequestPrompt';
 import { BookingAgreementsSheet } from '@/features/matching/BookingAgreementsSheet';
 import { bookingApi } from '@/api/bookingApi';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { authStore } from '@/services/authStore';
 import { SideDrawer } from '@/features/navigation/SideDrawer';
 import { PushToast } from '@/features/navigation/PushToast';
 import { RouteSheet } from '@/features/route/RouteSheet';
 import { MapPickOverlay } from '@/features/route/MapPickOverlay';
-import { CallScreen } from '@/features/call/CallScreen';
-import { ChatScreen } from '@/features/chat/ChatScreen';
-import { SettingsScreen } from '@/features/settings/SettingsScreen';
-import { ComplaintScreen } from '@/features/complaint/ComplaintScreen';
-import { PrivacyScreen } from '@/features/privacy/PrivacyScreen';
+// Overlay screens are opened on demand — lazy-load them so they leave the
+// initial bundle. Named exports are adapted to the default export lazy() wants.
+const CallScreen = lazy(() => import('@/features/call/CallScreen').then((m) => ({ default: m.CallScreen })));
+const ChatScreen = lazy(() => import('@/features/chat/ChatScreen').then((m) => ({ default: m.ChatScreen })));
+const SettingsScreen = lazy(() => import('@/features/settings/SettingsScreen').then((m) => ({ default: m.SettingsScreen })));
+const ComplaintScreen = lazy(() => import('@/features/complaint/ComplaintScreen').then((m) => ({ default: m.ComplaintScreen })));
+const PrivacyScreen = lazy(() => import('@/features/privacy/PrivacyScreen').then((m) => ({ default: m.PrivacyScreen })));
 
 const Sim = WalkerSim;
-
-// Heading-up navigation helpers ────────────────────────────────────────────
-// Balanced follow-zoom: the faster you move the further ahead you see. Discrete
-// steps (with the navFollow 0.5 threshold) avoid constant re-zoom jitter.
-function zoomForSpeed(kmh) {
-  if (kmh == null || Number.isNaN(kmh)) return 17;
-  if (kmh < 5) return 17;   // stationary / walking
-  if (kmh < 20) return 16;  // slow
-  if (kmh < 45) return 15;  // city driving
-  return 14;                // fast
-}
-
-// Bearing used before any real heading has been observed (north up).
-const DEFAULT_HEADING = 0;
 
 // Real backend user ids are numeric (long, serialized as digits); simulated
 // walkers use 'sim_'/'simr_' ids. A numeric id ⇒ a real, callable/chattable user.
@@ -148,8 +138,6 @@ export function App() {
   const navSpeedRef = useRef(0);           // smoothed real speed (km/h)
   const navProgRef = useRef(0);
   const activeRouteRef = useRef(null);
-  const followMeRef = useRef(false);       // heading-up follow mode active
-  const lastHeadingRef = useRef(null);     // last real heading from movement (frozen while parked)
   const contactsRef = useRef([]);
   const liveWalkersRef = useRef(new Map()); // userId → enriched live walker
 
@@ -450,67 +438,19 @@ export function App() {
     mapHook.recolorUserRoute && mapHook.recolorUserRoute(mapStyle);
   }, [mapStyle]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Apply one "heading-up" follow frame: recenter on the live position, rotate
-  // the map to the heading, keep zoom balanced for the speed, and lock the "me"
-  // arrow pointing forward (up). The heading comes only from movement (GPS): the
-  // last observed heading is held while parked, falling back to north-up until a
-  // first heading is ever seen — so a stationary device never spins the map.
-  // No-op unless follow mode is on.
-  const applyFollow = useCallback((pos, kmh) => {
-    if (!followMeRef.current || !pos) return;
-    mapHook.setUserLocation(pos, 0); // arrow forward = screen up (map carries heading)
-    mapHook.rotateTo(lastHeadingRef.current != null ? lastHeadingRef.current : DEFAULT_HEADING);
-    mapHook.navFollow(pos, zoomForSpeed(kmh));
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- mapHook methods are stable
+  // Live-location tracking + heading-up follow mode (extracted hook). Returns the
+  // shared follow frame + last-heading ref so trip navigation can reuse them.
+  const { applyFollow, lastHeadingRef, followMeRef } = useHeadingFollow({
+    mapHook, screen, activeRoute, followMe, setFollowMe, userLocRef,
+  });
 
-  // Always-on location tracking: once permission is granted, continuously watch
-  // the real location and keep the "me" marker in sync — independent of follow.
-  // Heading is derived only from movement (GPS course, or bearing between fixes)
-  // and remembered in lastHeadingRef; when follow mode is on we also recenter +
-  // rotate (heading up) + zoom. Paused while an active trip owns the marker.
-  useEffect(() => {
-    if (screen !== 'map' || activeRoute) return undefined;
-    if (typeof navigator === 'undefined' || !navigator.geolocation) return undefined;
-    let lastPos = null;
-    const id = navigator.geolocation.watchPosition(
-      (p) => {
-        const pos = [p.coords.latitude, p.coords.longitude];
-        const spd = p.coords.speed;
-        const kmh = spd != null && !Number.isNaN(spd) && spd >= 0 ? spd * 3.6 : null;
-        // Only trust a heading when speed confirms real movement — a parked GPS
-        // wandering ±5-10m must not produce a heading (the map would spin).
-        let heading = null;
-        const gh = p.coords.heading;
-        const movingBySpeed = kmh != null && kmh >= 3;
-        if (movingBySpeed && gh != null && !Number.isNaN(gh)) heading = gh;
-        else if (movingBySpeed && lastPos && haversineKm(lastPos, pos) > 0.006) heading = Sim.bearing(lastPos, pos);
-        else if (kmh == null && lastPos && haversineKm(lastPos, pos) > 0.012) heading = Sim.bearing(lastPos, pos);
-        if (heading != null) lastHeadingRef.current = heading; // remember for parked frames
-        lastPos = pos;
-        userLocRef.current = pos;
-        if (followMeRef.current) applyFollow(pos, kmh);
-        else mapHook.setUserLocation(pos, heading);
-      },
-      () => {},
-      { enableHighAccuracy: true, maximumAge: 1000, timeout: 20000 },
-    );
-    // Grabbing the map by hand releases follow so panning stays free.
-    const offDrag = mapHook.onUserDrag(() => { if (followMeRef.current) setFollowMe(false); });
-    return () => { navigator.geolocation.clearWatch(id); offDrag(); };
-  }, [screen, activeRoute]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Mirror followMe into a ref (read inside watch callbacks) and react to toggles:
-  // on → snap to the live location immediately (last/north-up heading); off →
-  // straighten the map (north up) and restore the free-pointing "me" arrow.
-  useEffect(() => {
-    followMeRef.current = followMe;
-    if (followMe) {
-      if (userLocRef.current) applyFollow(userLocRef.current, null);
-    } else {
-      mapHook.setBearing(0); // straighten north-up instantly
-      if (userLocRef.current) mapHook.setUserLocation(userLocRef.current, null);
-    }
-  }, [followMe]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Dismiss any open overlay screen (call / chat / side panel). Used as the
+  // recovery action when an overlay's error boundary trips.
+  const closeOverlays = useCallback(() => {
+    setCallState(null);
+    setChatUser(null);
+    setOverlayPanel(null);
+  }, []);
 
   // Free Mode / live-location sharing. When on we stream our position into
   // presence (asking permission the first time) so the opposite role can see us
@@ -960,7 +900,7 @@ export function App() {
       if (evt.type === 'requested') setIncomingBooking(evt.booking);
       else setPushNotif({ title: t(`booking.${evt.type}Title`), body: t(`booking.${evt.type}Body`) });
     });
-  }, [authReady]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [authReady]);
 
   // Keep the active-agreements list in step with the booking store.
   useEffect(() => {
@@ -1219,27 +1159,34 @@ export function App() {
         </>
       )}
 
-      {callState && (
-        <CallScreen
-          callee={callState.user}
-          phase={callState.phase}
-          live={!!callState.live}
-          role={callState.role || 'caller'}
-          onAccept={handleAcceptCall}
-          onAgree={handleAgreeRide}
-          onMuteToggle={(m) => callState.live && callClient.setMuted(m)}
-          onDecline={declineCall}
-          onEnd={endCall}
-        />
-      )}
+      {/* On-demand overlay screens: each isolated by its own error boundary so a
+          failure in one (call, chat, a panel) can't take down the map, and lazy
+          so they stay out of the initial bundle. */}
+      <ErrorBoundary onReset={closeOverlays}>
+        <Suspense fallback={null}>
+          {callState && (
+            <CallScreen
+              callee={callState.user}
+              phase={callState.phase}
+              live={!!callState.live}
+              role={callState.role || 'caller'}
+              onAccept={handleAcceptCall}
+              onAgree={handleAgreeRide}
+              onMuteToggle={(m) => callState.live && callClient.setMuted(m)}
+              onDecline={declineCall}
+              onEnd={endCall}
+            />
+          )}
 
-      {chatUser && (
-        <ChatScreen user={chatUser} onBack={() => setChatUser(null)} />
-      )}
+          {chatUser && (
+            <ChatScreen user={chatUser} onBack={() => setChatUser(null)} />
+          )}
 
-      {overlayPanel === 'settings' && <SettingsScreen onClose={() => setOverlayPanel(null)} />}
-      {overlayPanel === 'complaint' && <ComplaintScreen onClose={() => setOverlayPanel(null)} />}
-      {overlayPanel === 'privacy' && <PrivacyScreen onClose={() => setOverlayPanel(null)} />}
+          {overlayPanel === 'settings' && <SettingsScreen onClose={() => setOverlayPanel(null)} />}
+          {overlayPanel === 'complaint' && <ComplaintScreen onClose={() => setOverlayPanel(null)} />}
+          {overlayPanel === 'privacy' && <PrivacyScreen onClose={() => setOverlayPanel(null)} />}
+        </Suspense>
+      </ErrorBoundary>
     </div>
   );
 }

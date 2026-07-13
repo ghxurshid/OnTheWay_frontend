@@ -5,7 +5,7 @@
    Decoupled from data: it only renders what it's handed.
    ════════════════════════════════════════════════════════════════ */
 
-import { useRef, useEffect, useCallback } from 'react';
+import { useRef, useEffect, useCallback, useMemo } from 'react';
 import L from 'leaflet';
 import 'leaflet-ant-path';
 import 'leaflet-rotate'; // patches L.Map with bearing/rotation + two-finger touchRotate
@@ -507,12 +507,15 @@ export function useMap(containerRef, active) {
     return () => { clearInterval(trackingRef.current); marker.remove(); };
   }, []);
 
-  return {
+  // Stable API object: every member above is a ref or a useCallback, so the
+  // facade never needs to change identity. Memoising it lets consumers (and
+  // React.memo'd children that receive `mapHook`) skip re-renders.
+  return useMemo(() => ({
     mapRef, flyTo, recenter, setBearing, rotateTo, navFollow, onUserDrag, setRouteLines, setWaypointMarkers, showMatchedUsers, clearMatched,
     enableTapPick, disableTapPick, startTracking, setMapStyle, setUserLocation, renderWalkers,
     tickWalkers, clearWalkers, fitWalkers, setWalkersDimmed, highlightWalker, setWalkerBadges,
     upsertWalkerMarker, removeWalkerMarker, setWalkerRoute, removeWalkerRoute, setWalkerOffline,
     getCenter, onMove, onMoveEnd, renderUserRoute, updateUserRoute, clearUserRoute, recolorUserRoute,
     showPreviewRoute, clearPreviewRoute, fitRoute, clearPlanning, hideWalkers, showContactFocus, fitPoints,
-  };
+  }), []); // eslint-disable-line react-hooks/exhaustive-deps -- all members are referentially stable
 }
