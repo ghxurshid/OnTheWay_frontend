@@ -4,7 +4,7 @@ import { FullScreenPanel } from '@/components/ui/FullScreenPanel';
 import { SettingsPanel } from './SettingsPanel';
 
 /** Full-screen wrapper around the settings body (opened from the drawer). */
-export function SettingsScreen({ onClose }) {
+export function SettingsScreen({ onClose }: { onClose: () => void }) {
   return (
     <FullScreenPanel title={t('settings.title')} accent={T.teal} onClose={onClose}>
       <SettingsPanel />

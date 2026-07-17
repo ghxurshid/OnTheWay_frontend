@@ -2,9 +2,6 @@
    Root — composition root. Wraps App in the Theme + i18n providers (the
    single re-render seams for the global stores) and renders it as a
    centred, tablet-width surface on the backdrop.
-
-   The prototype's dev-only "Tweaks" panel / iPhone-frame toggle has been
-   dropped — it was a design-tool harness, not part of the product.
    ════════════════════════════════════════════════════════════════ */
 
 import { ThemeProvider } from '@/contexts/ThemeContext';

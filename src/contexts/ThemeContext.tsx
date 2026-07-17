@@ -6,24 +6,34 @@
    ════════════════════════════════════════════════════════════════ */
 
 import { createContext, useContext, useEffect, useState } from 'react';
+import type { ReactNode } from 'react';
 import { T, themeStore } from '@/constants/theme';
+import type { Theme, ThemeMode } from '@/constants/theme';
 
-const ThemeContext = createContext(null);
+interface ThemeContextValue {
+  T: Theme;
+  mode: ThemeMode;
+  isDark: boolean;
+  setMode: (m: ThemeMode) => void;
+  toggle: () => void;
+}
 
-export function ThemeProvider({ children }) {
-  const [mode, setMode] = useState(themeStore.mode);
+const ThemeContext = createContext<ThemeContextValue | null>(null);
+
+export function ThemeProvider({ children }: { children: ReactNode }) {
+  const [mode, setMode] = useState<ThemeMode>(themeStore.mode);
   useEffect(() => themeStore.subscribe(setMode), []);
-  const value = {
+  const value: ThemeContextValue = {
     T,
     mode,
     isDark: mode === 'dark',
-    setMode: (m) => themeStore.set(m),
+    setMode: (m: ThemeMode) => themeStore.set(m),
     toggle: () => themeStore.toggle(),
   };
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }
 
-export function useThemeContext() {
+export function useThemeContext(): ThemeContextValue {
   const ctx = useContext(ThemeContext);
   if (!ctx) throw new Error('useThemeContext must be used within <ThemeProvider>');
   return ctx;

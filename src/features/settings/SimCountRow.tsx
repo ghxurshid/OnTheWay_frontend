@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react';
 import { T } from '@/constants/theme';
 import { t } from '@/i18n';
 import { useSimCount } from '@/hooks/useSimCount';
@@ -5,7 +6,7 @@ import { useSimCount } from '@/hooks/useSimCount';
 /** Stepper + slider controlling how many nearby walkers to simulate (1..10). */
 export function SimCountRow() {
   const [n, setN] = useSimCount();
-  const stepBtn = {
+  const stepBtn: CSSProperties = {
     width: 30, height: 30, borderRadius: 9, cursor: 'pointer',
     border: `1px solid ${T.border}`, background: T.bg, color: T.text,
     fontSize: 18, fontWeight: 600, fontFamily: 'DM Sans,sans-serif',

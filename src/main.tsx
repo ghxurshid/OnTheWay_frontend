@@ -4,7 +4,7 @@ import 'leaflet/dist/leaflet.css';
 import './styles/global.css';
 import { Root } from './app/Root';
 
-createRoot(document.getElementById('root')).render(
+createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <Root />
   </StrictMode>,

@@ -1,9 +1,12 @@
 import { T } from '@/constants/theme';
 import { useSaved } from '@/hooks/useSaved';
 import { savedStore } from '@/services/savedStore';
+import type { SavedItem } from '@/models';
+
+interface SaveStarProps { place: SavedItem; size?: number }
 
 /** Toggle star that saves/unsaves a place/route/partner. */
-export function SaveStar({ place, size = 18 }) {
+export function SaveStar({ place, size = 18 }: SaveStarProps) {
   const list = useSaved();
   const saved = list.some((p) => p.id === place.id);
   return (

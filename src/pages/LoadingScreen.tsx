@@ -3,7 +3,7 @@ import { T } from '@/constants/theme';
 import { t } from '@/i18n';
 
 /** Splash/loading screen with an animated progress bar. */
-export function LoadingScreen({ onDone }) {
+export function LoadingScreen({ onDone }: { onDone: () => void }) {
   const [pct, setPct] = useState(0);
   useEffect(() => {
     const id = setInterval(() => {
