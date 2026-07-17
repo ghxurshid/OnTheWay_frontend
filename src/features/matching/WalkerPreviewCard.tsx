@@ -1,9 +1,26 @@
 import { T } from '@/constants/theme';
 import { t } from '@/i18n';
 import { fmt12 } from '@/utils/datetime';
+import type { RouteData, Walker } from '@/models';
+
+/** The 'preview' navTask: a walker with their server-loaded route. */
+export interface PreviewTask {
+  walker: Walker;
+  loading?: boolean;
+  data?: RouteData | null;
+  dist?: number;
+}
+
+interface WalkerPreviewCardProps {
+  task: PreviewTask;
+  onBack: () => void;
+  onCall: (w: Walker) => void;
+  onChat: (w: Walker) => void;
+  onRequest?: (w: Walker) => void;
+}
 
 /** Minimized card showing a walker's server-loaded route preview + actions. */
-export function WalkerPreviewCard({ task, onBack, onCall, onChat, onRequest }) {
+export function WalkerPreviewCard({ task, onBack, onCall, onChat, onRequest }: WalkerPreviewCardProps) {
   const w = task.walker;
   const { loading, data, dist } = task;
   const isDriver = w.type === 'driver';

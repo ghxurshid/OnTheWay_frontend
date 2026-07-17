@@ -1,9 +1,19 @@
 import { T } from '@/constants/theme';
 import { t } from '@/i18n';
+import type { Booking } from '@/services/bookingStore';
+
+interface BookingAgreementsSheetProps {
+  bookings: Booking[];
+  myId: string;
+  busyId: string | null;
+  onCancel: (b: Booking) => void;
+  onComplete: (b: Booking) => void;
+  onClose: () => void;
+}
 
 /** Bottom sheet listing the walker's active ride agreements (accepted bookings)
  *  with cancel (either party) and complete (driver only) actions. */
-export function BookingAgreementsSheet({ bookings, myId, busyId, onCancel, onComplete, onClose }) {
+export function BookingAgreementsSheet({ bookings, myId, busyId, onCancel, onComplete, onClose }: BookingAgreementsSheetProps) {
   return (
     <div onClick={onClose} style={{ position: 'absolute', inset: 0, zIndex: 30,
       background: 'rgba(0,0,0,.5)', display: 'flex', alignItems: 'flex-end', pointerEvents: 'auto' }}>
@@ -43,7 +53,7 @@ export function BookingAgreementsSheet({ bookings, myId, busyId, onCancel, onCom
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 14, fontWeight: 600, color: T.text }}>
-                      🪑 {b.seatsBooked} {t('common.seats')}
+                      🪑 {String(b.seatsBooked)} {t('common.seats')}
                     </div>
                     <div style={{ fontSize: 11.5, color: T.teal }}>
                       {amDriver ? t('booking.roleDriver') : t('booking.rolePassenger')}

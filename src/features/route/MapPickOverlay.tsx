@@ -2,14 +2,24 @@ import { useState, useRef, useEffect } from 'react';
 import { T } from '@/constants/theme';
 import { t } from '@/i18n';
 import { reverseGeocode } from '@/services/geocodingService';
+import type { LatLng, Place } from '@/models';
+import type { MapHook } from '@/hooks/mapHook';
+
+interface MapPickOverlayProps {
+  mapHook: MapHook;
+  label: string;
+  initial: LatLng | null;
+  onConfirm: (place: Place) => void;
+  onCancel: () => void;
+}
 
 /** Drag-the-map center-pin picker used by schedule filter/add fields. */
-export function MapPickOverlay({ mapHook, label, initial, onConfirm, onCancel }) {
+export function MapPickOverlay({ mapHook, label, initial, onConfirm, onCancel }: MapPickOverlayProps) {
   const [addr, setAddr] = useState('');
   const [loading, setLoading] = useState(true);
-  const centerRef = useRef(null);
-  const cleanupRef = useRef(null);
-  const debRef = useRef(null);
+  const centerRef = useRef<LatLng | null>(null);
+  const cleanupRef = useRef<(() => void) | null>(null);
+  const debRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const refresh = () => {
     const c = mapHook.getCenter(); if (!c) return;
@@ -34,7 +44,7 @@ export function MapPickOverlay({ mapHook, label, initial, onConfirm, onCancel })
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const confirm = () => {
-    const c = centerRef.current || mapHook.getCenter();
+    const c: LatLng | null = centerRef.current || mapHook.getCenter();
     if (c) onConfirm({ latlng: c, label: addr || `${c[0].toFixed(4)}, ${c[1].toFixed(4)}` });
   };
 
