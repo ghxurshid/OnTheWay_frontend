@@ -4,26 +4,41 @@ import { t } from '@/i18n';
 import { TASHKENT } from '@/constants/map';
 import { geocode, reverseGeocode } from '@/services/geocodingService';
 import { getRoute } from '@/services/routeService';
+import type { LatLng } from '@/models';
+import type { MapHook } from '@/hooks/mapHook';
+
+interface Waypoint { value: string; latlng: LatLng | null; placeholder: string }
+interface NominatimSuggestion { lat: string; lon: string; display_name: string }
+/** One OSRM route alternative (raw shape consumed by the picker). */
+export interface RouteOption { distance: number; duration: number; geometry?: { coordinates: [number, number][] } }
+
+interface RouteSheetProps {
+  onClose: () => void;
+  onShowRoute: (route: RouteOption, waypoints: Waypoint[]) => void;
+  mapHook: MapHook;
+  userLoc: LatLng | null;
+  onPickModeChange?: (picking: boolean) => void;
+}
 
 /** Multi-waypoint route planner sheet: input → calculate → choose route. */
-export function RouteSheet({ onClose, onShowRoute, mapHook, userLoc, onPickModeChange }) {
-  const [waypoints, setWaypoints] = useState([
+export function RouteSheet({ onClose, onShowRoute, mapHook, userLoc, onPickModeChange }: RouteSheetProps) {
+  const [waypoints, setWaypoints] = useState<Waypoint[]>([
     { value: '', latlng: userLoc || TASHKENT, placeholder: t('route.startPlaceholder') },
     { value: '', latlng: null, placeholder: t('route.where') },
   ]);
   const [activeIdx, setActiveIdx] = useState(1);
-  const [suggestions, setSuggestions] = useState([]);
+  const [suggestions, setSuggestions] = useState<NominatimSuggestion[]>([]);
   const [searching, setSearching] = useState(false);
   const [step, setStep] = useState('input');
-  const [routeOptions, setRouteOptions] = useState([]);
+  const [routeOptions, setRouteOptions] = useState<RouteOption[]>([]);
   const [selectedRouteIdx, setSelectedRouteIdx] = useState(0);
-  const [pickingIdx, setPickingIdx] = useState(null);
+  const [pickingIdx, setPickingIdx] = useState<number | null>(null);
   const [pickAddr, setPickAddr] = useState('');
   const [pickLoading, setPickLoading] = useState(false);
-  const debounceRef = useRef(null);
-  const pickCenterRef = useRef(null);
-  const moveCleanupRef = useRef(null);
-  const revDebRef = useRef(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const pickCenterRef = useRef<LatLng | null>(null);
+  const moveCleanupRef = useRef<(() => void) | null>(null);
+  const revDebRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
     let alive = true;
@@ -54,7 +69,7 @@ export function RouteSheet({ onClose, onShowRoute, mapHook, userLoc, onPickModeC
     }, 400);
   };
 
-  const enterMapPick = (idx) => {
+  const enterMapPick = (idx: number) => {
     setSuggestions([]);
     setActiveIdx(idx);
     setPickingIdx(idx);
@@ -84,7 +99,7 @@ export function RouteSheet({ onClose, onShowRoute, mapHook, userLoc, onPickModeC
 
   const confirmPick = () => {
     const idx = pickingIdx;
-    const c = pickCenterRef.current || mapHook.getCenter();
+    const c: LatLng | null = pickCenterRef.current || mapHook.getCenter();
     if (idx !== null && c) {
       const label = pickAddr || `${c[0].toFixed(4)}, ${c[1].toFixed(4)}`;
       setWaypoints((wp) => {
@@ -96,20 +111,20 @@ export function RouteSheet({ onClose, onShowRoute, mapHook, userLoc, onPickModeC
     exitMapPick();
   };
 
-  const handleInput = (idx, val) => {
+  const handleInput = (idx: number, val: string) => {
     setWaypoints((wp) => wp.map((w, i) => (i === idx ? { ...w, value: val, latlng: null } : w)));
     clearTimeout(debounceRef.current);
     if (val.length < 2) { setSuggestions([]); return; }
     setSearching(true);
     debounceRef.current = setTimeout(async () => {
       const res = await geocode(val);
-      setSuggestions(res.slice(0, 5));
+      setSuggestions(res.slice(0, 5) as NominatimSuggestion[]);
       setSearching(false);
     }, 400);
   };
 
-  const handleSuggest = (s) => {
-    const latlng = [parseFloat(s.lat), parseFloat(s.lon)];
+  const handleSuggest = (s: NominatimSuggestion) => {
+    const latlng = [parseFloat(s.lat), parseFloat(s.lon)] as LatLng;
     const label = s.display_name.split(',').slice(0, 2).join(', ');
     setWaypoints((wp) => wp.map((w, i) => (i === activeIdx ? { ...w, value: label, latlng } : w)));
     setSuggestions([]);
@@ -126,7 +141,7 @@ export function RouteSheet({ onClose, onShowRoute, mapHook, userLoc, onPickModeC
     setSuggestions([]);
     const pts = waypoints.filter((w) => w.latlng);
     if (pts.length >= 2) {
-      const routes = await getRoute(pts.map((w) => w.latlng));
+      const routes = await getRoute(pts.map((w) => w.latlng as LatLng)) as RouteOption[];
       setRouteOptions(routes);
       setSelectedRouteIdx(0);
       mapHook.setWaypointMarkers(pts);
@@ -135,7 +150,7 @@ export function RouteSheet({ onClose, onShowRoute, mapHook, userLoc, onPickModeC
     setStep('routes');
   };
 
-  const pickRouteOption = (idx) => {
+  const pickRouteOption = (idx: number) => {
     setSelectedRouteIdx(idx);
     mapHook.setRouteLines(routeOptions, idx);
   };
