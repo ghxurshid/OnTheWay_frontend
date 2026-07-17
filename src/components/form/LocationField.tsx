@@ -3,32 +3,45 @@ import { T } from '@/constants/theme';
 import { t } from '@/i18n';
 import { geocode } from '@/services/geocodingService';
 import { FIELD_LABEL } from './fieldStyles';
+import type { LatLng } from '@/utils/geo';
+
+interface Place { latlng: LatLng; label: string }
+interface NominatimResult { lat: string; lon: string; display_name: string }
+
+interface LocationFieldProps {
+  label: string;
+  point: Place | null;
+  placeholder?: string;
+  accent?: string;
+  onPick: () => void;
+  onSelect: (place: Place | null) => void;
+}
 
 /** Address input with debounced geocode suggestions + "pick on map" button. */
-export function LocationField({ label, point, placeholder, accent = T.teal, onPick, onSelect }) {
+export function LocationField({ label, point, placeholder, accent = T.teal, onPick, onSelect }: LocationFieldProps) {
   const [query, setQuery] = useState(point ? point.label : '');
-  const [suggestions, setSuggestions] = useState([]);
+  const [suggestions, setSuggestions] = useState<NominatimResult[]>([]);
   const [searching, setSearching] = useState(false);
   const [focused, setFocused] = useState(false);
-  const debRef = useRef(null);
+  const debRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => { if (point) { setQuery(point.label); setSuggestions([]); } }, [point]);
 
-  const onChange = (val) => {
+  const onChange = (val: string) => {
     setQuery(val);
     if (point) onSelect(null);
-    clearTimeout(debRef.current);
+    if (debRef.current) clearTimeout(debRef.current);
     if (val.trim().length < 2) { setSuggestions([]); setSearching(false); return; }
     setSearching(true);
     debRef.current = setTimeout(async () => {
-      const res = await geocode(val);
+      const res = await geocode(val) as NominatimResult[];
       setSuggestions(res.slice(0, 5));
       setSearching(false);
     }, 400);
   };
 
-  const pickSuggest = (s) => {
-    const latlng = [parseFloat(s.lat), parseFloat(s.lon)];
+  const pickSuggest = (s: NominatimResult) => {
+    const latlng: LatLng = [parseFloat(s.lat), parseFloat(s.lon)];
     const lbl = s.display_name.split(',').slice(0, 2).join(', ');
     setQuery(lbl); setSuggestions([]); setSearching(false); setFocused(false);
     onSelect({ latlng, label: lbl });

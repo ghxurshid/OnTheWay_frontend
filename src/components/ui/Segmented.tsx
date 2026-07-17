@@ -1,7 +1,15 @@
 import { T } from '@/constants/theme';
 
+interface SegmentedOption { id: string; label: string }
+interface SegmentedProps {
+  options: SegmentedOption[];
+  value: string;
+  onChange: (id: string) => void;
+  accent?: string;
+}
+
 /** Segmented control: pick one of `options` ({id,label}). */
-export function Segmented({ options, value, onChange, accent = T.teal }) {
+export function Segmented({ options, value, onChange, accent = T.teal }: SegmentedProps) {
   return (
     <div style={{ display: 'flex', gap: 0, background: T.bg, borderRadius: 12, padding: 3, border: `1px solid ${T.border}` }}>
       {options.map((o) => {

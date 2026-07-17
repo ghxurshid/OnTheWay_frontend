@@ -1,7 +1,10 @@
+import type { ReactNode } from 'react';
 import { T } from '@/constants/theme';
 
+interface SettSectionProps { title: ReactNode; children: ReactNode }
+
 /** Titled settings card wrapper. */
-export function SettSection({ title, children }) {
+export function SettSection({ title, children }: SettSectionProps) {
   return (
     <div>
       <div style={{ fontSize: 11, fontWeight: 600, color: T.muted, marginBottom: 8,
@@ -13,8 +16,17 @@ export function SettSection({ title, children }) {
   );
 }
 
+interface SettToggleRowProps {
+  label: ReactNode;
+  sub?: ReactNode;
+  value: boolean;
+  onChange: (v: boolean) => void;
+  icon: ReactNode;
+  color: string;
+}
+
 /** Settings row with an icon, label/sub, and a toggle switch. */
-export function SettToggleRow({ label, sub, value, onChange, icon, color }) {
+export function SettToggleRow({ label, sub, value, onChange, icon, color }: SettToggleRowProps) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 0',
       borderBottom: `1px solid ${T.border}` }}

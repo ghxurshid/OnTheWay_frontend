@@ -3,18 +3,26 @@ import { T } from '@/constants/theme';
 import { t } from '@/i18n';
 import { hLabel } from '@/utils/datetime';
 
+interface TimeRangeSliderProps {
+  start: number;
+  end: number;
+  onChange: (start: number, end: number) => void;
+  min?: number;
+  max?: number;
+}
+
 /** Dual-thumb time-range slider (hours). */
-export function TimeRangeSlider({ start, end, onChange, min = 6, max = 24 }) {
-  const trackRef = useRef(null);
-  const dragRef = useRef(null);
-  const pct = (v) => ((v - min) / (max - min)) * 100;
-  const valFromX = (clientX) => {
-    const r = trackRef.current.getBoundingClientRect();
+export function TimeRangeSlider({ start, end, onChange, min = 6, max = 24 }: TimeRangeSliderProps) {
+  const trackRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<'s' | 'e' | null>(null);
+  const pct = (v: number) => ((v - min) / (max - min)) * 100;
+  const valFromX = (clientX: number) => {
+    const r = trackRef.current!.getBoundingClientRect();
     let p = (clientX - r.left) / r.width; p = Math.max(0, Math.min(1, p));
     return Math.round(min + p * (max - min));
   };
   useEffect(() => {
-    const move = (e) => {
+    const move = (e: PointerEvent) => {
       if (!dragRef.current) return;
       const v = valFromX(e.clientX);
       if (dragRef.current === 's') onChange(Math.min(v, end - 1), end);
@@ -25,7 +33,7 @@ export function TimeRangeSlider({ start, end, onChange, min = 6, max = 24 }) {
     window.addEventListener('pointerup', up);
     return () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
   });
-  const thumb = (which, v) => (
+  const thumb = (which: 's' | 'e', v: number) => (
     <div onPointerDown={() => { dragRef.current = which; }} style={{
       position: 'absolute', left: `${pct(v)}%`, top: '50%', transform: 'translate(-50%,-50%)',
       width: 22, height: 22, borderRadius: 11, background: '#fff', border: `3px solid ${T.teal}`,

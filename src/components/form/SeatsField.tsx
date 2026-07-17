@@ -2,8 +2,10 @@ import { T } from '@/constants/theme';
 import { t } from '@/i18n';
 import { FIELD_LABEL } from './fieldStyles';
 
+interface SeatsFieldProps { value: string; onChange: (v: string) => void; includeAny?: boolean }
+
 /** Seat-count picker (1..4, with optional "any"). */
-export function SeatsField({ value, onChange, includeAny = false }) {
+export function SeatsField({ value, onChange, includeAny = false }: SeatsFieldProps) {
   const opts = [...(includeAny ? [{ v: 'any', l: t('form.seatsAny') }] : []), ...[1, 2, 3, 4].map((n) => ({ v: String(n), l: String(n) }))];
   return (
     <div style={{ marginBottom: 14 }}>

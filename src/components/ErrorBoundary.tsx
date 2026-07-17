@@ -9,21 +9,30 @@
    ════════════════════════════════════════════════════════════════ */
 
 import { Component } from 'react';
+import type { ErrorInfo, ReactNode } from 'react';
 import { T } from '@/constants/theme';
 import { t } from '@/i18n';
 
-export class ErrorBoundary extends Component {
-  constructor(props) {
+interface ErrorBoundaryProps {
+  children: ReactNode;
+  fallback?: (error: Error, reset: () => void) => ReactNode;
+  onError?: (error: Error, info: ErrorInfo) => void;
+  onReset?: () => void;
+}
+interface ErrorBoundaryState { error: Error | null }
+
+export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  constructor(props: ErrorBoundaryProps) {
     super(props);
     this.state = { error: null };
     this.handleReset = this.handleReset.bind(this);
   }
 
-  static getDerivedStateFromError(error) {
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
     return { error };
   }
 
-  componentDidCatch(error, info) {
+  componentDidCatch(error: Error, info: ErrorInfo) {
     // Dev visibility; wire onError to real telemetry in production.
     if (import.meta.env?.DEV) console.error('[ErrorBoundary]', error, info);
     this.props.onError?.(error, info);

@@ -1,7 +1,10 @@
+import type { ReactNode } from 'react';
 import { T } from '@/constants/theme';
 
+interface PrimaryButtonProps { enabled: boolean; onClick: () => void; children: ReactNode }
+
 /** Full-width gradient CTA with a disabled (muted) state. */
-export function PrimaryButton({ enabled, onClick, children }) {
+export function PrimaryButton({ enabled, onClick, children }: PrimaryButtonProps) {
   return (
     <button onClick={() => enabled && onClick()} style={{ width: '100%', padding: '14px', borderRadius: 14, border: 'none',
       background: enabled ? `linear-gradient(135deg,${T.teal},#0e9e97)` : T.surface2,

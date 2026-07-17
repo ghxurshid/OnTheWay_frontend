@@ -2,8 +2,10 @@ import { T } from '@/constants/theme';
 import { t } from '@/i18n';
 import { FIELD_LABEL } from './fieldStyles';
 
+interface NotesFieldProps { value: string; onChange: (v: string) => void }
+
 /** Optional free-text note textarea. */
-export function NotesField({ value, onChange }) {
+export function NotesField({ value, onChange }: NotesFieldProps) {
   return (
     <div style={{ marginBottom: 16 }}>
       <div style={FIELD_LABEL}>{t('form.note')}</div>

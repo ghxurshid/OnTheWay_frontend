@@ -6,8 +6,16 @@ import { TIME_PRESETS, UZ_MON, UZ_MON_S, UZ_DOW } from '@/constants/app';
 import { FIELD_LABEL } from './fieldStyles';
 import { TimeRangeSlider } from './TimeRangeSlider';
 
+interface WhenFieldProps {
+  date: string;
+  onDate: (iso: string) => void;
+  tStart: number;
+  tEnd: number;
+  onTime: (start: number, end: number) => void;
+}
+
 /** Date chooser (today/tomorrow/+2/custom calendar) + time presets + range. */
-export function WhenField({ date, onDate, tStart, tEnd, onTime }) {
+export function WhenField({ date, onDate, tStart, tEnd, onTime }: WhenFieldProps) {
   const dateOpts = [0, 1, 2].map((i) => {
     const d = new Date(NOW); d.setDate(d.getDate() + i);
     const iso = d.toISOString().slice(0, 10);
@@ -21,15 +29,15 @@ export function WhenField({ date, onDate, tStart, tEnd, onTime }) {
   const [calOpen, setCalOpen] = useState(false);
   const initRef = customActive ? new Date(date + 'T00:00') : new Date(NOW);
   const [calYM, setCalYM] = useState({ y: initRef.getFullYear(), m: initRef.getMonth() });
-  const pad = (n) => String(n).padStart(2, '0');
-  const fmtIso = (y, m, d) => `${y}-${pad(m + 1)}-${pad(d)}`;
-  const buildCells = (y, m) => {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const fmtIso = (y: number, m: number, d: number) => `${y}-${pad(m + 1)}-${pad(d)}`;
+  const buildCells = (y: number, m: number): (number | null)[] => {
     const startDow = (new Date(y, m, 1).getDay() + 6) % 7;
     const dim = new Date(y, m + 1, 0).getDate();
-    const cells = []; for (let i = 0; i < startDow; i++) cells.push(null);
+    const cells: (number | null)[] = []; for (let i = 0; i < startDow; i++) cells.push(null);
     for (let d = 1; d <= dim; d++) cells.push(d); return cells;
   };
-  const shiftMonth = (delta) => setCalYM(({ y, m }) => { const nm = m + delta; return { y: y + Math.floor(nm / 12), m: ((nm % 12) + 12) % 12 }; });
+  const shiftMonth = (delta: number) => setCalYM(({ y, m }) => { const nm = m + delta; return { y: y + Math.floor(nm / 12), m: ((nm % 12) + 12) % 12 }; });
   return (
     <div style={{ marginBottom: 14 }}>
       <div style={FIELD_LABEL}>{t('form.when')}</div>

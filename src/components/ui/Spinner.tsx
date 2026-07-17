@@ -1,8 +1,10 @@
 import { T } from '@/constants/theme';
 import { t } from '@/i18n';
 
+interface SpinnerProps { label?: string | null; padding?: string }
+
 /** Centred loading spinner with an optional label. */
-export function Spinner({ label, padding = '40px 0' }) {
+export function Spinner({ label, padding = '40px 0' }: SpinnerProps) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center',
       justifyContent: 'center', gap: 14, padding }}>
