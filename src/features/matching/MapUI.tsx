@@ -4,11 +4,38 @@ import { Speedometer } from './Speedometer';
 import { MapStyleSwitcher } from '@/features/navigation/MapStyleSwitcher';
 import { BottomNavBar } from '@/features/navigation/BottomNavBar';
 import { RouteNavBar } from '@/features/route/RouteNavBar';
+import type { ActiveRoute, Contact, LatLng, MapTask, PartyType } from '@/models';
+import type { MapHook } from '@/hooks/mapHook';
+
+interface MapUIProps {
+  mode: PartyType;
+  mapHook: MapHook;
+  onRouteSheet: () => void;
+  showMatching: boolean;
+  matchCount: number;
+  onMenu: () => void;
+  mapStyleMode: string;
+  appTheme: string;
+  onMapStyleChange: (id: string) => void;
+  routeActive: boolean;
+  activeRoute: ActiveRoute | null;
+  navProgress: number;
+  onEndRoute: () => void;
+  userLoc: LatLng | null;
+  onMapTask: (task: MapTask) => void;
+  navHidden: boolean;
+  onContactCall: (c: Contact) => void;
+  onContactSms: (c: Contact) => void;
+  follow: boolean;
+  onToggleFollow: () => void;
+  engaged: boolean;
+  onTripCreated: (tripId: unknown) => void;
+}
 
 /** Map screen chrome: top bar, speedometer, match badge, zoom, nav bar. */
 export function MapUI({ mode, mapHook, onRouteSheet, showMatching, matchCount, onMenu, mapStyleMode,
   appTheme, onMapStyleChange, routeActive, activeRoute, navProgress, onEndRoute, userLoc, onMapTask,
-  navHidden, onContactCall, onContactSms, follow, onToggleFollow, engaged, onTripCreated }) {
+  navHidden, onContactCall, onContactSms, follow, onToggleFollow, engaged, onTripCreated }: MapUIProps) {
   return (
     <div style={{ position: 'absolute', inset: 0, zIndex: 10, pointerEvents: 'none' }}>
       {/* Top gradient */}
