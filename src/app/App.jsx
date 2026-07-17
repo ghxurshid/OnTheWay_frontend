@@ -17,16 +17,15 @@ import { useHeadingFollow } from '@/hooks/useHeadingFollow';
 import { useBookings } from '@/hooks/useBookings';
 import { useBootstrap } from '@/hooks/useBootstrap';
 import { useCallSession } from '@/hooks/useCallSession';
+import { usePresence } from '@/hooks/usePresence';
 import WalkerSim from '@/services/simulationService';
 import { simStore } from '@/services/simStore';
 import { unreadStore } from '@/services/unreadStore';
 import { RouteServer } from '@/services/routeService';
 import { startLocationReporting, stopLocationReporting, callClient, presenceClient } from '@/services/realtime';
 import { walkerStateStore } from '@/services/walkerStateStore';
-import { walkerApi } from '@/api/walkerApi';
 import { tripApi } from '@/api/tripApi';
 import { getRoute } from '@/services/routeService';
-import { enrichLiveWalker, colorForId } from '@/services/liveWalkers';
 import { USE_MOCKS } from '@/api/client';
 
 import { LoadingScreen } from '@/pages/LoadingScreen';
@@ -239,151 +238,14 @@ export function App() {
   }, [screen, mode, buildSim]);
 
   // ── LIVE map: render real online walkers from presence (replaces the sim) ──
-  useEffect(() => {
-    if (USE_MOCKS || screen !== 'map' || !mode) return undefined;
-    let alive = true;
-    const profiles = new Map(); // userId → WalkerProfileDto
-    let refreshTimer = null;
-
-    const oppositeRole = mode === 'driver' ? 'passenger' : 'driver';
-
-    const render = () => {
-      if (!alive) return;
-      const positions = presenceClient.getPositions();
-      const seen = new Set();
-      positions.forEach((pos) => {
-        if (pos.role && pos.role !== oppositeRole) return; // stale other-role entry
-        const profile = profiles.get(pos.userId);
-        if (!profile) return; // profile not loaded yet; a refresh will pick it up
-        const w = enrichLiveWalker(profile, pos);
-        const prev = liveWalkersRef.current.get(w.id);
-        if (prev && prev.offline) w.offline = true; // keep the greyed state
-        liveWalkersRef.current.set(w.id, w);
-        seen.add(w.id);
-        mapHook.upsertWalkerMarker(w, openWalker);
-      });
-      // Drop walkers that are gone / no longer positioned.
-      [...liveWalkersRef.current.keys()].forEach((id) => {
-        if (!seen.has(id)) { liveWalkersRef.current.delete(id); mapHook.removeWalkerMarker(id); }
-      });
-      setMatchCount(liveWalkersRef.current.size);
-    };
-
-    const refresh = async () => {
-      try {
-        const list = await walkerApi.online(mode); // server returns only the opposite role
-        if (!alive) return;
-        // Merge, don't clear: a disconnected walker in the offline-grace window
-        // keeps their (greyed) marker, so their profile must survive refreshes
-        // that no longer list them.
-        list.forEach((p) => profiles.set(p.id, p));
-        render();
-      } catch { /* keep whatever we have */ }
-    };
-    const scheduleRefresh = () => {
-      if (refreshTimer) return;
-      refreshTimer = setTimeout(() => { refreshTimer = null; refresh(); }, 800);
-    };
-
-    const onMoved = (pos) => {
-      if (!alive) return;
-      if (!profiles.has(pos.userId)) { scheduleRefresh(); return; }
-      const w = enrichLiveWalker(profiles.get(pos.userId), pos);
-      liveWalkersRef.current.set(w.id, w);
-      mapHook.upsertWalkerMarker(w, openWalker);
-    };
-    const onGone = (id) => {
-      if (!alive) return;
-      liveWalkersRef.current.delete(id);
-      mapHook.removeWalkerRoute(id);
-      mapHook.removeWalkerMarker(id);
-      setMatchCount(liveWalkersRef.current.size);
-    };
-
-    // Offline grace: a disconnected walker STAYS on the map — marker and route
-    // greyed — until they return or the server sweeps them (WalkerGone). Their
-    // location simply stops updating, and new searches won't include them.
-    const onUserOffline = (id) => {
-      if (!alive) return;
-      const w = liveWalkersRef.current.get(String(id));
-      if (w) { w.offline = true; mapHook.setWalkerOffline(String(id), true); }
-    };
-    const onUserOnline = (id) => {
-      if (!alive) return;
-      const w = liveWalkersRef.current.get(String(id));
-      if (w) { w.offline = false; mapHook.setWalkerOffline(String(id), false); }
-    };
-
-    // An opposite-role walker published (or cleared) their shared route — draw it
-    // next to their marker so drivers see a passenger's route and vice-versa.
-    const onRoutePublished = (active) => {
-      if (!alive || !active) return;
-      const uid = String(active.userId);
-      const coords = (active.points || []).map((p) => [p.lat, p.lng]);
-      if (coords.length < 2) return;
-      mapHook.setWalkerRoute(uid, coords, colorForId(uid));
-    };
-    const onRouteCleared = (uid) => { if (alive) mapHook.removeWalkerRoute(String(uid)); };
-
-    // A new opposite-role walker just joined the live map — place the marker and
-    // surface a one-off "joined" notification (spec §17 walker-joined rule).
-    const onJoined = (pos) => {
-      if (!alive) return;
-      onMoved(pos); // add/refresh the marker (schedules a profile refresh if new)
-      const profile = profiles.get(pos.userId);
-      const name = profile
-        ? enrichLiveWalker(profile, pos).name
-        : (pos.role === 'driver' ? t('common.driver') : t('common.passenger'));
-      const loc = userLocRef.current;
-      const body = loc && pos.lat != null
-        ? `${name} • ${haversineKm(loc, [pos.lat, pos.lng]).toFixed(1)} km`
-        : name;
-      setPushNotif({ title: t('push.walkerJoinedTitle'), body });
-    };
-
-    const unsubs = [
-      presenceClient.on('WalkerJoined', onJoined),
-      presenceClient.on('WalkerMoved', onMoved),
-      presenceClient.on('WalkerGone', onGone),
-      presenceClient.on('RoutePublished', onRoutePublished),
-      presenceClient.on('RouteCleared', onRouteCleared),
-      presenceClient.on('UserOnline', scheduleRefresh),
-      presenceClient.on('UserOnline', onUserOnline),
-      presenceClient.on('UserOffline', onUserOffline),
-      presenceClient.on('Walkers', render),
-    ];
-
-    // Announce our search role so the hub groups us and streams only the
-    // opposite role's positions (spec rules 1–2). Re-runs when mode switches.
-    presenceClient.setMode(mode).catch(() => {});
-
-    (async () => {
-      mapHook.clearWalkers();
-      liveWalkersRef.current = new Map();
-      const userLoc = userLocRef.current || await getCurrentLatLng() || TASHKENT;
-      if (!alive) return;
-      userLocRef.current = userLoc;
-      mapHook.setUserLocation(userLoc);
-      mapHook.flyTo(userLoc, 15); // focus the map on the current location on entry
-      await refresh();
-      if (!alive) return;
-      setShowMatching(true);
-      const pts = [userLoc, ...[...liveWalkersRef.current.values()].map((w) => w.position).filter(Boolean)];
-      if (pts.length > 1) mapHook.fitPoints(pts);
-      // Auto-resume: redraw the retained session's live route once per boot.
-      const restoreTrip = pendingRestoreRef.current;
-      if (restoreTrip) {
-        pendingRestoreRef.current = null;
-        await restoreLiveRoute(restoreTrip);
-      }
-    })();
-
-    return () => {
-      alive = false;
-      if (refreshTimer) clearTimeout(refreshTimer);
-      unsubs.forEach((u) => u());
-    };
-  }, [screen, mode]); // eslint-disable-line react-hooks/exhaustive-deps
+  // restoreLiveRoute is defined further down; reach it through a ref so this
+  // hook keeps its original position (and effect order) in the component.
+  const restoreLiveRouteRef = useRef(null);
+  usePresence({
+    screen, mode, mapHook, liveWalkersRef, userLocRef, openWalker, notify: setPushNotif,
+    setMatchCount, setShowMatching, pendingRestoreRef, getCurrentLatLng,
+    restoreLiveRoute: (trip) => restoreLiveRouteRef.current?.(trip),
+  });
 
   useEffect(() => {
     mapStyleRef.current = mapStyle;
@@ -504,6 +366,8 @@ export function App() {
       startUserNav(r, coords);
     } catch { /* restore is best-effort; the map still works without it */ }
   };
+  // Expose the latest restoreLiveRoute to usePresence (declared above it).
+  restoreLiveRouteRef.current = restoreLiveRoute;
 
   const handleRouteSelected = async (route, waypoints) => {
     setShowSheet(false);
