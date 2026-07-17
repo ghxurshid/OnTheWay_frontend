@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import type { CSSProperties } from 'react';
 import { T } from '@/constants/theme';
 import { t } from '@/i18n';
 import { COMPLAINT_CATS } from '@/constants/app';
@@ -6,21 +7,25 @@ import { FullScreenPanel } from '@/components/ui/FullScreenPanel';
 import { feedbackApi } from '@/api/feedbackApi';
 
 // Map the screen's topic to a backend FeedbackCategory (Suggestion/Complaint/BugReport).
-const BACKEND_CATEGORY = { app: 'BugReport', other: 'Suggestion' };
+const BACKEND_CATEGORY: Record<string, string> = { app: 'BugReport', other: 'Suggestion' };
 const APP_VERSION = '1.0.0';
 
+interface ComplaintScreenProps {
+  onClose: () => void;
+}
+
 /** Complaint / feedback form with category, subject, detail and a sent state. */
-export function ComplaintScreen({ onClose }) {
-  const [cat, setCat] = useState(null);
+export function ComplaintScreen({ onClose }: ComplaintScreenProps) {
+  const [cat, setCat] = useState<string | null>(null);
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
   const [sent, setSent] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState<string | null>(null);
   const valid = cat && subject.trim().length >= 3 && body.trim().length >= 10;
 
   async function submit() {
-    if (!valid || busy) return;
+    if (!valid || busy || !cat) return;
     setBusy(true);
     setError(null);
     try {
@@ -33,7 +38,7 @@ export function ComplaintScreen({ onClose }) {
       });
       setSent(true);
     } catch (e) {
-      setError(e?.message || t('common.error'));
+      setError((e as Error)?.message || t('common.error'));
     } finally {
       setBusy(false);
     }
@@ -69,9 +74,9 @@ export function ComplaintScreen({ onClose }) {
     );
   }
 
-  const labelStyle = { fontSize: 12, fontWeight: 600, color: T.muted, marginBottom: 8,
+  const labelStyle: CSSProperties = { fontSize: 12, fontWeight: 600, color: T.muted, marginBottom: 8,
     textTransform: 'uppercase', letterSpacing: .6, display: 'block' };
-  const inputStyle = { width: '100%', background: T.surface2, border: `1px solid ${T.border}`,
+  const inputStyle: CSSProperties = { width: '100%', background: T.surface2, border: `1px solid ${T.border}`,
     borderRadius: 12, padding: '12px 14px', color: T.text, fontSize: 14, fontFamily: 'DM Sans,sans-serif',
     outline: 'none', resize: 'none' };
 

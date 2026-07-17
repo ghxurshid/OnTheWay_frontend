@@ -6,29 +6,39 @@ import { CHAT_QUICK_KEYS, CHAT_REPLY_KEYS } from '@/constants/app';
 import { authStore } from '@/services/authStore';
 import { chatClient } from '@/services/realtime/chatClient';
 import { chatApi } from '@/api/chatApi';
+import type { PartyType } from '@/models';
+
+interface ChatUser { id: string | number; type: PartyType; name: string; initials: string }
+interface Msg { id: number | string; from: 'me' | 'them'; text: string; at: Date }
+
+interface ChatScreenProps {
+  user: ChatUser;
+  onBack: () => void;
+}
 
 // Real backend user ids are numeric (long); simulated walkers use 'sim_' ids.
 // Ids arrive as numbers over REST and as strings over the hub, so compare as
 // strings everywhere (sid) to avoid number-vs-string mismatches.
 const REAL_ID_RE = /^\d+$/;
-const sid = (v) => String(v ?? '');
-const isRealUser = (id) => REAL_ID_RE.test(sid(id));
-const toMsg = (m, myId) => ({
+const sid = (v: unknown) => String(v ?? '');
+const isRealUser = (id: unknown) => REAL_ID_RE.test(sid(id));
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const toMsg = (m: any, myId: string | null): Msg => ({
   id: m.id, from: sid(m.senderId) === myId ? 'me' : 'them', text: m.content, at: new Date(m.sentAtUtc),
 });
 
 /** 1:1 chat screen. Talks to the ChatHub for real users (REST back-fills
     history); falls back to a local auto-responder for simulated walkers. */
-export function ChatScreen({ user, onBack }) {
+export function ChatScreen({ user, onBack }: ChatScreenProps) {
   const isDriver = user.type === 'driver';
   const color = isDriver ? T.amber : T.purple;
   const live = isRealUser(user.id);
   const uid = sid(user.id);
-  const authedId = authStore.getUser()?.id;
+  const authedId = (authStore.getUser() as { id?: string | number } | null)?.id;
   const myId = authedId != null ? sid(authedId) : null;
   useEscapeKey(onBack); // dismiss the chat from the keyboard
 
-  const [msgs, setMsgs] = useState(live ? [] : [
+  const [msgs, setMsgs] = useState<Msg[]>(live ? [] : [
     { id: 1, from: 'them',
       text: isDriver ? t('chat.greetDriverThem') : t('chat.greetPassengerThem'),
       at: new Date(Date.now() - 2 * 60000) },
@@ -36,9 +46,9 @@ export function ChatScreen({ user, onBack }) {
   ]);
   const [input, setInput] = useState('');
   const [typing, setTyping] = useState(false);
-  const scrollRef = useRef(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
   const idRef = useRef(3);
-  const typingTimerRef = useRef(null);
+  const typingTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -52,11 +62,11 @@ export function ChatScreen({ user, onBack }) {
     (async () => {
       try {
         const convos = await chatApi.conversations();
-        const convo = convos.find((c) => sid(c.otherParticipantId) === uid);
+        const convo = convos.find((c: { otherParticipantId?: unknown }) => sid(c.otherParticipantId) === uid);
         if (!convo || !alive) return;
         const history = await chatApi.messages(convo.id);
         if (!alive) return;
-        setMsgs(history.map((m) => toMsg(m, myId)).sort((a, b) => a.at - b.at));
+        setMsgs(history.map((m: unknown) => toMsg(m, myId)).sort((a: Msg, b: Msg) => a.at.getTime() - b.at.getTime()));
       } catch { /* no history yet — start empty */ }
     })();
 
@@ -73,7 +83,7 @@ export function ChatScreen({ user, onBack }) {
     return () => { alive = false; offMsg(); offTyping(); };
   }, [live, uid, myId]);
 
-  const send = (text) => {
+  const send = (text: string) => {
     const txt = (text || '').trim();
     if (!txt) return;
     setInput('');
@@ -81,7 +91,7 @@ export function ChatScreen({ user, onBack }) {
     if (live) {
       // The hub echoes the persisted message back to us, so we don't append
       // optimistically. Fall back to REST if the socket is down.
-      chatClient.sendMessage(user.id, txt).catch(() => chatApi.send(user.id, txt).catch(() => {}));
+      chatClient.sendMessage(sid(user.id), txt).catch(() => chatApi.send(sid(user.id), txt).catch(() => {}));
       return;
     }
 
@@ -96,15 +106,15 @@ export function ChatScreen({ user, onBack }) {
   };
 
   // Live typing indicator (debounced "stopped typing").
-  const onInput = (val) => {
+  const onInput = (val: string) => {
     setInput(val);
     if (!live) return;
-    chatClient.sendTyping(user.id, true);
+    chatClient.sendTyping(sid(user.id), true);
     clearTimeout(typingTimerRef.current);
-    typingTimerRef.current = setTimeout(() => chatClient.sendTyping(user.id, false), 1500);
+    typingTimerRef.current = setTimeout(() => chatClient.sendTyping(sid(user.id), false), 1500);
   };
 
-  const fmtT = (d) => d.toLocaleTimeString('uz', { hour: '2-digit', minute: '2-digit', hour12: false });
+  const fmtT = (d: Date) => d.toLocaleTimeString('uz', { hour: '2-digit', minute: '2-digit', hour12: false });
 
   return (
     <div className="otw-screen" style={{ position: 'absolute', inset: 0, zIndex: 40,

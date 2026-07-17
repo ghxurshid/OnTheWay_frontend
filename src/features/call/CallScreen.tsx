@@ -1,16 +1,39 @@
 import { useState, useEffect } from 'react';
+import type { ReactNode } from 'react';
 import { T } from '@/constants/theme';
 import { t } from '@/i18n';
 import { ME } from '@/constants/app';
+import type { PartyType } from '@/models';
 
-const partyColor = (p) => (p.accent ? p.accent : (p.type === 'driver' ? T.amber : T.purple));
+interface CallParty {
+  name: string;
+  sub?: string;
+  initials: string;
+  photoUrl?: string;
+  accent?: string;
+  type?: PartyType;
+}
+
+interface CallScreenProps {
+  callee: CallParty;
+  phase: string;
+  onAccept?: () => void;
+  onDecline?: () => void;
+  onEnd?: () => void;
+  onAgree?: () => void;
+  onMuteToggle?: (muted: boolean) => void;
+  live?: boolean;
+  role?: 'caller' | 'callee';
+}
+
+const partyColor = (p: CallParty) => (p.accent ? p.accent : (p.type === 'driver' ? T.amber : T.purple));
 
 /** Call screen (ringing/active) with a "ride together" offer.
     Real calls (`live`): always shows the REMOTE party (`callee` prop — the
     actual caller when role='callee') and the buttons drive the CallHub via the
     parent's handlers. Demo mode keeps the dual-perspective flip view. */
-export function CallScreen({ callee, phase, onAccept, onDecline, onEnd, onAgree, onMuteToggle, live = false, role = 'caller' }) {
-  const caller = { ...ME, accent: T.teal }; // demo-mode "you"
+export function CallScreen({ callee, phase, onAccept, onDecline, onEnd, onAgree, onMuteToggle, live = false, role = 'caller' }: CallScreenProps) {
+  const caller: CallParty = { ...ME, accent: T.teal }; // demo-mode "you"
   const [secs, setSecs] = useState(0);
   const [muted, setMuted] = useState(false);
   const [view, setView] = useState(role === 'callee' ? 'callee' : 'caller'); // 'caller' | 'callee'
@@ -29,7 +52,7 @@ export function CallScreen({ callee, phase, onAccept, onDecline, onEnd, onAgree,
     return () => clearInterval(i);
   }, [ringing, live]);
 
-  const fmt = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+  const fmt = (s: number) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 
   // Live calls have no perspective to flip: `onCaller` is fixed by our role and
   // the person on screen is always the remote party. Demo mode alternates views.
@@ -166,7 +189,9 @@ export function CallScreen({ callee, phase, onAccept, onDecline, onEnd, onAgree,
   );
 }
 
-function CallBtn({ icon, label, color, onClick, small }) {
+interface CallBtnProps { icon: ReactNode; label: ReactNode; color: string; onClick?: () => void; small?: boolean }
+
+function CallBtn({ icon, label, color, onClick, small }: CallBtnProps) {
   const [p, setP] = useState(false);
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
