@@ -1,9 +1,17 @@
 import { T } from '@/constants/theme';
 import { t } from '@/i18n';
 import { fmt12 } from '@/utils/datetime';
+import type { Walker } from '@/models';
+
+interface WalkerCardProps {
+  walker: Walker;
+  idx: number;
+  dist?: number;
+  onSelect: () => void;
+}
 
 /** Compact walker (driver/passenger) list card used by the schedule results. */
-export function WalkerCard({ walker: w, idx, dist, onSelect }) {
+export function WalkerCard({ walker: w, idx, dist, onSelect }: WalkerCardProps) {
   const isDriver = w.type === 'driver';
   const color = isDriver ? T.amber : T.purple;
   return (

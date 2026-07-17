@@ -1,11 +1,20 @@
 import { T } from '@/constants/theme';
 import { t } from '@/i18n';
+import type { Booking } from '@/services/bookingStore';
+
+interface BookingRequestPromptProps {
+  booking: Booking | null;
+  busy: boolean;
+  onAccept: (b: Booking) => void;
+  onReject: (b: Booking) => void;
+}
 
 /** Modal shown to a driver when a passenger requests to join their trip.
  *  The driver accepts (reserves the seats) or rejects. */
-export function BookingRequestPrompt({ booking, busy, onAccept, onReject }) {
+export function BookingRequestPrompt({ booking, busy, onAccept, onReject }: BookingRequestPromptProps) {
   if (!booking) return null;
-  const seats = booking.seatsBooked || 1;
+  const seats = (booking.seatsBooked as number) || 1;
+  const message = booking.message as string | undefined;
   return (
     <div style={{ position: 'absolute', inset: 0, zIndex: 40, display: 'flex',
       alignItems: 'center', justifyContent: 'center', padding: 24,
@@ -28,9 +37,9 @@ export function BookingRequestPrompt({ booking, busy, onAccept, onReject }) {
           <span style={{ fontSize: 13, color: T.text, fontWeight: 600 }}>
             🪑 {seats} {t('common.seats')}
           </span>
-          {booking.message && (
+          {message && (
             <span style={{ fontSize: 12, color: T.muted, overflow: 'hidden', textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap' }}>· {booking.message}</span>
+              whiteSpace: 'nowrap' }}>· {message}</span>
           )}
         </div>
 

@@ -4,7 +4,7 @@ import { PRIVACY_SECTION_ICONS } from '@/constants/app';
 import { FullScreenPanel } from '@/components/ui/FullScreenPanel';
 
 /** Static privacy-policy screen (sections resolved from i18n). */
-export function PrivacyScreen({ onClose }) {
+export function PrivacyScreen({ onClose }: { onClose: () => void }) {
   return (
     <FullScreenPanel title={t('privacy.title')} accent={T.purple} onClose={onClose}>
       <div style={{ flex: 1, overflowY: 'auto', padding: '16px 16px 32px' }}>

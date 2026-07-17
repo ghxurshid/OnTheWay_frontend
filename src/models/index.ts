@@ -64,6 +64,16 @@ export interface RouteData {
   durationMin: number;
 }
 
+/** A transient push-notification toast payload. */
+export interface PushNotif {
+  title: string;
+  body: string;
+  user?: { id?: string; type?: PartyType; name?: string; initials?: string; sub?: string; latlng?: LatLng };
+  chat?: boolean;
+  action?: string;
+  duration?: number;
+}
+
 /** A saved item (place / route / partner). */
 export interface SavedItem {
   id: string;

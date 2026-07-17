@@ -1,8 +1,15 @@
 import { useEffect } from 'react';
 import { T } from '@/constants/theme';
+import type { PushNotif } from '@/models';
+
+interface PushToastProps {
+  notif: PushNotif | null;
+  onDismiss: () => void;
+  onView?: (n: PushNotif) => void;
+}
 
 /** Transient push-notification toast (match found / new message). */
-export function PushToast({ notif, onDismiss, onView }) {
+export function PushToast({ notif, onDismiss, onView }: PushToastProps) {
   useEffect(() => {
     if (!notif) return;
     const id = setTimeout(() => onDismiss(), notif.duration || 6500);
