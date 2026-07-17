@@ -4,31 +4,38 @@
    live behind REST (chatApi); this only carries live traffic.
    ════════════════════════════════════════════════════════════════ */
 
+import type { HubConnection } from '@microsoft/signalr';
 import { createHubConnection, startConnection } from './hubConnection';
 
 const EVENTS = ['ReceiveMessage', 'TypingIndicator'];
 
-let connection = null;
-const listeners = new Map();
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Handler = (...args: any[]) => void;
 
-function emit(event, ...args) {
+let connection: HubConnection | null = null;
+const listeners = new Map<string, Set<Handler>>();
+
+function emit(event: string, ...args: unknown[]) {
   listeners.get(event)?.forEach((fn) => {
     try { fn(...args); } catch (e) { console.error(`[chat] ${event} handler`, e); }
   });
 }
 
-function ensureConnection() {
+function ensureConnection(): HubConnection {
   if (connection) return connection;
-  connection = createHubConnection('/hubs/chat');
-  connection.on('ReceiveMessage', (msg) => emit('ReceiveMessage', msg));
-  connection.on('TypingIndicator', (fromUserId, isTyping) => emit('TypingIndicator', fromUserId, isTyping));
-  return connection;
+  const conn = createHubConnection('/hubs/chat');
+  connection = conn;
+  conn.on('ReceiveMessage', (msg: unknown) => emit('ReceiveMessage', msg));
+  conn.on('TypingIndicator', (fromUserId: string, isTyping: boolean) => emit('TypingIndicator', fromUserId, isTyping));
+  return conn;
 }
 
+const connected = (): HubConnection | null => (connection && connection.state === 'Connected' ? connection : null);
+
 export const chatClient = {
-  on(event, handler) {
+  on(event: string, handler: Handler) {
     if (!listeners.has(event)) listeners.set(event, new Set());
-    listeners.get(event).add(handler);
+    listeners.get(event)!.add(handler);
     return () => listeners.get(event)?.delete(handler);
   },
 
@@ -41,19 +48,19 @@ export const chatClient = {
     connection = null;
   },
 
-  isConnected() {
+  isConnected(): boolean {
     return connection?.state === 'Connected';
   },
 
   /** Send a message to a recipient user id (Guid string). */
-  sendMessage(toUserId, content) {
-    if (this.isConnected()) return connection.invoke('SendMessage', toUserId, content);
+  sendMessage(toUserId: string, content: string) {
+    const c = connected();
+    if (c) return c.invoke('SendMessage', toUserId, content);
     return Promise.reject(new Error('Chat hub not connected'));
   },
 
-  sendTyping(toUserId, isTyping) {
-    if (this.isConnected()) return connection.invoke('SendTyping', toUserId, isTyping);
-    return Promise.resolve();
+  sendTyping(toUserId: string, isTyping: boolean) {
+    return connected()?.invoke('SendTyping', toUserId, isTyping) ?? Promise.resolve();
   },
 };
 

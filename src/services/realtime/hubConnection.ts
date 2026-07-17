@@ -6,16 +6,14 @@
    ════════════════════════════════════════════════════════════════ */
 
 import { HubConnectionBuilder, HttpTransportType, LogLevel } from '@microsoft/signalr';
+import type { HubConnection } from '@microsoft/signalr';
 import { authStore } from '@/services/authStore';
 
 const env = import.meta.env || {};
 const HUB_BASE = (env.VITE_HUB_BASE_URL || '').replace(/\/$/, '');
 
-/**
- * Create (but do not start) a hub connection for the given hub path.
- * @param {string} path e.g. '/hubs/presence'
- */
-export function createHubConnection(path) {
+/** Create (but do not start) a hub connection for the given hub path. */
+export function createHubConnection(path: string): HubConnection {
   return new HubConnectionBuilder()
     .withUrl(`${HUB_BASE}${path}`, {
       accessTokenFactory: () => authStore.getAccessToken() || '',
@@ -28,13 +26,12 @@ export function createHubConnection(path) {
 }
 
 /** Start a connection, swallowing the "already started" race during reconnects. */
-export async function startConnection(connection) {
+export async function startConnection(connection: HubConnection | null): Promise<void> {
   if (!connection) return;
   try {
     if (connection.state === 'Disconnected') await connection.start();
   } catch (err) {
-    // Surfaced by callers via the connection's onclose handler; log for dev.
-    if (import.meta.env?.DEV) console.warn('[signalr] start failed:', err?.message || err);
+    if (import.meta.env?.DEV) console.warn('[signalr] start failed:', (err as Error)?.message || err);
     throw err;
   }
 }

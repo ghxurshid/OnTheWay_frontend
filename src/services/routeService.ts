@@ -7,20 +7,28 @@
 
 import { geoApi } from '@/api/geoApi';
 import { haversineKm, sleep } from '@/utils/geo';
+import type { LatLng } from '@/utils/geo';
+import type { RouteData } from '@/models';
+
+interface OsrmRoute {
+  geometry?: { coordinates: [number, number][] };
+  distance: number;
+  duration: number;
+}
 
 /** OSRM driving routes through ordered [lat,lng] coords. */
-export function getRoute(coords) {
+export function getRoute(coords: LatLng[]) {
   return geoApi.route(coords);
 }
 
-// Build a single normalized route ({coords, distanceKm, durationMin}) between
-// two points, falling back to a straight line when OSRM is unavailable.
-async function build(from, to) {
-  const routes = await getRoute([from, to]);
+// Build a single normalized route between two points, falling back to a
+// straight line when OSRM is unavailable.
+async function build(from: LatLng, to: LatLng): Promise<RouteData> {
+  const routes = await getRoute([from, to]) as OsrmRoute[];
   const r = routes && routes[0];
   if (r && r.geometry) {
     return {
-      coords: r.geometry.coordinates.map((c) => [c[1], c[0]]),
+      coords: r.geometry.coordinates.map((c) => [c[1], c[0]] as LatLng),
       distanceKm: r.distance / 1000,
       durationMin: r.duration / 60,
     };
@@ -28,17 +36,20 @@ async function build(from, to) {
   return { coords: [from, to], distanceKm: haversineKm(from, to), durationMin: haversineKm(from, to) / 0.4 };
 }
 
-const cache = new Map(); // walkerId → { coords, distanceKm, durationMin }
+const cache = new Map<string, RouteData>(); // walkerId → route
+
+interface RoutableWalker { id: string; fromLatlng: LatLng; toLatlng: LatLng }
 
 export const RouteServer = {
   /** Persist a route once when a walker submits a trip. */
-  async save(id, from, to) {
+  async save(id: string, from: LatLng, to: LatLng): Promise<RouteData | undefined> {
     if (!cache.has(id)) cache.set(id, await build(from, to));
     return cache.get(id);
   },
   /** Load a walker/contact's route — served from cache when available. */
-  async fetch(walker) {
-    if (cache.has(walker.id)) { await sleep(260); return cache.get(walker.id); }
+  async fetch(walker: RoutableWalker): Promise<RouteData> {
+    const cached = cache.get(walker.id);
+    if (cached) { await sleep(260); return cached; }
     const data = await build(walker.fromLatlng, walker.toLatlng);
     cache.set(walker.id, data);
     return data;
