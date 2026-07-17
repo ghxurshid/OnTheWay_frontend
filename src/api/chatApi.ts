@@ -13,14 +13,14 @@ export const chatApi = {
   },
 
   /** GET /chat/conversations/:id/messages — message history (oldest→newest). */
-  messages(conversationId, pageNumber = 1, pageSize = 30) {
+  messages(conversationId: string, pageNumber = 1, pageSize = 30) {
     if (USE_MOCKS) return mockResponse([]);
     return http(`/chat/conversations/${conversationId}/messages?pageNumber=${pageNumber}&pageSize=${pageSize}`)
       .then((p) => p?.items || []);
   },
 
   /** POST /chat/messages — REST fallback when the hub is unavailable. */
-  send(recipientId, content) {
+  send(recipientId: string, content: string) {
     if (USE_MOCKS) return mockResponse(null);
     return http('/chat/messages', {
       method: 'POST',

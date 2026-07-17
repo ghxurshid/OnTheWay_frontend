@@ -11,13 +11,13 @@ export const contactApi = {
   },
 
   /** Resolve one contact from the list (no dedicated backend route). */
-  getById(id) {
+  getById(id: string) {
     if (USE_MOCKS) return mockResponse(CONTACTS_DATA.find((c) => c.id === id) || null);
-    return this.list().then((rows) => rows.find((c) => c.id === id) || null);
+    return this.list().then((rows) => rows.find((c: { id: string }) => c.id === id) || null);
   },
 
   /** POST /contacts — save another user as a contact. */
-  add(contactUserId) {
+  add(contactUserId: string) {
     if (USE_MOCKS) return mockResponse({ userId: contactUserId });
     return http('/contacts', {
       method: 'POST',
@@ -26,7 +26,7 @@ export const contactApi = {
   },
 
   /** DELETE /contacts/{contactUserId} — remove a user from the caller's contacts. */
-  remove(contactUserId) {
+  remove(contactUserId: string) {
     if (USE_MOCKS) return mockResponse(true);
     return http(`/contacts/${contactUserId}`, { method: 'DELETE' });
   },

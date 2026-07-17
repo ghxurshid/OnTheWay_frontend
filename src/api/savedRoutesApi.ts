@@ -11,7 +11,7 @@ export const savedRoutesApi = {
   },
 
   /** POST /saved-routes — save an existing trip's route as a template. */
-  save(tripId, name, description = null) {
+  save(tripId: string, name: string, description: string | null = null) {
     if (USE_MOCKS) return mockResponse({ id: 'sr_' + Date.now(), name, description });
     return http('/saved-routes', {
       method: 'POST',
@@ -20,7 +20,7 @@ export const savedRoutesApi = {
   },
 
   /** POST /saved-routes/{id}/trips — one-click publish a new trip from a template. */
-  createTrip(id, payload) {
+  createTrip(id: string, payload: Record<string, unknown>) {
     if (USE_MOCKS) return mockResponse({ id: 'trip_' + Date.now(), ...payload });
     return http(`/saved-routes/${id}/trips`, {
       method: 'POST',
@@ -29,7 +29,7 @@ export const savedRoutesApi = {
   },
 
   /** DELETE /saved-routes/{id} — remove one of the caller's saved routes. */
-  remove(id) {
+  remove(id: string) {
     if (USE_MOCKS) return mockResponse(true);
     return http(`/saved-routes/${id}`, { method: 'DELETE' });
   },

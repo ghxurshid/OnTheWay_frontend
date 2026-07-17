@@ -8,12 +8,12 @@ export const feedbackApi = {
   list() {
     if (USE_MOCKS) return mockResponse([]);
     return http('/feedback').then((rows) =>
-      (rows || []).map((f) => ({ ...f, createdAt: new Date(f.createdAt) })));
+      (rows || []).map((f: { createdAt: string }) => ({ ...f, createdAt: new Date(f.createdAt) })));
   },
 
   /** POST /feedback — submit new feedback.
-      @param payload { category, title, description, appVersion?, attachmentUrl? } */
-  submit(payload) {
+      payload: { category, title, description, appVersion?, attachmentUrl? } */
+  submit(payload: Record<string, unknown>) {
     if (USE_MOCKS) return mockResponse({ id: 'fb_' + Date.now(), ...payload, createdAt: new Date() });
     return http('/feedback', { method: 'POST', body: JSON.stringify(payload) });
   },

@@ -6,11 +6,11 @@
 
 import { USE_MOCKS, mockResponse, http } from './client';
 
-const post = (path) => http(path, { method: 'POST' });
+const post = (path: string) => http(path, { method: 'POST' });
 
 export const bookingApi = {
   /** POST /bookings — request seats on a trip (status starts Pending). */
-  create(tripId, seatsBooked = 1, message = null) {
+  create(tripId: string, seatsBooked = 1, message: string | null = null) {
     if (USE_MOCKS) return mockResponse({ id: 'bk_' + Date.now(), tripId, seatsBooked, status: 'Pending' });
     return http('/bookings', {
       method: 'POST',
@@ -19,16 +19,16 @@ export const bookingApi = {
   },
 
   /** Driver accepts a pending booking (reserves the seats). */
-  accept(id) { return USE_MOCKS ? mockResponse(null) : post(`/bookings/${id}/accept`); },
+  accept(id: string) { return USE_MOCKS ? mockResponse(null) : post(`/bookings/${id}/accept`); },
 
   /** Driver rejects a pending booking. */
-  reject(id) { return USE_MOCKS ? mockResponse(null) : post(`/bookings/${id}/reject`); },
+  reject(id: string) { return USE_MOCKS ? mockResponse(null) : post(`/bookings/${id}/reject`); },
 
   /** Either participant cancels (releases seats if it was accepted). */
-  cancel(id) { return USE_MOCKS ? mockResponse(null) : post(`/bookings/${id}/cancel`); },
+  cancel(id: string) { return USE_MOCKS ? mockResponse(null) : post(`/bookings/${id}/cancel`); },
 
   /** Driver marks an accepted booking completed once the ride is done. */
-  complete(id) { return USE_MOCKS ? mockResponse(null) : post(`/bookings/${id}/complete`); },
+  complete(id: string) { return USE_MOCKS ? mockResponse(null) : post(`/bookings/${id}/complete`); },
 
   /** GET /bookings/mine — the caller's bookings. */
   mine(pageNumber = 1, pageSize = 20) {

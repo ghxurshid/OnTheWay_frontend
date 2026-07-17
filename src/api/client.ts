@@ -11,11 +11,6 @@
    Auth: a JWT access token (from authStore) is attached as a Bearer
    header. On a 401 the client transparently refreshes the token once and
    retries the request, so screens never deal with token expiry.
-
-   Configuration (Vite env, see .env):
-     VITE_API_BASE_URL  → API origin incl. version, e.g.
-                          http://51.38.127.221:5106/api/v1
-     VITE_USE_MOCKS     → 'false' to hit the real backend (default: live).
    ════════════════════════════════════════════════════════════════ */
 
 import { authStore } from '@/services/authStore';
@@ -30,14 +25,16 @@ export const BASE_URL = (env.VITE_API_BASE_URL || '/api/v1').replace(/\/$/, '');
 const MOCK_LATENCY = 220;
 
 /** Resolve a deep-cloned mock payload after a simulated round-trip. */
-export function mockResponse(data, latency = MOCK_LATENCY) {
+export function mockResponse<T>(data: T, latency = MOCK_LATENCY): Promise<T> {
   return new Promise((resolve) => {
     setTimeout(() => resolve(structuredCloneSafe(data)), latency);
   });
 }
 
 export class ApiError extends Error {
-  constructor(status, message, errors = []) {
+  status: number;
+  errors: unknown[];
+  constructor(status: number, message: string, errors: unknown[] = []) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
@@ -45,18 +42,22 @@ export class ApiError extends Error {
   }
 }
 
-/**
- * Real HTTP call. Returns the unwrapped `data` payload.
- * @param {string}  path     Absolute URL or a path joined onto BASE_URL.
- * @param {object}  options  fetch options. Extra flags:
- *   - auth:  attach the Bearer token (default true)
- *   - _retried: internal guard so a refresh only retries once
- */
-export async function http(path, options = {}) {
+export interface HttpOptions extends RequestInit {
+  /** Attach the Bearer token (default true). */
+  auth?: boolean;
+  /** Internal guard so a refresh only retries once. */
+  _retried?: boolean;
+}
+
+/** Real HTTP call. Returns the unwrapped `data` payload. The backend DTOs are
+    not statically modelled, so the default payload type is `any` at this
+    boundary; callers may pass an explicit type via `http<Dto>(…)`. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function http<T = any>(path: string, options: HttpOptions = {}): Promise<T> {
   const { auth = true, _retried = false, headers, ...rest } = options;
   const url = path.startsWith('http') ? path : `${BASE_URL}${path}`;
 
-  const finalHeaders = { 'Content-Type': 'application/json', ...(headers || {}) };
+  const finalHeaders: Record<string, string> = { 'Content-Type': 'application/json', ...(headers as Record<string, string> || {}) };
   if (auth) {
     const token = authStore.getAccessToken();
     if (token) finalHeaders.Authorization = `Bearer ${token}`;
@@ -68,21 +69,21 @@ export async function http(path, options = {}) {
   if (res.status === 401 && auth && !_retried && authStore.getRefreshToken()) {
     try {
       await authStore.refresh();
-      return http(path, { ...options, _retried: true });
+      return http<T>(path, { ...options, _retried: true });
     } catch {
       authStore.clear();
       throw new ApiError(401, 'Session expired. Please sign in again.');
     }
   }
 
-  return parse(res, options.method || 'GET', url);
+  return parse<T>(res, options.method || 'GET', url);
 }
 
 /** Parse the envelope, returning `data` or throwing a rich ApiError. */
-async function parse(res, method, url) {
-  if (res.status === 204) return null;
+async function parse<T>(res: Response, method: string, url: string): Promise<T> {
+  if (res.status === 204) return null as T;
 
-  let body = null;
+  let body: { success?: boolean; data?: unknown; message?: string; errors?: unknown[] } | null = null;
   const text = await res.text();
   if (text) {
     try { body = JSON.parse(text); } catch { /* non-JSON error body */ }
@@ -94,23 +95,23 @@ async function parse(res, method, url) {
   }
 
   // Standard envelope → unwrap; tolerate a bare payload just in case.
-  return body && typeof body === 'object' && 'data' in body ? body.data : body;
+  return (body && typeof body === 'object' && 'data' in body ? body.data : body) as T;
 }
 
 // structuredClone with a fallback that preserves Date instances used in mocks.
-function structuredCloneSafe(data) {
+function structuredCloneSafe<T>(data: T): T {
   if (typeof structuredClone === 'function') {
-    try { return structuredClone(data); } catch (e) { /* fall through */ }
+    try { return structuredClone(data); } catch { /* fall through */ }
   }
   return cloneWithDates(data);
 }
-function cloneWithDates(value) {
-  if (value instanceof Date) return new Date(value);
-  if (Array.isArray(value)) return value.map(cloneWithDates);
+function cloneWithDates<T>(value: T): T {
+  if (value instanceof Date) return new Date(value) as unknown as T;
+  if (Array.isArray(value)) return value.map(cloneWithDates) as unknown as T;
   if (value && typeof value === 'object') {
-    const out = {};
-    for (const k of Object.keys(value)) out[k] = cloneWithDates(value[k]);
-    return out;
+    const out: Record<string, unknown> = {};
+    for (const k of Object.keys(value)) out[k] = cloneWithDates((value as Record<string, unknown>)[k]);
+    return out as T;
   }
   return value;
 }

@@ -7,6 +7,6 @@ export const historyApi = {
   /** GET /history */
   list() {
     if (USE_MOCKS) return mockResponse(HISTORY_DATA);
-    return http('/history').then((rows) => rows.map((h) => ({ ...h, date: new Date(h.date) })));
+    return http('/history').then((rows) => rows.map((h: { date: string }) => ({ ...h, date: new Date(h.date) })));
   },
 };

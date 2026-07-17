@@ -8,7 +8,7 @@ import { http } from './client';
 
 export const authApi = {
   /** POST /auth/telegram — exchange signed Telegram initData for a token pair. */
-  telegram(initData) {
+  telegram(initData: string) {
     return http('/auth/telegram', {
       method: 'POST',
       auth: false,
@@ -17,7 +17,7 @@ export const authApi = {
   },
 
   /** POST /auth/refresh — rotate the refresh token for a new pair. */
-  refresh(refreshToken) {
+  refresh(refreshToken: string) {
     return http('/auth/refresh', {
       method: 'POST',
       auth: false,

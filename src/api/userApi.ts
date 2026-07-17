@@ -17,7 +17,7 @@ export const userApi = {
   },
 
   /** PUT /users/me/vehicle — set/clear vehicle (driver ⇄ passenger). */
-  updateVehicle(vehicle) {
+  updateVehicle(vehicle: string | null) {
     if (USE_MOCKS) return mockResponse({ vehicle, kind: vehicle ? 'driver' : 'passenger' });
     return http('/users/me/vehicle', { method: 'PUT', body: JSON.stringify({ vehicle }) });
   },

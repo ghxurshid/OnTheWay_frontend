@@ -23,7 +23,7 @@ export const settingsApi = {
   },
 
   /** PUT /settings — persist the caller's settings (created on first save). */
-  update(settings) {
+  update(settings: Record<string, unknown>) {
     if (USE_MOCKS) return mockResponse({ ...MOCK_SETTINGS, ...settings });
     return http('/settings', { method: 'PUT', body: JSON.stringify(settings) });
   },

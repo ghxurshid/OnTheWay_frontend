@@ -13,7 +13,7 @@ export const dashboardApi = {
   /** GET /dashboard/statistics — full metrics for a reporting period.
       @param period one of Today/Yesterday/ThisWeek/ThisMonth/LastMonth/Last3Months/
         LastYear/AllTime/Custom. `from`/`to` are ISO strings, only for Custom. */
-  getStatistics(period = 'AllTime', from = null, to = null) {
+  getStatistics(period = 'AllTime', from: string | null = null, to: string | null = null) {
     if (USE_MOCKS) {
       return mockResponse({
         period, fromUtc: null, toUtc: null,
@@ -24,7 +24,7 @@ export const dashboardApi = {
       });
     }
     const q = new URLSearchParams(
-      Object.fromEntries(Object.entries({ period, from, to }).filter(([, v]) => v != null)));
+      Object.fromEntries(Object.entries({ period, from, to }).filter(([, v]) => v != null)) as Record<string, string>);
     return http(`/dashboard/statistics?${q}`);
   },
 };
