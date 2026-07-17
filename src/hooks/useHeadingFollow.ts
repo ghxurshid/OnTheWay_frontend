@@ -14,15 +14,27 @@
    ════════════════════════════════════════════════════════════════ */
 
 import { useCallback, useEffect, useRef } from 'react';
+import type { MutableRefObject, Dispatch, SetStateAction } from 'react';
 import { haversineKm } from '@/utils/geo';
+import type { LatLng } from '@/utils/geo';
 import { bearing } from '@/services/simulationService';
+import type { MapHook } from './mapHook';
 
 // Bearing used before any real heading has been observed (north up).
 export const DEFAULT_HEADING = 0;
 
+interface UseHeadingFollowArgs {
+  mapHook: MapHook;
+  screen: string;
+  activeRoute: unknown;
+  followMe: boolean;
+  setFollowMe: Dispatch<SetStateAction<boolean>>;
+  userLocRef: MutableRefObject<LatLng | null>;
+}
+
 // Balanced follow-zoom: the faster you move the further ahead you see.
 // Discrete steps (with navFollow's 0.5 threshold) avoid re-zoom jitter.
-export function zoomForSpeed(kmh) {
+export function zoomForSpeed(kmh: number | null | undefined): number {
   if (kmh == null || Number.isNaN(kmh)) return 17;
   if (kmh < 5) return 17;   // stationary / walking
   if (kmh < 20) return 16;  // slow
@@ -39,13 +51,13 @@ export function zoomForSpeed(kmh) {
  * @param {Function} opts.setFollowMe releases follow when the user grabs the map
  * @param {object}   opts.userLocRef  shared ref the app reads the live location from
  */
-export function useHeadingFollow({ mapHook, screen, activeRoute, followMe, setFollowMe, userLocRef }) {
+export function useHeadingFollow({ mapHook, screen, activeRoute, followMe, setFollowMe, userLocRef }: UseHeadingFollowArgs) {
   const followMeRef = useRef(false);   // read inside watch callbacks
-  const lastHeadingRef = useRef(null); // last real heading from movement (frozen while parked)
+  const lastHeadingRef = useRef<number | null>(null); // last real heading from movement (frozen while parked)
 
   // Apply one "heading-up" follow frame: recenter, rotate to the (remembered)
   // heading, hold a speed-balanced zoom, and lock the "me" arrow pointing up.
-  const applyFollow = useCallback((pos, kmh) => {
+  const applyFollow = useCallback((pos: LatLng, kmh: number | null) => {
     if (!followMeRef.current || !pos) return;
     mapHook.setUserLocation(pos, 0); // arrow forward = screen up (map carries heading)
     mapHook.rotateTo(lastHeadingRef.current != null ? lastHeadingRef.current : DEFAULT_HEADING);
@@ -56,15 +68,15 @@ export function useHeadingFollow({ mapHook, screen, activeRoute, followMe, setFo
   useEffect(() => {
     if (screen !== 'map' || activeRoute) return undefined;
     if (typeof navigator === 'undefined' || !navigator.geolocation) return undefined;
-    let lastPos = null;
+    let lastPos: LatLng | null = null;
     const id = navigator.geolocation.watchPosition(
       (p) => {
-        const pos = [p.coords.latitude, p.coords.longitude];
+        const pos: LatLng = [p.coords.latitude, p.coords.longitude];
         const spd = p.coords.speed;
         const kmh = spd != null && !Number.isNaN(spd) && spd >= 0 ? spd * 3.6 : null;
         // Only trust a heading when speed confirms real movement — a parked GPS
         // wandering ±5-10m must not produce a heading (the map would spin).
-        let heading = null;
+        let heading: number | null = null;
         const gh = p.coords.heading;
         const movingBySpeed = kmh != null && kmh >= 3;
         if (movingBySpeed && gh != null && !Number.isNaN(gh)) heading = gh;

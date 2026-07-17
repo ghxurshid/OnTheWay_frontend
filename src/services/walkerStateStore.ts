@@ -53,7 +53,7 @@ const WIRE_FIELDS = ['freeMode', 'activeTripId', 'clearActiveTrip', 'watchedWalk
 
 export const walkerStateStore = {
   get: (): WalkerState => state,
-  subscribe(fn: (s: WalkerState) => void) { listeners.add(fn); return () => listeners.delete(fn); },
+  subscribe(fn: (s: WalkerState) => void) { listeners.add(fn); return () => { listeners.delete(fn); }; },
 
   /** Apply a local change and sync the client-owned fields to the server. */
   patch(delta: WalkerStateDelta): WalkerState {

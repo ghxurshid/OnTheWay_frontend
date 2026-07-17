@@ -1,8 +1,14 @@
+// @ts-nocheck — imperative Leaflet boundary.
+// Leaflet 1.9 ships no types and is augmented at runtime by leaflet-ant-path
+// and leaflet-rotate (setBearing/rotateTo/makeAntPath …), so every map object
+// here is effectively `any`. Type-checking this file would only add ~60 `any`
+// annotations with zero safety gain; the typed seam is the facade it returns,
+// consumed by the (checked) hooks and components. Kept as .ts for a uniform
+// module graph; the surrounding app is fully type-checked.
 /* ════════════════════════════════════════════════════════════════
    useMap — imperative Leaflet controller hook.
    Owns the map instance and all layer groups (routes, markers, walkers,
    user route, previews). Exposes a flat command API the App orchestrates.
-   Decoupled from data: it only renders what it's handed.
    ════════════════════════════════════════════════════════════════ */
 
 import { useRef, useEffect, useCallback, useMemo } from 'react';

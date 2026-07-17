@@ -11,22 +11,40 @@
    ════════════════════════════════════════════════════════════════ */
 
 import { useRef } from 'react';
+import type { MutableRefObject } from 'react';
 import WalkerSim from '@/services/simulationService';
 import { USE_MOCKS } from '@/api/client';
 import { haversineKm } from '@/utils/geo';
+import type { LatLng } from '@/utils/geo';
 import { presenceClient } from '@/services/realtime';
 import { tripApi } from '@/api/tripApi';
 import { walkerStateStore } from '@/services/walkerStateStore';
+import type { MapHook } from './mapHook';
 
 const Sim = WalkerSim;
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Any = any;
+
+interface UseTripNavigationArgs {
+  mapHook: MapHook;
+  userLocRef: MutableRefObject<LatLng | null>;
+  applyFollow: (pos: LatLng, kmh: number | null) => void;
+  followMeRef: MutableRefObject<boolean>;
+  lastHeadingRef: MutableRefObject<number | null>;
+  activeRouteRef: MutableRefObject<Any>;
+  liveTripIdRef: MutableRefObject<string | null>;
+  setActiveRoute: (r: Any) => void;
+  setNavProgress: (n: number) => void;
+}
 
 export function useTripNavigation({
   mapHook, userLocRef, applyFollow, followMeRef, lastHeadingRef,
   activeRouteRef, liveTripIdRef, setActiveRoute, setNavProgress,
-}) {
-  const navTimerRef = useRef(null);    // mock-mode simulated-nav interval
-  const navWatchRef = useRef(null);    // navigator.geolocation.watchPosition id
-  const lastRealPosRef = useRef(null); // previous real fix (heading fallback)
+}: UseTripNavigationArgs) {
+  const navTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);    // mock-mode simulated-nav interval
+  const navWatchRef = useRef<number | null>(null);    // navigator.geolocation.watchPosition id
+  const lastRealPosRef = useRef<LatLng | null>(null); // previous real fix (heading fallback)
   const navSpeedRef = useRef(0);       // smoothed real speed (km/h)
   const navProgRef = useRef(0);
 
@@ -41,7 +59,7 @@ export function useTripNavigation({
 
   // Render one navigation frame: advance progress (monotonic), redraw traveled/
   // remaining, point the "me" marker along the heading, refresh the live ETA.
-  const applyNav = (rawProgress, markerPos, heading, speedKmh) => {
+  const applyNav = (rawProgress: number, markerPos: LatLng | null, heading: number | null, speedKmh: number | null) => {
     const base = activeRouteRef.current; if (!base) return;
     const { coords } = base;
     const p = Math.max(navProgRef.current, Math.min(1, rawProgress));
@@ -72,9 +90,9 @@ export function useTripNavigation({
 
   // Real device navigation: project each GPS fix onto the route, deriving speed
   // and heading from the device where available and from movement otherwise.
-  const onRealFix = (position) => {
+  const onRealFix = (position: GeolocationPosition) => {
     const base = activeRouteRef.current; if (!base) return;
-    const real = [position.coords.latitude, position.coords.longitude];
+    const real: LatLng = [position.coords.latitude, position.coords.longitude];
     const { progress } = Sim.projectOnRoute(base.coords, real);
     const speedMps = position.coords.speed != null && position.coords.speed >= 0 ? position.coords.speed : null;
     const speedKmh = speedMps != null ? speedMps * 3.6 : null;
@@ -92,7 +110,7 @@ export function useTripNavigation({
   };
 
   // Mock/demo mode only: no real movement exists, so animate the demo tween.
-  const startSimulatedNav = (coords, distanceKm) => {
+  const startSimulatedNav = (_coords: LatLng[], distanceKm: number) => {
     if (navTimerRef.current) return;
     const intervalMs = 500;
     const demoMs = Math.min(360000, Math.max(150000, distanceKm * 150000));
@@ -102,7 +120,7 @@ export function useTripNavigation({
     }, intervalMs);
   };
 
-  const startUserNav = (route, coords) => {
+  const startUserNav = (route: Any, coords: LatLng[]) => {
     stopNav();
     navProgRef.current = 0;
     navSpeedRef.current = 0;

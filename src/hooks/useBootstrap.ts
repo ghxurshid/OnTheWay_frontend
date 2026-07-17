@@ -22,11 +22,13 @@ import { initTelegramUi } from '@/services/telegram';
 export function useBootstrap() {
   const [authReady, setAuthReady] = useState(USE_MOCKS);     // mock mode needs no auth
   const [sessionReady, setSessionReady] = useState(USE_MOCKS); // server snapshot fetched (or failed)
-  const [authError, setAuthError] = useState(null);
+  const [authError, setAuthError] = useState<string | null>(null);
   const [bootNonce, setBootNonce] = useState(0);
   const bootRef = useRef(false);
-  const restoredSessionRef = useRef(null); // server session snapshot fetched on boot
-  const contactsRef = useRef([]);          // address book (used by the push-message sim)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const restoredSessionRef = useRef<any>(null); // server session snapshot fetched on boot
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const contactsRef = useRef<any[]>([]);        // address book (used by the push-message sim)
 
   // One-time auth + realtime bootstrap (skipped entirely in mock mode).
   useEffect(() => {
@@ -44,7 +46,7 @@ export function useBootstrap() {
         if (restoredSessionRef.current) bookingStore.seed(restoredSessionRef.current.bookings);
         setSessionReady(true); // splash may proceed (and possibly auto-resume)
       } catch (e) {
-        setAuthError(e?.message || String(e));
+        setAuthError((e as Error)?.message || String(e));
       }
     })();
   }, [bootNonce]);

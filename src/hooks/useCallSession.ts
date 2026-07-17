@@ -12,19 +12,37 @@
    ════════════════════════════════════════════════════════════════ */
 
 import { useState, useEffect, useRef } from 'react';
+import type { MutableRefObject } from 'react';
 import { t } from '@/i18n';
 import { USE_MOCKS } from '@/api/client';
 import { TASHKENT } from '@/constants/map';
 import { callClient } from '@/services/realtime';
 import { savedStore } from '@/services/savedStore';
 import { inviteToCallUser } from '@/utils/callUser';
+import type { CallUser } from '@/utils/callUser';
+import type { LatLng } from '@/utils/geo';
+import type { MapHook } from './mapHook';
 
 const REAL_ID_RE = /^\d+$/;
-const isRealUser = (id) => !USE_MOCKS && REAL_ID_RE.test(String(id ?? ''));
+const isRealUser = (id: string | number): boolean => !USE_MOCKS && REAL_ID_RE.test(String(id ?? ''));
 
-export function useCallSession({ authReady, notify, mapHook, userLocRef, liveWalkersRef, contactsRef, dismissSelected }) {
-  const [callState, setCallState] = useState(null);
-  const callStateRef = useRef(null);
+interface CallState { user: CallUser; phase: string; live?: boolean; role?: 'caller' | 'callee' }
+interface UseCallSessionArgs {
+  authReady: boolean;
+  notify: (n: { title: string; body: string }) => void;
+  mapHook: MapHook;
+  userLocRef: MutableRefObject<LatLng | null>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  liveWalkersRef: MutableRefObject<Map<string, any>>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  contactsRef: MutableRefObject<any[]>;
+  dismissSelected?: () => void;
+}
+const msg = (e: unknown): string => (e as Error)?.message || '';
+
+export function useCallSession({ authReady, notify, mapHook, userLocRef, liveWalkersRef, contactsRef, dismissSelected }: UseCallSessionArgs) {
+  const [callState, setCallState] = useState<CallState | null>(null);
+  const callStateRef = useRef<CallState | null>(null);
   useEffect(() => { callStateRef.current = callState; }, [callState]);
 
   // Incoming calls + lifecycle transitions from the CallHub.
@@ -59,14 +77,14 @@ export function useCallSession({ authReady, notify, mapHook, userLocRef, liveWal
     return () => { offIncoming(); offAccepted(); offEnded(); offRejected(); };
   }, [authReady]); // eslint-disable-line react-hooks/exhaustive-deps -- refs + notify are stable
 
-  const handleCall = async (user) => {
+  const handleCall = async (user: CallUser) => {
     dismissSelected?.();
     if (isRealUser(user.id)) {
       try {
         await callClient.startCall(user.id, 'audio');
         setCallState({ user, phase: 'ringing', live: true, role: 'caller' });
       } catch (e) {
-        notify({ title: t('call.failedTitle'), body: e?.message || '' });
+        notify({ title: t('call.failedTitle'), body: msg(e) });
       }
       return;
     }
@@ -110,9 +128,9 @@ export function useCallSession({ authReady, notify, mapHook, userLocRef, liveWal
       return;
     }
     // Demo mode: instant accept + a simulated approach on the map.
-    setCallState((c) => ({ ...c, phase: 'active' }));
+    setCallState((c) => (c ? { ...c, phase: 'active' } : c));
     const userLoc = userLocRef.current || TASHKENT;
-    const from = (callState && callState.user && callState.user.latlng) || [41.310, 69.255];
+    const from: LatLng = (callState && callState.user && callState.user.latlng) || [41.310, 69.255];
     mapHook.startTracking(from, userLoc, () => { /* ETA */ });
   };
 

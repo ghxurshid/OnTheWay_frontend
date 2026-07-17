@@ -40,7 +40,7 @@ export const bookingStore = {
   incoming: (): Booking[] => Object.values(state).filter((b) => b.incoming && b.status === 'Pending'),
   /** Bookings I hold that are currently accepted (an active agreement). */
   accepted: (): Booking[] => Object.values(state).filter((b) => b.status === 'Accepted'),
-  subscribe(fn: (s: BookingMap) => void) { listeners.add(fn); return () => listeners.delete(fn); },
+  subscribe(fn: (s: BookingMap) => void) { listeners.add(fn); return () => { listeners.delete(fn); }; },
 
   /** Apply a realtime BookingEvent: { type, booking, actorUserId }. */
   apply(evt: BookingEvent) {

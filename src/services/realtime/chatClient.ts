@@ -36,7 +36,7 @@ export const chatClient = {
   on(event: string, handler: Handler) {
     if (!listeners.has(event)) listeners.set(event, new Set());
     listeners.get(event)!.add(handler);
-    return () => listeners.get(event)?.delete(handler);
+    return () => { listeners.get(event)?.delete(handler); };
   },
 
   async connect() {

@@ -38,7 +38,7 @@ export const i18nStore = {
     this.apply();
     this.listeners.forEach((l) => l(mode));
   },
-  subscribe(fn: (mode: Lang) => void) { this.listeners.add(fn); return () => this.listeners.delete(fn); },
+  subscribe(fn: (mode: Lang) => void) { this.listeners.add(fn); return () => { this.listeners.delete(fn); }; },
 };
 i18nStore.apply();
 

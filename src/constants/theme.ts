@@ -69,7 +69,7 @@ export const themeStore = {
     this.listeners.forEach((l) => l(mode));
   },
   toggle() { this.set(this.mode === 'dark' ? 'light' : 'dark'); },
-  subscribe(fn: (mode: ThemeMode) => void) { this.listeners.add(fn); return () => this.listeners.delete(fn); },
+  subscribe(fn: (mode: ThemeMode) => void) { this.listeners.add(fn); return () => { this.listeners.delete(fn); }; },
 };
 
 themeStore.apply();

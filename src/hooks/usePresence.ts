@@ -13,23 +13,44 @@
    ════════════════════════════════════════════════════════════════ */
 
 import { useEffect } from 'react';
+import type { MutableRefObject } from 'react';
 import { t } from '@/i18n';
 import { USE_MOCKS } from '@/api/client';
 import { TASHKENT } from '@/constants/map';
 import { haversineKm } from '@/utils/geo';
+import type { LatLng } from '@/utils/geo';
 import { presenceClient } from '@/services/realtime';
 import { enrichLiveWalker, colorForId } from '@/services/liveWalkers';
 import { walkerApi } from '@/api/walkerApi';
+import type { MapHook } from './mapHook';
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Any = any;
+
+interface UsePresenceArgs {
+  screen: string;
+  mode: string | null;
+  mapHook: MapHook;
+  liveWalkersRef: MutableRefObject<Map<Any, Any>>;
+  userLocRef: MutableRefObject<LatLng | null>;
+  openWalker: (id: string) => void;
+  notify: (n: { title: string; body: string }) => void;
+  setMatchCount: (n: number) => void;
+  setShowMatching: (v: boolean) => void;
+  restoreLiveRoute: (trip: Any) => void;
+  pendingRestoreRef: MutableRefObject<Any>;
+  getCurrentLatLng: () => Promise<LatLng | null>;
+}
 
 export function usePresence({
   screen, mode, mapHook, liveWalkersRef, userLocRef, openWalker, notify,
   setMatchCount, setShowMatching, restoreLiveRoute, pendingRestoreRef, getCurrentLatLng,
-}) {
+}: UsePresenceArgs) {
   useEffect(() => {
     if (USE_MOCKS || screen !== 'map' || !mode) return undefined;
     let alive = true;
-    const profiles = new Map(); // userId → WalkerProfileDto
-    let refreshTimer = null;
+    const profiles = new Map<string, Any>(); // userId → WalkerProfileDto
+    let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 
     const oppositeRole = mode === 'driver' ? 'passenger' : 'driver';
 
@@ -62,7 +83,7 @@ export function usePresence({
         // Merge, don't clear: a disconnected walker in the offline-grace window
         // keeps their (greyed) marker, so their profile must survive refreshes
         // that no longer list them.
-        list.forEach((p) => profiles.set(p.id, p));
+        list.forEach((p: Any) => profiles.set(p.id, p));
         render();
       } catch { /* keep whatever we have */ }
     };
@@ -71,14 +92,14 @@ export function usePresence({
       refreshTimer = setTimeout(() => { refreshTimer = null; refresh(); }, 800);
     };
 
-    const onMoved = (pos) => {
+    const onMoved = (pos: Any) => {
       if (!alive) return;
       if (!profiles.has(pos.userId)) { scheduleRefresh(); return; }
       const w = enrichLiveWalker(profiles.get(pos.userId), pos);
       liveWalkersRef.current.set(w.id, w);
       mapHook.upsertWalkerMarker(w, openWalker);
     };
-    const onGone = (id) => {
+    const onGone = (id: Any) => {
       if (!alive) return;
       liveWalkersRef.current.delete(id);
       mapHook.removeWalkerRoute(id);
@@ -88,30 +109,30 @@ export function usePresence({
 
     // Offline grace: a disconnected walker STAYS on the map — marker and route
     // greyed — until they return or the server sweeps them (WalkerGone).
-    const onUserOffline = (id) => {
+    const onUserOffline = (id: Any) => {
       if (!alive) return;
       const w = liveWalkersRef.current.get(String(id));
       if (w) { w.offline = true; mapHook.setWalkerOffline(String(id), true); }
     };
-    const onUserOnline = (id) => {
+    const onUserOnline = (id: Any) => {
       if (!alive) return;
       const w = liveWalkersRef.current.get(String(id));
       if (w) { w.offline = false; mapHook.setWalkerOffline(String(id), false); }
     };
 
     // An opposite-role walker published (or cleared) their shared route.
-    const onRoutePublished = (active) => {
+    const onRoutePublished = (active: Any) => {
       if (!alive || !active) return;
       const uid = String(active.userId);
-      const coords = (active.points || []).map((p) => [p.lat, p.lng]);
+      const coords = (active.points || []).map((p: Any) => [p.lat, p.lng] as LatLng);
       if (coords.length < 2) return;
       mapHook.setWalkerRoute(uid, coords, colorForId(uid));
     };
-    const onRouteCleared = (uid) => { if (alive) mapHook.removeWalkerRoute(String(uid)); };
+    const onRouteCleared = (uid: Any) => { if (alive) mapHook.removeWalkerRoute(String(uid)); };
 
     // A new opposite-role walker just joined — place the marker and surface a
     // one-off "joined" notification (spec §17 walker-joined rule).
-    const onJoined = (pos) => {
+    const onJoined = (pos: Any) => {
       if (!alive) return;
       onMoved(pos); // add/refresh the marker (schedules a profile refresh if new)
       const profile = profiles.get(pos.userId);
