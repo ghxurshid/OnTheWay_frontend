@@ -1,9 +1,12 @@
 import { useState, useEffect } from 'react';
+import type { ReactNode } from 'react';
 import { T } from '@/constants/theme';
 import { t } from '@/i18n';
 
+type Role = 'passenger' | 'driver';
+
 /** Role-selection landing screen (passenger / driver). */
-export function HomeScreen({ onSelect }) {
+export function HomeScreen({ onSelect }: { onSelect: (role: Role) => void }) {
   const [in_, setIn] = useState(false);
   useEffect(() => { const id = setTimeout(() => setIn(true), 80); return () => clearTimeout(id); }, []);
   return (
@@ -37,8 +40,6 @@ export function HomeScreen({ onSelect }) {
       <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 12,
         opacity: in_ ? 1 : 0, transform: in_ ? 'none' : 'translateY(30px)',
         transition: 'all .6s .2s cubic-bezier(.34,1.56,.64,1)' }}>
-        {/* Icon shows the role being searched for: passenger mode finds drivers (🚗),
-            driver mode finds passengers (🧑‍✈️). */}
         <RoleBtn icon="🚗" label={t('home.passengerLabel')} sub={t('home.passengerSub')} color={T.teal} onClick={() => onSelect('passenger')} />
         <RoleBtn icon="🧑‍✈️" label={t('home.driverLabel')} sub={t('home.driverSub')} color={T.amber} onClick={() => onSelect('driver')} />
       </div>
@@ -46,7 +47,9 @@ export function HomeScreen({ onSelect }) {
   );
 }
 
-function RoleBtn({ icon, label, sub, color, onClick }) {
+interface RoleBtnProps { icon: ReactNode; label: ReactNode; sub: ReactNode; color: string; onClick: () => void }
+
+function RoleBtn({ icon, label, sub, color, onClick }: RoleBtnProps) {
   const [p, setP] = useState(false);
   return (
     <button onClick={onClick} onPointerDown={() => setP(true)} onPointerUp={() => setP(false)} onPointerLeave={() => setP(false)}

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import type { CSSProperties } from 'react';
 import { T } from '@/constants/theme';
 import { t } from '@/i18n';
 import { mapStylePreviewBg } from '@/constants/map';
@@ -6,14 +7,20 @@ import { mapStylePreviewBg } from '@/constants/map';
 // Three basemap modes. "theme" follows the app's selected light/dark theme.
 const MODES = ['theme', 'streets', 'satellite'];
 
+interface MapStyleSwitcherProps {
+  current: string;
+  onChange: (id: string) => void;
+  appTheme?: string;
+}
+
 /** Floating basemap-mode picker (app theme / streets / satellite). Designed to
     sit in a vertical control stack: the root is relative, the popup opens above. */
-export function MapStyleSwitcher({ current, onChange, appTheme = 'dark' }) {
+export function MapStyleSwitcher({ current, onChange, appTheme = 'dark' }: MapStyleSwitcherProps) {
   const [open, setOpen] = useState(false);
 
   // The preview swatch (and sub-label) for "theme" mirrors the current app theme.
-  const previewFor = (id) => mapStylePreviewBg(id === 'theme' ? (appTheme === 'light' ? 'light' : 'dark') : id);
-  const subFor = (id) => (id === 'theme' ? t('mapStyles.' + (appTheme === 'light' ? 'light' : 'dark')) : t('mapStyles.' + id));
+  const previewFor = (id: string): CSSProperties => mapStylePreviewBg(id === 'theme' ? (appTheme === 'light' ? 'light' : 'dark') : id);
+  const subFor = (id: string) => (id === 'theme' ? t('mapStyles.' + (appTheme === 'light' ? 'light' : 'dark')) : t('mapStyles.' + id));
 
   return (
     <div style={{ position: 'relative', pointerEvents: 'auto' }}>

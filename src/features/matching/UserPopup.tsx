@@ -1,10 +1,32 @@
 import { T } from '@/constants/theme';
 import { t } from '@/i18n';
 
+interface PopupUser {
+  type: 'driver' | 'passenger';
+  initials: string;
+  name: string;
+  sub?: string;
+  rating?: number | string;
+  trips?: number;
+  dist?: string;
+  eta?: string;
+}
+interface UserPopupProps {
+  user: PopupUser;
+  onClose: () => void;
+  onCall: () => void;
+  onChat: () => void;
+}
+
 /** Bottom-sheet profile popup for a selected matched user (call / chat). */
-export function UserPopup({ user, onClose, onCall, onChat }) {
+export function UserPopup({ user, onClose, onCall, onChat }: UserPopupProps) {
   const isDriver = user.type === 'driver';
   const color = isDriver ? T.amber : T.purple;
+  const stats: [string, string | undefined, string][] = [
+    [t('userPopup.distance'), user.dist, color],
+    [t('userPopup.arrival'), user.eta, color],
+    [t('userPopup.match'), '87%', T.green],
+  ];
   return (
     <div style={{ position: 'absolute', inset: 0, zIndex: 25, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', pointerEvents: 'none' }}>
       <div style={{ flex: 1, pointerEvents: 'none' }} />
@@ -36,7 +58,7 @@ export function UserPopup({ user, onClose, onCall, onChat }) {
         </div>
         <div style={{ background: T.bg, borderRadius: 14, padding: '12px 14px', marginBottom: 16,
           border: `1px solid ${T.border}`, display: 'flex', justifyContent: 'space-between' }}>
-          {[[t('userPopup.distance'), user.dist, color], [t('userPopup.arrival'), user.eta, color], [t('userPopup.match'), '87%', T.green]].map(([l, v, c]) => (
+          {stats.map(([l, v, c]) => (
             <div key={l} style={{ textAlign: 'center' }}>
               <div style={{ fontSize: 16, fontWeight: 700, color: c }}>{v}</div>
               <div style={{ fontSize: 10, color: T.muted, marginTop: 1 }}>{l}</div>

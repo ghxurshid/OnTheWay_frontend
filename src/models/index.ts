@@ -64,6 +64,14 @@ export interface RouteData {
   durationMin: number;
 }
 
+/** The active trip route driving the on-map navigation bar. */
+export interface ActiveRoute {
+  coords?: LatLng[];
+  distanceKm: number;
+  durationMin: number;
+  liveEta?: { remMin: number; remKm: string } | null;
+}
+
 /** A transient push-notification toast payload. */
 export interface PushNotif {
   title: string;

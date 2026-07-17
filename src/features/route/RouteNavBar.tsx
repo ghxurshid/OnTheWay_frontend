@@ -1,8 +1,15 @@
 import { T } from '@/constants/theme';
 import { t } from '@/i18n';
+import type { ActiveRoute } from '@/models';
+
+interface RouteNavBarProps {
+  route: ActiveRoute;
+  progress: number;
+  onEnd: () => void;
+}
 
 /** Active-route progress bar (Yandex-style) with ETA + end button. */
-export function RouteNavBar({ route, progress, onEnd }) {
+export function RouteNavBar({ route, progress, onEnd }: RouteNavBarProps) {
   const pct = Math.round(progress * 100);
   const done = progress >= 1;
   // Prefer the live ETA derived from the device's real speed; fall back to the
