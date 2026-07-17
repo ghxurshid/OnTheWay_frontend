@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render } from '@testing-library/react';
 import { useEscapeKey } from './useEscapeKey';
 
-function Harness({ handler, active }) {
+function Harness({ handler, active }: { handler: () => void; active?: boolean }) {
   useEscapeKey(handler, active);
   return null;
 }

@@ -9,7 +9,7 @@ interface CallParty {
   name: string;
   sub?: string;
   initials: string;
-  photoUrl?: string;
+  photoUrl?: string | null;
   accent?: string;
   type?: PartyType;
 }

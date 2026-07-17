@@ -13,6 +13,7 @@ import { CHAT_REPLY_KEYS } from '@/constants/app';
 import { haversineKm } from '@/utils/geo';
 import { walkerToCallUser, contactToUser } from '@/utils/callUser';
 import { useMap } from '@/hooks/useMap';
+import type { MapHook } from '@/hooks/mapHook';
 import { useHeadingFollow } from '@/hooks/useHeadingFollow';
 import { useBookings } from '@/hooks/useBookings';
 import { useBootstrap } from '@/hooks/useBootstrap';
@@ -28,6 +29,7 @@ import { walkerStateStore } from '@/services/walkerStateStore';
 import { tripApi } from '@/api/tripApi';
 import { getRoute } from '@/services/routeService';
 import { USE_MOCKS } from '@/api/client';
+import type { ActiveRoute, LatLng, MapTask, PartyType, Place, PushNotif, RouteData, Walker } from '@/models';
 
 import { LoadingScreen } from '@/pages/LoadingScreen';
 import { HomeScreen } from '@/pages/HomeScreen';
@@ -52,15 +54,20 @@ const PrivacyScreen = lazy(() => import('@/features/privacy/PrivacyScreen').then
 
 const Sim = WalkerSim;
 
+type Screen = 'loading' | 'home' | 'map';
+
+/** The in-map overlay task: a map-pick sheet or a walker route preview. */
+type NavTask =
+  | { type: 'pick'; label: string; initial: LatLng | null; onDone: (point: Place) => void }
+  | { type: 'preview'; walker: Walker; loading: boolean; dist: number; data?: RouteData };
 
 /** Map an OSRM route ([lat,lng] coords + distance/duration) → RoutePublishDto. */
-function toRoutePublishDto(coords, route) {
+function toRoutePublishDto(coords: number[][], route: { distance?: number; duration?: number } | null) {
   const pts = coords.map(([lat, lng]) => ({ lat, lng }));
   return {
     origin: pts[0],
     originLabel: null,
     destination: pts[pts.length - 1],
-    destinationLabel: null,
     points: pts,
     distanceKm: route?.distance ? route.distance / 1000 : null,
     etaMinutes: route?.duration ? Math.round(route.duration / 60) : null,
@@ -68,7 +75,7 @@ function toRoutePublishDto(coords, route) {
 }
 
 /** One-shot device location → [lat,lng], or null if denied/unavailable. */
-function getCurrentLatLng() {
+function getCurrentLatLng(): Promise<LatLng | null> {
   return new Promise((resolve) => {
     if (typeof navigator === 'undefined' || !navigator.geolocation) return resolve(null);
     navigator.geolocation.getCurrentPosition(
@@ -80,22 +87,26 @@ function getCurrentLatLng() {
 }
 
 export function App() {
-  const [screen, setScreen] = useState('loading');
-  const [mode, setMode] = useState(null);
+  const [screen, setScreen] = useState<Screen>('loading');
+  const [mode, setMode] = useState<PartyType | null>(null);
   const [showSheet, setShowSheet] = useState(false);
   const [showMatching, setShowMatching] = useState(false);
-  const [selectedUser, setSelectedUser] = useState(null);
-  const [chatUser, setChatUser] = useState(null);
-  const [pushNotif, setPushNotif] = useState(null);
+  // Popup / chat user shapes vary by source (sim walker, contact, call invite),
+  // so they stay loosely typed at this orchestration boundary.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [selectedUser, setSelectedUser] = useState<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [chatUser, setChatUser] = useState<any>(null);
+  const [pushNotif, setPushNotif] = useState<PushNotif | null>(null);
   // Basemap mode is the user's choice ('theme' follows the app light/dark theme,
   // 'streets', 'satellite'); mapStyle is the resolved tile id it maps to.
   const [mapStyleMode, setMapStyleMode] = useState('theme');
   const [mapStyle, setMapStyle] = useState(themeStore.mode === 'light' ? 'light' : 'dark');
   const [matchCount, setMatchCount] = useState(0);
   const [, setRoutePicking] = useState(false);
-  const [activeRoute, setActiveRoute] = useState(null);
+  const [activeRoute, setActiveRoute] = useState<ActiveRoute | null>(null);
   const [navProgress, setNavProgress] = useState(0);
-  const [navTask, setNavTask] = useState(null); // {type:'pick'|'preview', ...}
+  const [navTask, setNavTask] = useState<NavTask | null>(null); // {type:'pick'|'preview', ...}
   const [followMe, setFollowMe] = useState(false); // compass: keep the map on the live location
   const [freeMode, setFreeMode] = useState(false); // share live location without a trip (asks permission on enable)
   const [hasCreatedTrip, setHasCreatedTrip] = useState(false); // created a trip this session (route or schedule)
@@ -103,21 +114,26 @@ export function App() {
   // live map; the separate Planned Trips board is hidden for them (spec §17).
   const engaged = hasCreatedTrip || (mode === 'driver' && freeMode);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [overlayPanel, setOverlayPanel] = useState(null); // 'settings' | 'complaint' | 'privacy'
+  const [overlayPanel, setOverlayPanel] = useState<string | null>(null); // 'settings' | 'complaint' | 'privacy'
   const [loaderDone, setLoaderDone] = useState(false);
-  const pendingRestoreRef = useRef(null);  // active trip to redraw once the map is up
-  const liveTripIdRef = useRef(null);      // persisted Live trip backing the on-map route
-  const mapContainerRef = useRef(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const pendingRestoreRef = useRef<any>(null);  // active trip to redraw once the map is up
+  const liveTripIdRef = useRef<string | null>(null);      // persisted Live trip backing the on-map route
+  const mapContainerRef = useRef<HTMLDivElement>(null);
 
-  const userLocRef = useRef(null);
-  const simRef = useRef(null);
-  const simWalkersRef = useRef([]);
+  const userLocRef = useRef<LatLng | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const simRef = useRef<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const simWalkersRef = useRef<any[]>([]);
   const mapStyleRef = useRef(themeStore.mode === 'light' ? 'light' : 'dark');
   const mapStyleModeRef = useRef('theme');
-  const activeRouteRef = useRef(null);     // shared: current trip route (nav + free-mode + exit)
-  const liveWalkersRef = useRef(new Map()); // userId → enriched live walker
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const activeRouteRef = useRef<any>(null);     // shared: current trip route (nav + free-mode + exit)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const liveWalkersRef = useRef<Map<string, any>>(new Map()); // userId → enriched live walker
 
-  const mapHook = useMap(mapContainerRef, screen === 'map');
+  const mapHook: MapHook = useMap(mapContainerRef, screen === 'map');
 
   // One-time auth + realtime + session-restore boot (owns readiness/error state).
   const { authReady, sessionReady, authError, restoredSessionRef, contactsRef, retry: retryBoot } = useBootstrap();
@@ -145,11 +161,11 @@ export function App() {
   useEffect(() => { mapHook.setMapStyle && mapHook.setMapStyle(mapStyle); }, [mapStyle, screen]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Resolve a basemap mode to a concrete tile style ('theme' tracks the app theme).
-  const resolveMapStyle = useCallback((modeId) =>
+  const resolveMapStyle = useCallback((modeId: string) =>
     modeId === 'theme' ? (themeStore.mode === 'light' ? 'light' : 'dark') : modeId, []);
 
   // Picker change: remember the mode and apply the resolved tile style.
-  const changeMapStyleMode = useCallback((modeId) => {
+  const changeMapStyleMode = useCallback((modeId: string) => {
     mapStyleModeRef.current = modeId;
     setMapStyleMode(modeId);
     setMapStyle(resolveMapStyle(modeId));
@@ -160,7 +176,8 @@ export function App() {
     if (mapStyleModeRef.current === 'theme') setMapStyle(themeStore.mode === 'light' ? 'light' : 'dark');
   }), []);
 
-  const formatForPopup = useCallback((w) => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const formatForPopup = useCallback((w: any) => {
     const userLoc = userLocRef.current || Sim.TASHKENT || TASHKENT;
     const km = Sim ? Sim.haversine(userLoc, w.position) : 0;
     const etaMin = Math.max(1, Math.round(km / 0.4));
@@ -176,7 +193,7 @@ export function App() {
     };
   }, []);
 
-  const openWalker = useCallback((id) => {
+  const openWalker = useCallback((id: string) => {
     const w = simWalkersRef.current.find((x) => x.id === id) || liveWalkersRef.current.get(id);
     if (w) setSelectedUser(formatForPopup(w));
   }, [formatForPopup]);
@@ -191,7 +208,7 @@ export function App() {
     if (!Sim || screen !== 'map' || !mode) return;
     if (simRef.current) { simRef.current.stop(); simRef.current = null; }
     mapHook.clearWalkers();
-    const oppo = mode === 'driver' ? 'passenger' : 'driver';
+    const oppo: 'driver' | 'passenger' = mode === 'driver' ? 'passenger' : 'driver';
     // Prefer the device's real current location so the map focuses on where the
     // user actually is; only fall back to a random point if it's unavailable.
     const userLoc = userLocRef.current || await getCurrentLatLng() || Sim.randomUserLocation();
@@ -236,7 +253,8 @@ export function App() {
   // ── LIVE map: render real online walkers from presence (replaces the sim) ──
   // restoreLiveRoute is defined further down; reach it through a ref so this
   // hook keeps its original position (and effect order) in the component.
-  const restoreLiveRouteRef = useRef(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const restoreLiveRouteRef = useRef<((trip: any) => void) | null>(null);
   usePresence({
     screen, mode, mapHook, liveWalkersRef, userLocRef, openWalker, notify: setPushNotif,
     setMatchCount, setShowMatching, pendingRestoreRef, getCurrentLatLng,
@@ -319,7 +337,8 @@ export function App() {
   // Persist the on-map route as a Live trip so the session survives app
   // restarts (and the abandoned-session sweeper can close it if we vanish).
   // Best-effort: the live map keeps working even if persistence fails.
-  const createLiveTrip = async (route, coords, waypoints) => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const createLiveTrip = async (route: any, coords: LatLng[], waypoints: any[]) => {
     try {
       const pts = (waypoints || []).filter((w) => w && w.latlng);
       const from = pts[0];
@@ -343,23 +362,25 @@ export function App() {
         walkerStateStore.patch({ activeTripId: String(trip.id) });
       }
     } catch (e) {
-      console.warn('[trip] live trip persist failed:', e?.message || e);
+      console.warn('[trip] live trip persist failed:', (e as Error)?.message || e);
     }
   };
 
   // Auto-resume: redraw the retained session's Live trip on reopen — recompute
   // the road between its persisted origin/destination, draw it, re-share it over
   // presence and resume navigation. Planned trips restore the map/mode only.
-  const restoreLiveRoute = async (trip) => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const restoreLiveRoute = async (trip: any) => {
     try {
       if (String(trip.category || '').toLowerCase() !== 'live') return;
       const from = [trip.origin?.latitude, trip.origin?.longitude];
       const to = [trip.destination?.latitude, trip.destination?.longitude];
       if (from.some((v) => v == null) || to.some((v) => v == null)) return;
-      const routes = await getRoute([from, to]);
-      const r = routes && routes[0];
+      const routes = await getRoute([from, to] as LatLng[]);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const r = routes && (routes[0] as any);
       if (!r || !r.geometry) return;
-      const coords = r.geometry.coordinates.map((c) => [c[1], c[0]]);
+      const coords = r.geometry.coordinates.map((c: number[]) => [c[1], c[0]] as LatLng);
       liveTripIdRef.current = String(trip.id);
       presenceClient.publishRoute(toRoutePublishDto(coords, r)).catch(() => {});
       setFreeMode(true); // resume live-location sharing for the restored trip
@@ -372,11 +393,12 @@ export function App() {
   // Expose the latest restoreLiveRoute to usePresence (declared above it).
   restoreLiveRouteRef.current = restoreLiveRoute;
 
-  const handleRouteSelected = async (route, waypoints) => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const handleRouteSelected = async (route: any, waypoints: any[]) => {
     setShowSheet(false);
     setRoutePicking(false);
     if (!route || !route.geometry) return;
-    const coords = route.geometry.coordinates.map((c) => [c[1], c[0]]);
+    const coords = route.geometry.coordinates.map((c: number[]) => [c[1], c[0]] as LatLng);
 
     if (USE_MOCKS) {
       // Demo: regenerate simulated walkers along the chosen route.
@@ -385,7 +407,7 @@ export function App() {
       if (simRef.current) { simRef.current.stop(); simRef.current = null; }
       mapHook.clearWalkers();
       mapHook.setUserLocation(userLoc);
-      const oppo = mode === 'driver' ? 'passenger' : 'driver';
+      const oppo: 'driver' | 'passenger' = mode === 'driver' ? 'passenger' : 'driver';
       const n = simStore.get();
       const walkers = await Sim.generateWalkersForRoute(coords, oppo, n);
       walkers.sort((a, b) => Sim.haversine(userLoc, a.start) - Sim.haversine(userLoc, b.start));
@@ -426,7 +448,7 @@ export function App() {
   };
 
 
-  const handleMapTask = async (task) => {
+  const handleMapTask = async (task: MapTask) => {
     if (task.type === 'pick') {
       mapHook.setWalkersDimmed(true);
       setNavTask({ type: 'pick', label: task.label, initial: task.current, onDone: task.onDone });
@@ -442,9 +464,9 @@ export function App() {
       if (simRef.current) simRef.current.stop();
       mapHook.hideWalkers(true);
       mapHook.clearPreviewRoute();
-      let route = null; let pos = c.latlng;
+      let route: LatLng[] | null = null; let pos: LatLng = c.latlng;
       if (c.hasRoute) {
-        const data = await RouteServer.fetch(c);
+        const data = await RouteServer.fetch(c as Parameters<typeof RouteServer.fetch>[0]);
         route = data.coords;
         if (Sim && route && route.length > 1) {
           const s = Sim.splitRoute(route, 0.42);
@@ -466,7 +488,8 @@ export function App() {
 
   useEffect(() => { if (chatUser) unreadStore.clear(chatUser.id); }, [chatUser]);
 
-  const chatUserRef = useRef(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const chatUserRef = useRef<any>(null);
   useEffect(() => { chatUserRef.current = chatUser; }, [chatUser]);
 
   useEffect(() => {
@@ -478,7 +501,7 @@ export function App() {
 
   useEffect(() => {
     if (!USE_MOCKS || screen !== 'map' || !mode) return; // demo-only fake messages
-    let timer;
+    let timer: ReturnType<typeof setTimeout>;
     const fire = () => {
       if (!chatUserRef.current && !callStateRef.current) {
         const walkers = simWalkersRef.current || [];
@@ -500,8 +523,8 @@ export function App() {
     return () => clearTimeout(timer);
   }, [screen, mode, formatForPopup]); // eslint-disable-line react-hooks/exhaustive-deps -- contactsRef is a stable ref
 
-  const finishPick = (point) => {
-    setNavTask((task) => { if (task && task.onDone) task.onDone(point); return null; });
+  const finishPick = (point: Place) => {
+    setNavTask((task) => { if (task && task.type === 'pick' && task.onDone) task.onDone(point); return null; });
     mapHook.setWalkersDimmed(false);
   };
   const cancelTask = () => {
@@ -567,7 +590,7 @@ export function App() {
       {screen === 'map' && !callState && (
         <>
           <MapUI
-            mode={mode}
+            mode={mode as PartyType}
             mapHook={mapHook}
             showMatching={showMatching && !showSheet}
             matchCount={matchCount}
@@ -596,7 +619,7 @@ export function App() {
           <SideDrawer
             open={drawerOpen}
             onClose={() => setDrawerOpen(false)}
-            mode={mode}
+            mode={mode as PartyType}
             freeMode={freeMode}
             // Free Mode (destination-less live sharing) is driver-only; passengers
             // become visible by creating a trip instead. See business-spec §9.3.
@@ -672,7 +695,7 @@ export function App() {
           {showAgreements && (
             <BookingAgreementsSheet
               bookings={agreements}
-              myId={String(authStore.getUser()?.id ?? '')}
+              myId={String((authStore.getUser() as { id?: string | number } | null)?.id ?? '')}
               busyId={busyBookingId}
               onCancel={(b) => actOnAgreement(b, 'cancel')}
               onComplete={(b) => actOnAgreement(b, 'complete')}
