@@ -64,6 +64,87 @@ export interface RouteData {
   durationMin: number;
 }
 
+/** The active trip route driving the on-map navigation bar. */
+export interface ActiveRoute {
+  coords?: LatLng[];
+  distanceKm: number;
+  durationMin: number;
+  liveEta?: { remMin: number; remKm: string } | null;
+}
+
+/** A transient push-notification toast payload. */
+export interface PushNotif {
+  title: string;
+  body: string;
+  user?: { id?: string; type?: PartyType; name?: string; initials?: string; sub?: string; latlng?: LatLng };
+  chat?: boolean;
+  action?: string;
+  duration?: number;
+}
+
+/** A geocoded place: a coordinate plus a human-readable label. */
+export interface Place {
+  latlng: LatLng;
+  label: string;
+}
+
+/** A task dispatched from UI panels to the map controller (imperative bridge). */
+export type MapTask =
+  | { type: 'pick'; label: string; current: LatLng | null; onDone: (point: Place) => void }
+  | { type: 'preview'; walker: Walker }
+  | { type: 'contactFocus'; contact: Contact }
+  | { type: 'contactClear' };
+
+/** A frequent destination on the analytics dashboard. */
+export interface DashboardDestination {
+  label: string;
+  count: number;
+  km: number;
+}
+
+/** Raw dashboard summary (weekly km series + top destinations). */
+export interface DashboardSummary {
+  weekly: number[];
+  destinations: DashboardDestination[];
+}
+
+/** Full backend trip statistics for a reporting period (spec §52). */
+export interface TripStatistics {
+  period: string;
+  fromUtc: string | null;
+  toUtc: string | null;
+  totalCompletedTrips: number;
+  driverTrips: number;
+  passengerTrips: number;
+  cancelledTrips: number;
+  totalDistanceKm: number;
+  totalTravelMinutes: number;
+  averageTripDistanceKm: number;
+  averageTripDurationMinutes: number;
+  totalPassengersTransported: number;
+  averageVehicleOccupancy: number;
+  estimated: { fuelSavedLiters: number; co2ReducedKg: number; costSaved: number };
+}
+
+/** Per-category notification toggles (mirrors backend SettingsDto). */
+export interface NotificationSettings {
+  matching: boolean;
+  messages: boolean;
+  agreementRequests: boolean;
+  agreementAccepted: boolean;
+  tripUpdates: boolean;
+  promotional: boolean;
+}
+
+/** Per-user application settings (/settings). */
+export interface UserSettings {
+  searchMode: string;
+  searchResultLimit: number;
+  theme: string;
+  language: string;
+  notifications: NotificationSettings;
+}
+
 /** A saved item (place / route / partner). */
 export interface SavedItem {
   id: string;
