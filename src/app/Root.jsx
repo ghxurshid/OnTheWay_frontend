@@ -9,6 +9,7 @@
 
 import { ThemeProvider } from '@/contexts/ThemeContext';
 import { I18nProvider } from '@/contexts/I18nContext';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { App } from './App';
 
 export function Root() {
@@ -19,7 +20,11 @@ export function Root() {
           width: '100%', height: '100%' }}>
           <div style={{ width: '100%', height: '100%', maxWidth: 1024, position: 'relative',
             boxShadow: '0 0 0 1px rgba(255,255,255,.04), 0 30px 90px rgba(0,0,0,.5)' }}>
-            <App />
+            {/* Root safety net: a throw anywhere in the app shows a recoverable
+                fallback instead of a blank page. Recovery reloads a fresh session. */}
+            <ErrorBoundary onReset={() => window.location.reload()}>
+              <App />
+            </ErrorBoundary>
           </div>
         </div>
       </I18nProvider>

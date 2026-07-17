@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { T } from '@/constants/theme';
 import { t } from '@/i18n';
+import { useEscapeKey } from '@/hooks/useEscapeKey';
 import { CHAT_QUICK_KEYS, CHAT_REPLY_KEYS } from '@/constants/app';
 import { authStore } from '@/services/authStore';
 import { chatClient } from '@/services/realtime/chatClient';
@@ -25,6 +26,7 @@ export function ChatScreen({ user, onBack }) {
   const uid = sid(user.id);
   const authedId = authStore.getUser()?.id;
   const myId = authedId != null ? sid(authedId) : null;
+  useEscapeKey(onBack); // dismiss the chat from the keyboard
 
   const [msgs, setMsgs] = useState(live ? [] : [
     { id: 1, from: 'them',

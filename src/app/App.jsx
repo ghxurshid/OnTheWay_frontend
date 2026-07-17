@@ -5,24 +5,23 @@
    All data flows through services/hooks; no mock import lives here.
    ════════════════════════════════════════════════════════════════ */
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import { T, themeStore } from '@/constants/theme';
 import { t } from '@/i18n';
 import { TASHKENT } from '@/constants/map';
 import { CHAT_REPLY_KEYS } from '@/constants/app';
 import { haversineKm } from '@/utils/geo';
 import { useMap } from '@/hooks/useMap';
+import { useHeadingFollow } from '@/hooks/useHeadingFollow';
+import { useBookings } from '@/hooks/useBookings';
+import { useBootstrap } from '@/hooks/useBootstrap';
 import WalkerSim from '@/services/simulationService';
 import { simStore } from '@/services/simStore';
 import { unreadStore } from '@/services/unreadStore';
 import { savedStore } from '@/services/savedStore';
 import { RouteServer } from '@/services/routeService';
-import { listContacts } from '@/services/contactService';
-import { ensureAuth } from '@/services/authService';
-import { connectRealtime, startLocationReporting, stopLocationReporting, callClient, presenceClient } from '@/services/realtime';
+import { startLocationReporting, stopLocationReporting, callClient, presenceClient } from '@/services/realtime';
 import { walkerStateStore } from '@/services/walkerStateStore';
-import { bookingStore } from '@/services/bookingStore';
-import { initTelegramUi } from '@/services/telegram';
 import { walkerApi } from '@/api/walkerApi';
 import { tripApi } from '@/api/tripApi';
 import { getRoute } from '@/services/routeService';
@@ -36,33 +35,21 @@ import { UserPopup } from '@/features/matching/UserPopup';
 import { WalkerPreviewCard } from '@/features/matching/WalkerPreviewCard';
 import { BookingRequestPrompt } from '@/features/matching/BookingRequestPrompt';
 import { BookingAgreementsSheet } from '@/features/matching/BookingAgreementsSheet';
-import { bookingApi } from '@/api/bookingApi';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { authStore } from '@/services/authStore';
 import { SideDrawer } from '@/features/navigation/SideDrawer';
 import { PushToast } from '@/features/navigation/PushToast';
 import { RouteSheet } from '@/features/route/RouteSheet';
 import { MapPickOverlay } from '@/features/route/MapPickOverlay';
-import { CallScreen } from '@/features/call/CallScreen';
-import { ChatScreen } from '@/features/chat/ChatScreen';
-import { SettingsScreen } from '@/features/settings/SettingsScreen';
-import { ComplaintScreen } from '@/features/complaint/ComplaintScreen';
-import { PrivacyScreen } from '@/features/privacy/PrivacyScreen';
+// Overlay screens are opened on demand — lazy-load them so they leave the
+// initial bundle. Named exports are adapted to the default export lazy() wants.
+const CallScreen = lazy(() => import('@/features/call/CallScreen').then((m) => ({ default: m.CallScreen })));
+const ChatScreen = lazy(() => import('@/features/chat/ChatScreen').then((m) => ({ default: m.ChatScreen })));
+const SettingsScreen = lazy(() => import('@/features/settings/SettingsScreen').then((m) => ({ default: m.SettingsScreen })));
+const ComplaintScreen = lazy(() => import('@/features/complaint/ComplaintScreen').then((m) => ({ default: m.ComplaintScreen })));
+const PrivacyScreen = lazy(() => import('@/features/privacy/PrivacyScreen').then((m) => ({ default: m.PrivacyScreen })));
 
 const Sim = WalkerSim;
-
-// Heading-up navigation helpers ────────────────────────────────────────────
-// Balanced follow-zoom: the faster you move the further ahead you see. Discrete
-// steps (with the navFollow 0.5 threshold) avoid constant re-zoom jitter.
-function zoomForSpeed(kmh) {
-  if (kmh == null || Number.isNaN(kmh)) return 17;
-  if (kmh < 5) return 17;   // stationary / walking
-  if (kmh < 20) return 16;  // slow
-  if (kmh < 45) return 15;  // city driving
-  return 14;                // fast
-}
-
-// Bearing used before any real heading has been observed (north up).
-const DEFAULT_HEADING = 0;
 
 // Real backend user ids are numeric (long, serialized as digits); simulated
 // walkers use 'sim_'/'simr_' ids. A numeric id ⇒ a real, callable/chattable user.
@@ -113,11 +100,6 @@ export function App() {
   const [activeRoute, setActiveRoute] = useState(null);
   const [navProgress, setNavProgress] = useState(0);
   const [navTask, setNavTask] = useState(null); // {type:'pick'|'preview', ...}
-  const [incomingBooking, setIncomingBooking] = useState(null); // driver's pending request prompt
-  const [bookingBusy, setBookingBusy] = useState(false);
-  const [agreements, setAgreements] = useState([]); // accepted bookings (active agreements)
-  const [showAgreements, setShowAgreements] = useState(false);
-  const [busyBookingId, setBusyBookingId] = useState(null);
   const [followMe, setFollowMe] = useState(false); // compass: keep the map on the live location
   const [freeMode, setFreeMode] = useState(false); // share live location without a trip (asks permission on enable)
   const [hasCreatedTrip, setHasCreatedTrip] = useState(false); // created a trip this session (route or schedule)
@@ -126,13 +108,7 @@ export function App() {
   const engaged = hasCreatedTrip || (mode === 'driver' && freeMode);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [overlayPanel, setOverlayPanel] = useState(null); // 'settings' | 'complaint' | 'privacy'
-  const [authReady, setAuthReady] = useState(USE_MOCKS); // mock mode needs no auth
-  const [sessionReady, setSessionReady] = useState(USE_MOCKS); // server snapshot fetched (or failed)
-  const [authError, setAuthError] = useState(null);
   const [loaderDone, setLoaderDone] = useState(false);
-  const [bootNonce, setBootNonce] = useState(0);
-  const bootRef = useRef(false);
-  const restoredSessionRef = useRef(null); // server session snapshot fetched on boot
   const pendingRestoreRef = useRef(null);  // active trip to redraw once the map is up
   const liveTripIdRef = useRef(null);      // persisted Live trip backing the on-map route
   const mapContainerRef = useRef(null);
@@ -148,35 +124,12 @@ export function App() {
   const navSpeedRef = useRef(0);           // smoothed real speed (km/h)
   const navProgRef = useRef(0);
   const activeRouteRef = useRef(null);
-  const followMeRef = useRef(false);       // heading-up follow mode active
-  const lastHeadingRef = useRef(null);     // last real heading from movement (frozen while parked)
-  const contactsRef = useRef([]);
   const liveWalkersRef = useRef(new Map()); // userId → enriched live walker
 
   const mapHook = useMap(mapContainerRef, screen === 'map');
 
-  // One-time auth + realtime bootstrap (skipped entirely in mock mode).
-  useEffect(() => {
-    initTelegramUi();
-    if (USE_MOCKS || bootRef.current) return;
-    bootRef.current = true;
-    (async () => {
-      try {
-        await ensureAuth();
-        setAuthReady(true);
-        await connectRealtime();
-        // Restore the retained session from the server (role, free mode, active
-        // trip, bookings) so a reopened app resumes its pre-close state.
-        restoredSessionRef.current = await walkerStateStore.restoreFromServer();
-        if (restoredSessionRef.current) bookingStore.seed(restoredSessionRef.current.bookings);
-        setSessionReady(true); // splash may proceed (and possibly auto-resume)
-        // Location is NOT shared on entry — no permission prompt until the user
-        // creates a trip or turns on Free Mode (see the freeMode effect below).
-      } catch (e) {
-        setAuthError(e?.message || String(e));
-      }
-    })();
-  }, [bootNonce]);
+  // One-time auth + realtime + session-restore boot (owns readiness/error state).
+  const { authReady, sessionReady, authError, restoredSessionRef, contactsRef, retry: retryBoot } = useBootstrap();
 
   // Leave the splash once the loader bar, auth AND the session snapshot are
   // ready. A retained session with an active (Scheduled/InProgress) trip resumes
@@ -196,13 +149,7 @@ export function App() {
     } else {
       setScreen('home');
     }
-  }, [screen, loaderDone, authReady, sessionReady, authError]);
-
-  // Contacts loaded once authenticated (used by the push-message simulation).
-  useEffect(() => {
-    if (!authReady) return;
-    listContacts().then((c) => { contactsRef.current = c; }).catch(() => {});
-  }, [authReady]);
+  }, [screen, loaderDone, authReady, sessionReady, authError]); // eslint-disable-line react-hooks/exhaustive-deps -- restoredSessionRef is a stable ref
 
   useEffect(() => { mapHook.setMapStyle && mapHook.setMapStyle(mapStyle); }, [mapStyle, screen]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -450,67 +397,25 @@ export function App() {
     mapHook.recolorUserRoute && mapHook.recolorUserRoute(mapStyle);
   }, [mapStyle]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Apply one "heading-up" follow frame: recenter on the live position, rotate
-  // the map to the heading, keep zoom balanced for the speed, and lock the "me"
-  // arrow pointing forward (up). The heading comes only from movement (GPS): the
-  // last observed heading is held while parked, falling back to north-up until a
-  // first heading is ever seen — so a stationary device never spins the map.
-  // No-op unless follow mode is on.
-  const applyFollow = useCallback((pos, kmh) => {
-    if (!followMeRef.current || !pos) return;
-    mapHook.setUserLocation(pos, 0); // arrow forward = screen up (map carries heading)
-    mapHook.rotateTo(lastHeadingRef.current != null ? lastHeadingRef.current : DEFAULT_HEADING);
-    mapHook.navFollow(pos, zoomForSpeed(kmh));
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- mapHook methods are stable
+  // Live-location tracking + heading-up follow mode (extracted hook). Returns the
+  // shared follow frame + last-heading ref so trip navigation can reuse them.
+  const { applyFollow, lastHeadingRef, followMeRef } = useHeadingFollow({
+    mapHook, screen, activeRoute, followMe, setFollowMe, userLocRef,
+  });
 
-  // Always-on location tracking: once permission is granted, continuously watch
-  // the real location and keep the "me" marker in sync — independent of follow.
-  // Heading is derived only from movement (GPS course, or bearing between fixes)
-  // and remembered in lastHeadingRef; when follow mode is on we also recenter +
-  // rotate (heading up) + zoom. Paused while an active trip owns the marker.
-  useEffect(() => {
-    if (screen !== 'map' || activeRoute) return undefined;
-    if (typeof navigator === 'undefined' || !navigator.geolocation) return undefined;
-    let lastPos = null;
-    const id = navigator.geolocation.watchPosition(
-      (p) => {
-        const pos = [p.coords.latitude, p.coords.longitude];
-        const spd = p.coords.speed;
-        const kmh = spd != null && !Number.isNaN(spd) && spd >= 0 ? spd * 3.6 : null;
-        // Only trust a heading when speed confirms real movement — a parked GPS
-        // wandering ±5-10m must not produce a heading (the map would spin).
-        let heading = null;
-        const gh = p.coords.heading;
-        const movingBySpeed = kmh != null && kmh >= 3;
-        if (movingBySpeed && gh != null && !Number.isNaN(gh)) heading = gh;
-        else if (movingBySpeed && lastPos && haversineKm(lastPos, pos) > 0.006) heading = Sim.bearing(lastPos, pos);
-        else if (kmh == null && lastPos && haversineKm(lastPos, pos) > 0.012) heading = Sim.bearing(lastPos, pos);
-        if (heading != null) lastHeadingRef.current = heading; // remember for parked frames
-        lastPos = pos;
-        userLocRef.current = pos;
-        if (followMeRef.current) applyFollow(pos, kmh);
-        else mapHook.setUserLocation(pos, heading);
-      },
-      () => {},
-      { enableHighAccuracy: true, maximumAge: 1000, timeout: 20000 },
-    );
-    // Grabbing the map by hand releases follow so panning stays free.
-    const offDrag = mapHook.onUserDrag(() => { if (followMeRef.current) setFollowMe(false); });
-    return () => { navigator.geolocation.clearWatch(id); offDrag(); };
-  }, [screen, activeRoute]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Ride-agreement (booking) domain: owns its own state + realtime sync.
+  const {
+    incomingBooking, bookingBusy, agreements, showAgreements, setShowAgreements, busyBookingId,
+    requestRide, respondBooking, actOnAgreement,
+  } = useBookings({ authReady, notify: setPushNotif });
 
-  // Mirror followMe into a ref (read inside watch callbacks) and react to toggles:
-  // on → snap to the live location immediately (last/north-up heading); off →
-  // straighten the map (north up) and restore the free-pointing "me" arrow.
-  useEffect(() => {
-    followMeRef.current = followMe;
-    if (followMe) {
-      if (userLocRef.current) applyFollow(userLocRef.current, null);
-    } else {
-      mapHook.setBearing(0); // straighten north-up instantly
-      if (userLocRef.current) mapHook.setUserLocation(userLocRef.current, null);
-    }
-  }, [followMe]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Dismiss any open overlay screen (call / chat / side panel). Used as the
+  // recovery action when an overlay's error boundary trips.
+  const closeOverlays = useCallback(() => {
+    setCallState(null);
+    setChatUser(null);
+    setOverlayPanel(null);
+  }, []);
 
   // Free Mode / live-location sharing. When on we stream our position into
   // presence (asking permission the first time) so the opposite role can see us
@@ -807,43 +712,6 @@ export function App() {
     rating: w.rating, latlng: w.fromLatlng,
   });
 
-  // --- Ride agreements (bookings) ---
-  // Passenger requests a seat on a driver's trip (walker.id is the trip id).
-  const handleRequestRide = async (w) => {
-    cancelTask();
-    try {
-      await bookingApi.create(w.id, 1);
-      setPushNotif({ title: t('booking.requestSentTitle'), body: t('booking.requestSentBody') });
-    } catch (e) {
-      setPushNotif({ title: t('booking.requestFailedTitle'), body: e?.message || '' });
-    }
-  };
-  // Driver acts on an incoming request.
-  const respondBooking = async (b, action) => {
-    setBookingBusy(true);
-    try {
-      const updated = await bookingApi[action](b.id);
-      if (updated) bookingStore.apply({ type: action === 'accept' ? 'accepted' : 'rejected', booking: updated });
-    } catch (e) {
-      setPushNotif({ title: t('booking.actionFailedTitle'), body: e?.message || '' });
-    } finally {
-      setBookingBusy(false);
-      setIncomingBooking(null);
-    }
-  };
-  // Cancel (either party) or complete (driver) an active agreement.
-  const actOnAgreement = async (b, action) => {
-    setBusyBookingId(b.id);
-    try {
-      await bookingApi[action](b.id);
-      const status = action === 'cancel' ? 'Cancelled' : 'Completed';
-      bookingStore.apply({ type: action === 'cancel' ? 'cancelled' : 'completed', booking: { ...b, status } });
-    } catch (e) {
-      setPushNotif({ title: t('booking.actionFailedTitle'), body: e?.message || '' });
-    } finally {
-      setBusyBookingId(null);
-    }
-  };
   const handleMapTask = async (task) => {
     if (task.type === 'pick') {
       mapHook.setWalkersDimmed(true);
@@ -948,27 +816,6 @@ export function App() {
     return () => { offIncoming(); offAccepted(); offEnded(); offRejected(); };
   }, [authReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Realtime ride-agreement (booking) events: update the booking store and toast
-  // the affected party (requested→driver, accepted/rejected/…→passenger/other).
-  useEffect(() => {
-    if (USE_MOCKS || !authReady) return undefined;
-    return presenceClient.on('BookingEvent', (evt) => {
-      if (!evt || !evt.type) return;
-      bookingStore.apply(evt);
-      // A new request (I'm the driver) opens an actionable accept/reject prompt;
-      // every other transition is just a toast.
-      if (evt.type === 'requested') setIncomingBooking(evt.booking);
-      else setPushNotif({ title: t(`booking.${evt.type}Title`), body: t(`booking.${evt.type}Body`) });
-    });
-  }, [authReady]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Keep the active-agreements list in step with the booking store.
-  useEffect(() => {
-    const sync = () => setAgreements(bookingStore.accepted());
-    sync();
-    return bookingStore.subscribe(sync);
-  }, []);
-
   useEffect(() => { if (chatUser) unreadStore.clear(chatUser.id); }, [chatUser]);
 
   const chatUserRef = useRef(null);
@@ -1005,7 +852,7 @@ export function App() {
     };
     timer = setTimeout(fire, 6000 + Math.random() * 6000);
     return () => clearTimeout(timer);
-  }, [screen, mode, formatForPopup]);
+  }, [screen, mode, formatForPopup]); // eslint-disable-line react-hooks/exhaustive-deps -- contactsRef is a stable ref
 
   const finishPick = (point) => {
     setNavTask((task) => { if (task && task.onDone) task.onDone(point); return null; });
@@ -1088,7 +935,7 @@ export function App() {
           <div style={{ fontSize: 34 }}>⚠️</div>
           <div style={{ fontSize: 16, fontWeight: 700, color: T.text }}>{t('auth.failedTitle')}</div>
           <div style={{ fontSize: 13, color: T.muted, lineHeight: 1.6, maxWidth: 360 }}>{authError}</div>
-          <button onClick={() => { setAuthError(null); bootRef.current = false; setLoaderDone(false); setBootNonce((n) => n + 1); }}
+          <button onClick={() => { retryBoot(); setLoaderDone(false); }}
             style={{ marginTop: 8, padding: '11px 22px', borderRadius: 12, border: 'none',
               background: `linear-gradient(135deg,${T.teal},#0e9e97)`, color: 'white', fontSize: 14,
               fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans,sans-serif' }}>
@@ -1185,7 +1032,7 @@ export function App() {
               onBack={cancelTask}
               onCall={(w) => { cancelTask(); handleCall(walkerToCallUser(w)); }}
               onChat={(w) => { cancelTask(); setChatUser(walkerToCallUser(w)); }}
-              onRequest={handleRequestRide}
+              onRequest={(w) => { cancelTask(); requestRide(w); }}
             />
           )}
           {incomingBooking && (
@@ -1219,27 +1066,34 @@ export function App() {
         </>
       )}
 
-      {callState && (
-        <CallScreen
-          callee={callState.user}
-          phase={callState.phase}
-          live={!!callState.live}
-          role={callState.role || 'caller'}
-          onAccept={handleAcceptCall}
-          onAgree={handleAgreeRide}
-          onMuteToggle={(m) => callState.live && callClient.setMuted(m)}
-          onDecline={declineCall}
-          onEnd={endCall}
-        />
-      )}
+      {/* On-demand overlay screens: each isolated by its own error boundary so a
+          failure in one (call, chat, a panel) can't take down the map, and lazy
+          so they stay out of the initial bundle. */}
+      <ErrorBoundary onReset={closeOverlays}>
+        <Suspense fallback={null}>
+          {callState && (
+            <CallScreen
+              callee={callState.user}
+              phase={callState.phase}
+              live={!!callState.live}
+              role={callState.role || 'caller'}
+              onAccept={handleAcceptCall}
+              onAgree={handleAgreeRide}
+              onMuteToggle={(m) => callState.live && callClient.setMuted(m)}
+              onDecline={declineCall}
+              onEnd={endCall}
+            />
+          )}
 
-      {chatUser && (
-        <ChatScreen user={chatUser} onBack={() => setChatUser(null)} />
-      )}
+          {chatUser && (
+            <ChatScreen user={chatUser} onBack={() => setChatUser(null)} />
+          )}
 
-      {overlayPanel === 'settings' && <SettingsScreen onClose={() => setOverlayPanel(null)} />}
-      {overlayPanel === 'complaint' && <ComplaintScreen onClose={() => setOverlayPanel(null)} />}
-      {overlayPanel === 'privacy' && <PrivacyScreen onClose={() => setOverlayPanel(null)} />}
+          {overlayPanel === 'settings' && <SettingsScreen onClose={() => setOverlayPanel(null)} />}
+          {overlayPanel === 'complaint' && <ComplaintScreen onClose={() => setOverlayPanel(null)} />}
+          {overlayPanel === 'privacy' && <PrivacyScreen onClose={() => setOverlayPanel(null)} />}
+        </Suspense>
+      </ErrorBoundary>
     </div>
   );
 }

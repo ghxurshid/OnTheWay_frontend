@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, memo } from 'react';
 import { T } from '@/constants/theme';
 import { t } from '@/i18n';
 
@@ -6,8 +6,10 @@ import { t } from '@/i18n';
 // reference. Real limits would need a roads/maps API.
 const DEFAULT_LIMIT = 60;
 
-/** Live speedometer driven by the device's GPS speed (top-left HUD). */
-export function Speedometer() {
+/** Live speedometer driven by the device's GPS speed (top-left HUD).
+ *  Propless and self-contained — memo'd so parent (MapUI) re-renders during
+ *  navigation don't needlessly re-render it. */
+export const Speedometer = memo(function Speedometer() {
   const [cur, setCur] = useState(0);
   const smooth = useRef(0);
 
@@ -54,4 +56,4 @@ export function Speedometer() {
       </div>
     </div>
   );
-}
+});

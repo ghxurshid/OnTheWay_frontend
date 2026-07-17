@@ -27,6 +27,14 @@ export const STRINGS = {
       version:     { uz: 'OnTheWay v1.0.0 · © 2025', ru: 'OnTheWay v1.0.0 · © 2025', en: 'OnTheWay v1.0.0 · © 2025' },
     },
 
+    errorBoundary: {
+      title:   { uz: 'Nimadir buzildi', ru: 'Что-то пошло не так', en: 'Something went wrong' },
+      message: { uz: 'Ilovada kutilmagan xatolik yuz berdi. Iltimos, qayta urinib koʻring.',
+                 ru: 'В приложении произошла непредвиденная ошибка. Пожалуйста, попробуйте ещё раз.',
+                 en: 'The app hit an unexpected error. Please try again.' },
+      retry:   { uz: 'Qayta yuklash', ru: 'Перезагрузить', en: 'Reload' },
+    },
+
     loading: {
       connecting:  { uz: 'Telegramga ulanmoqda…', ru: 'Подключение к Telegram…', en: 'Connecting to Telegram…' },
     },
