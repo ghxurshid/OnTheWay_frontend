@@ -1,10 +1,17 @@
+import { useEffect, useRef } from 'react';
 import { T } from '@/constants/theme';
 import { t } from '@/i18n';
+import { useEscapeKey } from '@/hooks/useEscapeKey';
 
 /** Full-screen slide-up panel shell with a back button + accent title. */
 export function FullScreenPanel({ title, onClose, accent = T.teal, children }) {
+  const panelRef = useRef(null);
+  // Keyboard a11y: dismiss on Escape and move focus into the dialog on open.
+  useEscapeKey(onClose);
+  useEffect(() => { panelRef.current?.focus(); }, []);
   return (
-    <div className="otw-screen" style={{ position: 'absolute', inset: 0, zIndex: 29, background: T.bg,
+    <div ref={panelRef} className="otw-screen" role="dialog" aria-modal="true" aria-label={title} tabIndex={-1}
+      style={{ position: 'absolute', inset: 0, zIndex: 29, background: T.bg, outline: 'none',
       display: 'flex', flexDirection: 'column', fontFamily: 'DM Sans,sans-serif',
       animation: 'slideUp .32s cubic-bezier(.34,1.1,.64,1)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '18px 16px 14px',
