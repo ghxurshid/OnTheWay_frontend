@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
+import type { ReactNode } from 'react';
 import { T } from '@/constants/theme';
 import { t } from '@/i18n';
 import { dashboardApi } from '@/api/dashboardApi';
+import type { TripStatistics } from '@/models';
 
 // Reporting periods offered in the selector (a subset of the backend's set).
 const PERIODS = ['Today', 'ThisWeek', 'ThisMonth', 'AllTime'];
@@ -10,13 +12,13 @@ const PERIODS = ['Today', 'ThisWeek', 'ThisMonth', 'AllTime'];
     backend's clearly-labelled estimated savings (spec §52). */
 export function StatisticsCard() {
   const [period, setPeriod] = useState('ThisMonth');
-  const [stats, setStats] = useState(null);
+  const [stats, setStats] = useState<TripStatistics | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let alive = true;
     setLoading(true);
-    dashboardApi.getStatistics(period)
+    (dashboardApi.getStatistics(period) as Promise<TripStatistics>)
       .then((s) => { if (alive) setStats(s); })
       .catch(() => { if (alive) setStats(null); })
       .finally(() => { if (alive) setLoading(false); });
@@ -83,7 +85,7 @@ export function StatisticsCard() {
   );
 }
 
-function Metric({ label, value }) {
+function Metric({ label, value }: { label: ReactNode; value: ReactNode }) {
   return (
     <div style={{ background: T.bg, borderRadius: 11, padding: '10px 12px', border: `1px solid ${T.border}` }}>
       <div style={{ fontSize: 19, fontWeight: 700, color: T.text, letterSpacing: -.4, lineHeight: 1.1 }}>{value}</div>
@@ -92,7 +94,7 @@ function Metric({ label, value }) {
   );
 }
 
-function SavingsStat({ color, value, label }) {
+function SavingsStat({ color, value, label }: { color: string; value: ReactNode; label: ReactNode }) {
   return (
     <div style={{ flex: 1, textAlign: 'center' }}>
       <div style={{ fontSize: 14.5, fontWeight: 700, color }}>{value}</div>

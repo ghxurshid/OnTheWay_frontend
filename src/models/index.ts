@@ -82,6 +82,37 @@ export interface PushNotif {
   duration?: number;
 }
 
+/** A frequent destination on the analytics dashboard. */
+export interface DashboardDestination {
+  label: string;
+  count: number;
+  km: number;
+}
+
+/** Raw dashboard summary (weekly km series + top destinations). */
+export interface DashboardSummary {
+  weekly: number[];
+  destinations: DashboardDestination[];
+}
+
+/** Full backend trip statistics for a reporting period (spec §52). */
+export interface TripStatistics {
+  period: string;
+  fromUtc: string | null;
+  toUtc: string | null;
+  totalCompletedTrips: number;
+  driverTrips: number;
+  passengerTrips: number;
+  cancelledTrips: number;
+  totalDistanceKm: number;
+  totalTravelMinutes: number;
+  averageTripDistanceKm: number;
+  averageTripDurationMinutes: number;
+  totalPassengersTransported: number;
+  averageVehicleOccupancy: number;
+  estimated: { fuelSavedLiters: number; co2ReducedKg: number; costSaved: number };
+}
+
 /** A saved item (place / route / partner). */
 export interface SavedItem {
   id: string;

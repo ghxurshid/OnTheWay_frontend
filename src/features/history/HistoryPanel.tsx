@@ -9,7 +9,7 @@ import { Dashboard } from './Dashboard';
 /** Trip history list + dashboard tabs. */
 export function HistoryPanel() {
   const { history, loading } = useHistory();
-  const [selected, setSelected] = useState(null);
+  const [selected, setSelected] = useState<string | null>(null);
   const [tab, setTab] = useState('history'); // 'history' | 'dashboard'
   const { totalTrips, totalKm } = historyTotals(history);
 
