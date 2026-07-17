@@ -11,21 +11,22 @@ import { t } from '@/i18n';
 import { TASHKENT } from '@/constants/map';
 import { CHAT_REPLY_KEYS } from '@/constants/app';
 import { haversineKm } from '@/utils/geo';
+import { walkerToCallUser, contactToUser } from '@/utils/callUser';
 import { useMap } from '@/hooks/useMap';
 import { useHeadingFollow } from '@/hooks/useHeadingFollow';
 import { useBookings } from '@/hooks/useBookings';
 import { useBootstrap } from '@/hooks/useBootstrap';
+import { useCallSession } from '@/hooks/useCallSession';
 import WalkerSim from '@/services/simulationService';
 import { simStore } from '@/services/simStore';
 import { unreadStore } from '@/services/unreadStore';
-import { savedStore } from '@/services/savedStore';
 import { RouteServer } from '@/services/routeService';
 import { startLocationReporting, stopLocationReporting, callClient, presenceClient } from '@/services/realtime';
 import { walkerStateStore } from '@/services/walkerStateStore';
 import { walkerApi } from '@/api/walkerApi';
 import { tripApi } from '@/api/tripApi';
 import { getRoute } from '@/services/routeService';
-import { enrichLiveWalker, colorForId, initialsOf } from '@/services/liveWalkers';
+import { enrichLiveWalker, colorForId } from '@/services/liveWalkers';
 import { USE_MOCKS } from '@/api/client';
 
 import { LoadingScreen } from '@/pages/LoadingScreen';
@@ -51,10 +52,6 @@ const PrivacyScreen = lazy(() => import('@/features/privacy/PrivacyScreen').then
 
 const Sim = WalkerSim;
 
-// Real backend user ids are numeric (long, serialized as digits); simulated
-// walkers use 'sim_'/'simr_' ids. A numeric id ⇒ a real, callable/chattable user.
-const REAL_ID_RE = /^\d+$/;
-const isRealUser = (id) => !USE_MOCKS && REAL_ID_RE.test(String(id ?? ''));
 
 /** Map an OSRM route ([lat,lng] coords + distance/duration) → RoutePublishDto. */
 function toRoutePublishDto(coords, route) {
@@ -88,7 +85,6 @@ export function App() {
   const [showSheet, setShowSheet] = useState(false);
   const [showMatching, setShowMatching] = useState(false);
   const [selectedUser, setSelectedUser] = useState(null);
-  const [callState, setCallState] = useState(null);
   const [chatUser, setChatUser] = useState(null);
   const [pushNotif, setPushNotif] = useState(null);
   // Basemap mode is the user's choice ('theme' follows the app light/dark theme,
@@ -409,13 +405,21 @@ export function App() {
     requestRide, respondBooking, actOnAgreement,
   } = useBookings({ authReady, notify: setPushNotif });
 
+  // 1:1 voice-call lifecycle (owns callState + CallHub events).
+  const {
+    callState, callStateRef, clearCall, handleCall, endCall, declineCall, handleAcceptCall, handleAgreeRide,
+  } = useCallSession({
+    authReady, notify: setPushNotif, mapHook, userLocRef, liveWalkersRef, contactsRef,
+    dismissSelected: () => setSelectedUser(null),
+  });
+
   // Dismiss any open overlay screen (call / chat / side panel). Used as the
   // recovery action when an overlay's error boundary trips.
   const closeOverlays = useCallback(() => {
-    setCallState(null);
+    clearCall();
     setChatUser(null);
     setOverlayPanel(null);
-  }, []);
+  }, [clearCall]);
 
   // Free Mode / live-location sharing. When on we stream our position into
   // presence (asking permission the first time) so the opposite role can see us
@@ -679,39 +683,6 @@ export function App() {
     if (userLocRef.current) mapHook.setUserLocation(userLocRef.current);
   };
 
-  const handleCall = async (user) => {
-    setSelectedUser(null);
-    if (isRealUser(user.id)) {
-      try {
-        await callClient.startCall(user.id, 'audio');
-        setCallState({ user, phase: 'ringing', live: true, role: 'caller' });
-      } catch (e) {
-        setPushNotif({ title: t('call.failedTitle'), body: e?.message || '' });
-      }
-      return;
-    }
-    setCallState({ user, phase: 'ringing' });
-  };
-
-  // End/decline helpers that also drive the CallHub for real calls.
-  const endCall = () => {
-    if (callState?.live) callClient.hangup().catch(() => {});
-    setCallState(null);
-  };
-  const declineCall = () => {
-    if (callState?.live) {
-      const reject = callState.role === 'callee' && callState.phase === 'ringing';
-      (reject ? callClient.rejectCall() : callClient.hangup()).catch(() => {});
-    }
-    setCallState(null);
-  };
-
-  const walkerToCallUser = (w) => ({
-    id: w.id, type: w.type, initials: w.initials, name: w.name,
-    sub: w.type === 'driver' ? `${w.vehicle} · ${w.seats} ${t('common.seats')}` : t('common.passenger'),
-    rating: w.rating, latlng: w.fromLatlng,
-  });
-
   const handleMapTask = async (task) => {
     if (task.type === 'pick') {
       mapHook.setWalkersDimmed(true);
@@ -750,78 +721,10 @@ export function App() {
     }
   };
 
-  const contactToUser = (c) => ({
-    id: c.id, type: c.type, initials: c.initials, name: c.name,
-    sub: c.type === 'driver' ? (c.vehicle || t('common.driver')) : t('common.passenger'),
-    rating: c.rating, latlng: c.latlng,
-  });
-
-  // Resolve the incoming caller's display card: the real profile carried in the
-  // invite wins; a live walker already on the map or a contact is the fallback.
-  const inviteToCallUser = (invite) => {
-    const id = String(invite.fromUserId);
-    const p = invite.caller;
-    if (p && p.name) {
-      const type = p.kind === 'driver' ? 'driver' : 'passenger';
-      return {
-        id, type, initials: initialsOf(p.name), name: p.name,
-        sub: p.username ? `@${p.username}`
-          : (type === 'driver' ? (p.vehicle || t('common.driver')) : t('common.passenger')),
-        rating: p.rating, photoUrl: p.photoUrl || null,
-      };
-    }
-    const w = liveWalkersRef.current.get(id);
-    if (w) {
-      return {
-        id, type: w.type, initials: w.initials, name: w.name,
-        sub: w.type === 'driver' ? (w.vehicle || t('common.driver')) : t('common.passenger'),
-        rating: w.rating, photoUrl: w.photoUrl || null,
-      };
-    }
-    const c = contactsRef.current.find((x) => String(x.id) === id);
-    return c ? contactToUser(c)
-      : { id, type: 'passenger', initials: '👤', name: t('call.unknownCaller') };
-  };
-
-  // Incoming calls + lifecycle transitions from the CallHub. Every transition
-  // is driven by hub events so both sides' screens stay in step.
-  useEffect(() => {
-    if (USE_MOCKS || !authReady) return undefined;
-    const offIncoming = callClient.on('incoming', (invite) => {
-      if (callStateRef.current) return; // already on a call (client auto-rejects)
-      setCallState({ user: inviteToCallUser(invite), phase: 'ringing', live: true, role: 'callee' });
-    });
-    const offAccepted = callClient.on('accepted', () =>
-      setCallState((cs) => (cs ? { ...cs, phase: 'active' } : cs)));
-    const offEnded = callClient.on('ended', (evt) => {
-      const cs = callStateRef.current;
-      if (cs?.live) {
-        if (evt?.reason === 'timeout') {
-          setPushNotif(cs.role === 'caller'
-            ? { title: t('call.noAnswerTitle'), body: cs.user?.name || '' }
-            : { title: t('call.missedTitle'), body: cs.user?.name || '' });
-        } else if (evt?.reason === 'mic-denied') {
-          setPushNotif({ title: t('call.micDeniedTitle'), body: '' });
-        }
-      }
-      setCallState(null);
-    });
-    const offRejected = callClient.on('rejected', () => {
-      const cs = callStateRef.current;
-      if (cs?.live && cs.role === 'caller') {
-        setPushNotif({ title: t('call.declinedTitle'), body: cs.user?.name || '' });
-      }
-      setCallState(null);
-    });
-    return () => { offIncoming(); offAccepted(); offEnded(); offRejected(); };
-  }, [authReady]); // eslint-disable-line react-hooks/exhaustive-deps
-
   useEffect(() => { if (chatUser) unreadStore.clear(chatUser.id); }, [chatUser]);
 
   const chatUserRef = useRef(null);
-  const callStateRef = useRef(null);
   useEffect(() => { chatUserRef.current = chatUser; }, [chatUser]);
-  useEffect(() => { callStateRef.current = callState; }, [callState]);
 
   useEffect(() => {
     const sync = () => mapHook.setWalkerBadges && mapHook.setWalkerBadges(unreadStore.map());
@@ -862,36 +765,6 @@ export function App() {
     mapHook.clearPreviewRoute();
     mapHook.setWalkersDimmed(false);
     setNavTask(null);
-  };
-
-  const handleAgreeRide = () => {
-    const u = callState && callState.user;
-    if (!u) return;
-    const pid = 'partner-' + u.id;
-    if (!savedStore.has(pid)) {
-      savedStore.toggle({ id: pid, type: 'partner', initials: u.initials, label: u.name, sub: u.sub });
-    }
-    setPushNotif({
-      title: t('push.rideAgreedTitle'),
-      body: t('push.rideAgreedBody', { name: u.name.split(' ')[0] }),
-    });
-  };
-
-  const handleAcceptCall = () => {
-    if (callState?.live) {
-      // Flip to active only once the server confirmed the accept, so this
-      // screen and the caller's change together. A refused accept (caller
-      // already gone) or a later mic denial closes the UI via 'ended'.
-      callClient.acceptCall()
-        .then(() => setCallState((c) => (c && c.live ? { ...c, phase: 'active' } : c)))
-        .catch(() => setCallState(null));
-      return;
-    }
-    // Demo mode: instant accept + a simulated approach on the map.
-    setCallState((c) => ({ ...c, phase: 'active' }));
-    const userLoc = userLocRef.current || TASHKENT;
-    const from = (callState && callState.user && callState.user.latlng) || [41.310, 69.255];
-    mapHook.startTracking(from, userLoc, () => { /* ETA */ });
   };
 
   const exitToHome = () => {
