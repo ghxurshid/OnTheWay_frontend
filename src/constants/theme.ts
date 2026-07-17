@@ -5,20 +5,25 @@
    tokens swap. `T` is a single, in-place-mutated token object that every
    component reads (`T.teal`, `T.surface`, …). `themeStore` mutates `T`,
    persists the choice and notifies subscribers.
-
-   Architectural note: this module-level singleton is intentionally kept
-   (rather than threading a value through React context to ~50 components)
-   so the design system reads tokens at render time with zero prop drilling.
-   `ThemeProvider` (contexts/) wraps this store to give React an idiomatic
-   re-render seam — see contexts/ThemeContext.jsx.
    ════════════════════════════════════════════════════════════════ */
+
+export type ThemeMode = 'dark' | 'light';
 
 export const ACCENTS = {
   teal: '#1fc8c0', tealGlow: 'rgba(31,200,192,0.3)',
   amber: '#f0a832', red: '#ff5c72', green: '#2ecc8e', purple: '#a78bfa',
 };
 
-export const THEMES = {
+/** The full set of design tokens a theme provides. */
+export interface Theme {
+  teal: string; tealGlow: string; amber: string; red: string; green: string; purple: string;
+  bg: string; surface: string; surface2: string; border: string; text: string; muted: string;
+  tealDim: string; amberDim: string; glass: string; glassSolid: string; glass2: string; glassMid: string;
+  hover: string; track: string; scrimRgb: string; stage: string; leafletBg: string; markerStroke: string;
+  isDark: boolean;
+}
+
+export const THEMES: Record<ThemeMode, Theme> = {
   dark: {
     ...ACCENTS,
     bg: '#0f1117', surface: '#171b24', surface2: '#1e2330',
@@ -44,11 +49,11 @@ export const THEMES = {
 };
 
 // T — the single object mutated in place; all components read `T.xxx`.
-export const T = { ...THEMES.dark };
+export const T: Theme = { ...THEMES.dark };
 
 export const themeStore = {
-  mode: (typeof localStorage !== 'undefined' && localStorage.getItem('otw-theme')) || 'dark',
-  listeners: new Set(),
+  mode: ((typeof localStorage !== 'undefined' && localStorage.getItem('otw-theme')) || 'dark') as ThemeMode,
+  listeners: new Set<(mode: ThemeMode) => void>(),
   apply() {
     Object.assign(T, THEMES[this.mode] || THEMES.dark);
     if (typeof document !== 'undefined') {
@@ -57,14 +62,14 @@ export const themeStore = {
       document.documentElement.setAttribute('data-theme', this.mode);
     }
   },
-  set(mode) {
+  set(mode: ThemeMode) {
     this.mode = mode;
-    try { localStorage.setItem('otw-theme', mode); } catch (e) { /* ignore */ }
+    try { localStorage.setItem('otw-theme', mode); } catch { /* ignore */ }
     this.apply();
     this.listeners.forEach((l) => l(mode));
   },
   toggle() { this.set(this.mode === 'dark' ? 'light' : 'dark'); },
-  subscribe(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); },
+  subscribe(fn: (mode: ThemeMode) => void) { this.listeners.add(fn); return () => this.listeners.delete(fn); },
 };
 
 themeStore.apply();

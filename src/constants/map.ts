@@ -2,11 +2,21 @@
    MAP CONSTANTS — tile styles, default centre, per-style contrast theme
    ════════════════════════════════════════════════════════════════ */
 
+import type { CSSProperties } from 'react';
 import { t } from '@/i18n';
+import type { LatLng } from '@/utils/geo';
 
-export const TASHKENT = [41.2995, 69.2401];
+export const TASHKENT: LatLng = [41.2995, 69.2401];
 
-export const MAP_STYLES = [
+export interface MapStyle {
+  id: string;
+  label: string;
+  sub: string;
+  url: string;
+  subdomains: string;
+}
+
+export const MAP_STYLES: MapStyle[] = [
   { id: 'dark', label: 'Tungi', sub: 'Default',
     url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', subdomains: 'abcd' },
   { id: 'streets', label: "Ko'cha", sub: 'Streets',
@@ -17,19 +27,25 @@ export const MAP_STYLES = [
     url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', subdomains: '' },
 ];
 
+export interface StyleTheme {
+  traveled: string;
+  pulse: string;
+  markerStroke: string;
+}
+
 // Per-map-style contrast tokens used by the walker / route renderer so
 // traveled lines and pulses stay legible on every basemap.
-export const STYLE_THEME = {
+export const STYLE_THEME: Record<string, StyleTheme> = {
   dark:      { traveled: 'rgba(255,255,255,0.22)', pulse: '#ffffff',             markerStroke: '#0f1117' },
   streets:   { traveled: 'rgba(20,24,32,0.45)',    pulse: '#ffffff',             markerStroke: '#ffffff' },
   light:     { traveled: 'rgba(20,24,32,0.42)',    pulse: 'rgba(18,22,30,0.85)', markerStroke: '#ffffff' },
   satellite: { traveled: 'rgba(255,255,255,0.55)', pulse: '#0a0c10',             markerStroke: '#ffffff' },
 };
 
-export const themeFor = (id) => STYLE_THEME[id] || STYLE_THEME.dark;
+export const themeFor = (id: string): StyleTheme => STYLE_THEME[id] || STYLE_THEME.dark;
 
 // Map-style picker preview swatch backgrounds (pure presentation).
-export function mapStylePreviewBg(id) {
+export function mapStylePreviewBg(id: string): CSSProperties {
   if (id === 'streets') return {
     background: '#dadbc1',
     backgroundImage: 'linear-gradient(45deg,#a8c5a8 25%,transparent 25%,transparent 75%,#a8c5a8 75%),linear-gradient(45deg,#a8c5a8 25%,#dadbc1 25%,#dadbc1 75%,#a8c5a8 75%)',
@@ -41,4 +57,4 @@ export function mapStylePreviewBg(id) {
 }
 
 // Map-style metadata that needs i18n labels (call at render time).
-export const mapStyleLabel = (id) => t('mapStyles.' + id);
+export const mapStyleLabel = (id: string): string => t('mapStyles.' + id);
