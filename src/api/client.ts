@@ -52,7 +52,6 @@ export interface HttpOptions extends RequestInit {
 /** Real HTTP call. Returns the unwrapped `data` payload. The backend DTOs are
     not statically modelled, so the default payload type is `any` at this
     boundary; callers may pass an explicit type via `http<Dto>(…)`. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function http<T = any>(path: string, options: HttpOptions = {}): Promise<T> {
   const { auth = true, _retried = false, headers, ...rest } = options;
   const url = path.startsWith('http') ? path : `${BASE_URL}${path}`;

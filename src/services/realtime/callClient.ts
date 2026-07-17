@@ -16,7 +16,6 @@ const CALLER_RING_TIMEOUT_MS = 40_000;
 const CALLEE_RING_TIMEOUT_MS = 50_000;
 
 interface CallState { callId: string; peerId: string; role: 'caller' | 'callee'; accepted: boolean }
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Handler = (payload?: any) => void;
 
 let connection: HubConnection | null = null;

@@ -93,9 +93,7 @@ export function App() {
   const [showMatching, setShowMatching] = useState(false);
   // Popup / chat user shapes vary by source (sim walker, contact, call invite),
   // so they stay loosely typed at this orchestration boundary.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [selectedUser, setSelectedUser] = useState<any>(null);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [chatUser, setChatUser] = useState<any>(null);
   const [pushNotif, setPushNotif] = useState<PushNotif | null>(null);
   // Basemap mode is the user's choice ('theme' follows the app light/dark theme,
@@ -116,21 +114,16 @@ export function App() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [overlayPanel, setOverlayPanel] = useState<string | null>(null); // 'settings' | 'complaint' | 'privacy'
   const [loaderDone, setLoaderDone] = useState(false);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const pendingRestoreRef = useRef<any>(null);  // active trip to redraw once the map is up
   const liveTripIdRef = useRef<string | null>(null);      // persisted Live trip backing the on-map route
   const mapContainerRef = useRef<HTMLDivElement>(null);
 
   const userLocRef = useRef<LatLng | null>(null);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const simRef = useRef<any>(null);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const simWalkersRef = useRef<any[]>([]);
   const mapStyleRef = useRef(themeStore.mode === 'light' ? 'light' : 'dark');
   const mapStyleModeRef = useRef('theme');
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const activeRouteRef = useRef<any>(null);     // shared: current trip route (nav + free-mode + exit)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const liveWalkersRef = useRef<Map<string, any>>(new Map()); // userId → enriched live walker
 
   const mapHook: MapHook = useMap(mapContainerRef, screen === 'map');
@@ -176,7 +169,6 @@ export function App() {
     if (mapStyleModeRef.current === 'theme') setMapStyle(themeStore.mode === 'light' ? 'light' : 'dark');
   }), []);
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const formatForPopup = useCallback((w: any) => {
     const userLoc = userLocRef.current || Sim.TASHKENT || TASHKENT;
     const km = Sim ? Sim.haversine(userLoc, w.position) : 0;
@@ -253,7 +245,6 @@ export function App() {
   // ── LIVE map: render real online walkers from presence (replaces the sim) ──
   // restoreLiveRoute is defined further down; reach it through a ref so this
   // hook keeps its original position (and effect order) in the component.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const restoreLiveRouteRef = useRef<((trip: any) => void) | null>(null);
   usePresence({
     screen, mode, mapHook, liveWalkersRef, userLocRef, openWalker, notify: setPushNotif,
@@ -337,7 +328,6 @@ export function App() {
   // Persist the on-map route as a Live trip so the session survives app
   // restarts (and the abandoned-session sweeper can close it if we vanish).
   // Best-effort: the live map keeps working even if persistence fails.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const createLiveTrip = async (route: any, coords: LatLng[], waypoints: any[]) => {
     try {
       const pts = (waypoints || []).filter((w) => w && w.latlng);
@@ -369,7 +359,6 @@ export function App() {
   // Auto-resume: redraw the retained session's Live trip on reopen — recompute
   // the road between its persisted origin/destination, draw it, re-share it over
   // presence and resume navigation. Planned trips restore the map/mode only.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const restoreLiveRoute = async (trip: any) => {
     try {
       if (String(trip.category || '').toLowerCase() !== 'live') return;
@@ -377,7 +366,6 @@ export function App() {
       const to = [trip.destination?.latitude, trip.destination?.longitude];
       if (from.some((v) => v == null) || to.some((v) => v == null)) return;
       const routes = await getRoute([from, to] as LatLng[]);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const r = routes && (routes[0] as any);
       if (!r || !r.geometry) return;
       const coords = r.geometry.coordinates.map((c: number[]) => [c[1], c[0]] as LatLng);
@@ -393,7 +381,6 @@ export function App() {
   // Expose the latest restoreLiveRoute to usePresence (declared above it).
   restoreLiveRouteRef.current = restoreLiveRoute;
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const handleRouteSelected = async (route: any, waypoints: any[]) => {
     setShowSheet(false);
     setRoutePicking(false);
@@ -488,7 +475,6 @@ export function App() {
 
   useEffect(() => { if (chatUser) unreadStore.clear(chatUser.id); }, [chatUser]);
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const chatUserRef = useRef<any>(null);
   useEffect(() => { chatUserRef.current = chatUser; }, [chatUser]);
 

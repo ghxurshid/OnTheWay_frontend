@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { bearing, splitRoute, routeLength, projectOnRoute } from './simulationService';
+import type { LatLng } from '@/utils/geo';
 
 describe('bearing', () => {
   it('points north (0°) when moving due north', () => {
@@ -26,7 +27,7 @@ describe('bearing', () => {
 });
 
 describe('splitRoute', () => {
-  const route = [[0, 0], [0, 1], [0, 2]]; // straight line east, two equal legs
+  const route: LatLng[] = [[0, 0], [0, 1], [0, 2]]; // straight line east, two equal legs
 
   it('at progress 0 nothing is traveled and position is the start', () => {
     const s = splitRoute(route, 0);
@@ -45,7 +46,7 @@ describe('splitRoute', () => {
 
   it('at progress 0.5 the position sits at the midpoint', () => {
     const s = splitRoute(route, 0.5);
-    expect(s.position[1]).toBeCloseTo(1, 5);
+    expect(s.position![1]).toBeCloseTo(1, 5);
   });
 
   it('clamps out-of-range progress', () => {
@@ -69,7 +70,7 @@ describe('routeLength', () => {
 });
 
 describe('projectOnRoute', () => {
-  const route = [[0, 0], [0, 1], [0, 2]];
+  const route: LatLng[] = [[0, 0], [0, 1], [0, 2]];
 
   it('projects a point near the route back onto it with ~half progress', () => {
     const { progress, offRouteKm } = projectOnRoute(route, [0.0001, 1]);

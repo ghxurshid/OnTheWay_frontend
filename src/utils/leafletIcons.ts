@@ -13,9 +13,7 @@ import type { StyleTheme } from '@/constants/map';
 import { t } from '@/i18n';
 import type { LatLng } from '@/utils/geo';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type LeafletIcon = any;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AntPathOptions = Record<string, any>;
 
 export function makeMarkerIcon(color: string, label: string): LeafletIcon {

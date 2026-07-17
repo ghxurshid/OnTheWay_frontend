@@ -9,7 +9,6 @@ import { createHubConnection, startConnection } from './hubConnection';
 
 const EVENTS = ['ReceiveMessage', 'TypingIndicator'];
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Handler = (...args: any[]) => void;
 
 let connection: HubConnection | null = null;

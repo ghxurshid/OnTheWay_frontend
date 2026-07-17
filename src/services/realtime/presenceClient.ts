@@ -16,7 +16,6 @@ const EVENTS = [
   'BookingEvent',
 ] as const;
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Payload = any;
 type Handler = (payload: Payload) => void;
 

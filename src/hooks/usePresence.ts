@@ -24,7 +24,6 @@ import { enrichLiveWalker, colorForId } from '@/services/liveWalkers';
 import { walkerApi } from '@/api/walkerApi';
 import type { MapHook } from './mapHook';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
 
 interface UsePresenceArgs {

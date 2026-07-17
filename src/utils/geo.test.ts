@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { haversineKm } from './geo';
+import type { LatLng } from './geo';
 
 describe('haversineKm', () => {
   it('is zero for identical points', () => {
@@ -12,8 +13,8 @@ describe('haversineKm', () => {
   });
 
   it('is symmetric', () => {
-    const a = [41.31, 69.28];
-    const b = [41.35, 69.31];
+    const a: LatLng = [41.31, 69.28];
+    const b: LatLng = [41.35, 69.31];
     expect(haversineKm(a, b)).toBeCloseTo(haversineKm(b, a), 10);
   });
 

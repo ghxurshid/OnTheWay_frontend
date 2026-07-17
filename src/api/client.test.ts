@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { http, ApiError } from './client';
 
 // Minimal Response stub matching what parse() reads (status, ok, text()).
-function res(status, bodyObj) {
+function res(status: number, bodyObj: unknown) {
   return {
     status,
     ok: status >= 200 && status < 300,

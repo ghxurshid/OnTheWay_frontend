@@ -32,9 +32,7 @@ interface UseCallSessionArgs {
   notify: (n: { title: string; body: string }) => void;
   mapHook: MapHook;
   userLocRef: MutableRefObject<LatLng | null>;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   liveWalkersRef: MutableRefObject<Map<string, any>>;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   contactsRef: MutableRefObject<any[]>;
   dismissSelected?: () => void;
 }

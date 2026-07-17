@@ -22,7 +22,6 @@ interface ChatScreenProps {
 const REAL_ID_RE = /^\d+$/;
 const sid = (v: unknown) => String(v ?? '');
 const isRealUser = (id: unknown) => REAL_ID_RE.test(sid(id));
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const toMsg = (m: any, myId: string | null): Msg => ({
   id: m.id, from: sid(m.senderId) === myId ? 'me' : 'them', text: m.content, at: new Date(m.sentAtUtc),
 });

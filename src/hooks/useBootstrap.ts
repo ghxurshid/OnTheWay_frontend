@@ -25,9 +25,7 @@ export function useBootstrap() {
   const [authError, setAuthError] = useState<string | null>(null);
   const [bootNonce, setBootNonce] = useState(0);
   const bootRef = useRef(false);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const restoredSessionRef = useRef<any>(null); // server session snapshot fetched on boot
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const contactsRef = useRef<any[]>([]);        // address book (used by the push-message sim)
 
   // One-time auth + realtime bootstrap (skipped entirely in mock mode).
