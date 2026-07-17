@@ -6,6 +6,7 @@ import { NOW } from '@/utils/datetime';
 import { haversineKm } from '@/utils/geo';
 import { useWalkers } from '@/hooks/useWalkers';
 import { matchWalkers, nearestWalkers, submitTrip } from '@/services/walkerService';
+import type { MatchFilters } from '@/services/walkerService';
 import { Segmented } from '@/components/ui/Segmented';
 import { PrimaryButton } from '@/components/ui/PrimaryButton';
 import { Spinner } from '@/components/ui/Spinner';
@@ -15,19 +16,31 @@ import { SeatsField } from '@/components/form/SeatsField';
 import { NotesField } from '@/components/form/NotesField';
 import { FIELD_LABEL } from '@/components/form/fieldStyles';
 import { WalkerCard } from '@/features/matching/WalkerCard';
+import type { LatLng, MapTask, PartyType, Place, Walker } from '@/models';
+
+type WalkerFilterType = 'all' | 'driver' | 'passenger';
+interface Filters { type: WalkerFilterType; from: Place | null; to: Place | null; date: string; tStart: number; tEnd: number; seats: string }
+interface AddForm { type: PartyType; from: Place | null; to: Place | null; date: string; tStart: number; tEnd: number; seats: string; note: string }
+
+interface SchedulePanelProps {
+  mode: PartyType;
+  userLoc: LatLng | null;
+  onMapTask: (task: MapTask) => void;
+  onTripCreated?: (tripId: unknown) => void;
+}
 
 /** Search/filter scheduled walkers, or add the user's own trip. */
-export function SchedulePanel({ mode, userLoc, onMapTask, onTripCreated }) {
+export function SchedulePanel({ mode, userLoc, onMapTask, onTripCreated }: SchedulePanelProps) {
   const { walkers, loading } = useWalkers(mode);
   const [tab, setTab] = useState('search'); // 'search' | 'add'
 
-  const EMPTY = { type: 'all', from: null, to: null, date: '', tStart: 6, tEnd: 23, seats: 'any' };
-  const [filters, setFilters] = useState(EMPTY);
+  const EMPTY: Filters = { type: 'all', from: null, to: null, date: '', tStart: 6, tEnd: 23, seats: 'any' };
+  const [filters, setFilters] = useState<Filters>(EMPTY);
   const [searched, setSearched] = useState(false);
-  const [results, setResults] = useState([]);
+  const [results, setResults] = useState<Walker[]>([]);
 
   const todayIso = new Date(NOW).toISOString().slice(0, 10);
-  const [form, setForm] = useState({
+  const [form, setForm] = useState<AddForm>({
     type: mode === 'driver' ? 'driver' : 'passenger',
     from: null, to: null, date: todayIso, tStart: 8, tEnd: 10, seats: '1', note: '',
   });
@@ -36,11 +49,11 @@ export function SchedulePanel({ mode, userLoc, onMapTask, onTripCreated }) {
   const center = userLoc || TASHKENT;
   const nearest = nearestWalkers(walkers, center, 10);
 
-  const runSearch = () => { setResults(matchWalkers(walkers, filters, center)); setSearched(true); };
+  const runSearch = () => { setResults(matchWalkers(walkers, filters as MatchFilters, center)); setSearched(true); };
   const resetSearch = () => { setFilters(EMPTY); setSearched(false); setResults([]); };
   const list = searched ? results : nearest;
 
-  const openPick = (slot, target, cur) => onMapTask({
+  const openPick = (slot: 'from' | 'to', target: 'filter' | 'add', cur: Place | null) => onMapTask({
     type: 'pick',
     label: slot === 'from' ? t('pickField.from') : t('pickField.to'),
     current: cur ? cur.latlng : null,
@@ -50,14 +63,14 @@ export function SchedulePanel({ mode, userLoc, onMapTask, onTripCreated }) {
   });
 
   const doSubmit = async () => {
-    const created = await submitTrip(form);
+    const created = await submitTrip(form as unknown as Parameters<typeof submitTrip>[0]);
     setSubmitted(true);
     // Creating a trip makes the viewer "engaged" — the planned board is hidden
     // thereafter (spec §17). The new trip id feeds the walker session state.
     onTripCreated && onTripCreated(created?.id);
   };
 
-  const addValid = form.from && form.to && form.date;
+  const addValid = !!(form.from && form.to && form.date);
   const walkerLabel = mode === 'driver' ? t('common.passenger') : t('common.driver');
 
   return (
@@ -82,7 +95,7 @@ export function SchedulePanel({ mode, userLoc, onMapTask, onTripCreated }) {
             <div style={{ marginBottom: 6 }}>
               <div style={FIELD_LABEL}>{t('schedule.walkerType')}</div>
               <div style={{ marginBottom: 14 }}>
-                <Segmented value={filters.type} onChange={(v) => setFilters((f) => ({ ...f, type: v }))}
+                <Segmented value={filters.type} onChange={(v) => setFilters((f) => ({ ...f, type: v as WalkerFilterType }))}
                   options={[{ id: 'all', label: t('schedule.typeAll') }, { id: 'driver', label: '🚗 ' + t('schedule.typeDriver') }, { id: 'passenger', label: '🧑‍✈️ ' + t('schedule.typePassenger') }]} />
               </div>
               <LocationField label={t('form.from')} point={filters.from} accent={T.teal}
@@ -182,7 +195,7 @@ export function SchedulePanel({ mode, userLoc, onMapTask, onTripCreated }) {
             <>
               <div style={{ marginBottom: 14 }}>
                 <div style={FIELD_LABEL}>{t('schedule.iAm')}</div>
-                <Segmented value={form.type} onChange={(v) => setForm((f) => ({ ...f, type: v }))}
+                <Segmented value={form.type} onChange={(v) => setForm((f) => ({ ...f, type: v as PartyType }))}
                   options={[{ id: 'passenger', label: '🧑‍✈️ ' + t('schedule.iAmPassenger') }, { id: 'driver', label: '🚗 ' + t('schedule.iAmDriver') }]} />
               </div>
               <LocationField label={t('form.from')} point={form.from} accent={T.teal}

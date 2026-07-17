@@ -82,9 +82,15 @@ export interface PushNotif {
   duration?: number;
 }
 
+/** A geocoded place: a coordinate plus a human-readable label. */
+export interface Place {
+  latlng: LatLng;
+  label: string;
+}
+
 /** A task dispatched from UI panels to the map controller (imperative bridge). */
 export type MapTask =
-  | { type: 'pick'; label: string; current: LatLng; onDone: (point: LatLng) => void }
+  | { type: 'pick'; label: string; current: LatLng | null; onDone: (point: Place) => void }
   | { type: 'preview'; walker: Walker }
   | { type: 'contactFocus'; contact: Contact }
   | { type: 'contactClear' };
@@ -118,6 +124,25 @@ export interface TripStatistics {
   totalPassengersTransported: number;
   averageVehicleOccupancy: number;
   estimated: { fuelSavedLiters: number; co2ReducedKg: number; costSaved: number };
+}
+
+/** Per-category notification toggles (mirrors backend SettingsDto). */
+export interface NotificationSettings {
+  matching: boolean;
+  messages: boolean;
+  agreementRequests: boolean;
+  agreementAccepted: boolean;
+  tripUpdates: boolean;
+  promotional: boolean;
+}
+
+/** Per-user application settings (/settings). */
+export interface UserSettings {
+  searchMode: string;
+  searchResultLimit: number;
+  theme: string;
+  language: string;
+  notifications: NotificationSettings;
 }
 
 /** A saved item (place / route / partner). */

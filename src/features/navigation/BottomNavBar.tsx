@@ -120,7 +120,7 @@ export function BottomNavBar({ onRouteSheet, mode, routeActive, userLoc, onMapTa
   };
   const panelMap: Record<string, ReactNode> = {
     saved: <SavedPanel />, history: <HistoryPanel />,
-    schedule: <SchedulePanel mode={mode} userLoc={userLoc} onMapTask={onMapTask} onTripCreated={onTripCreated} />,
+    schedule: <SchedulePanel mode={mode} userLoc={userLoc} onMapTask={onMapTask ?? (() => {})} onTripCreated={onTripCreated} />,
     contacts: <ContactsPanel onSelect={selectContact} />,
   };
 

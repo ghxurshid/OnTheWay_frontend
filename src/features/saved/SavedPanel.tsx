@@ -2,6 +2,7 @@ import { T } from '@/constants/theme';
 import { t } from '@/i18n';
 import { useSaved } from '@/hooks/useSaved';
 import { savedStore } from '@/services/savedStore';
+import type { SavedItem } from '@/models';
 
 /** Saved items grouped into places / routes / partners, with an empty state. */
 export function SavedPanel() {
@@ -26,7 +27,7 @@ export function SavedPanel() {
     );
   }
 
-  const groups = {
+  const groups: Record<string, SavedItem[]> = {
     place: list.filter((p) => p.type === 'place'),
     route: list.filter((p) => p.type === 'route'),
     partner: list.filter((p) => p.type === 'partner'),
