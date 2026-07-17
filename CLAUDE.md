@@ -4,9 +4,11 @@
 Plain React (no router/Redux libraries) with a deliberately **layered architecture**
 and lightweight custom stores.
 
-> Product-wide spec & handbook live one level up in [../docs/](../docs/).
-> The backend it talks to is in `../OnTheWay_backend/`. Term/spec differences:
-> [../docs/01-spec-reconciliation.md](../docs/01-spec-reconciliation.md).
+> Product-wide specs live one level up in [../docs/](../docs/):
+> [funksional-spetsifikatsiya.md](../docs/funksional-spetsifikatsiya.md) (what) and
+> [texnik-spetsifikatsiya.md](../docs/texnik-spetsifikatsiya.md) (how). The backend it
+> talks to is in `../OnTheWay_backend/`. Term/spec differences: the reconciliation
+> section (§14) of the technical spec.
 
 ## Layers (respect the direction of dependencies)
 
@@ -67,6 +69,6 @@ Use it instead of `../../..` chains.
   in components.
 - Theme: light/dark support belongs to user settings; don't hard-code colors that
   bypass the theme.
-- Backend contract details (envelope, pagination, auth) are in
-  [../docs/05-api-conventions.md](../docs/05-api-conventions.md).
+- Backend contract details (envelope, pagination, auth) are in the API-conventions
+  section of [../docs/texnik-spetsifikatsiya.md](../docs/texnik-spetsifikatsiya.md).
 - `legacy/` holds pre-React code — don't extend it; port into `src/` instead.
