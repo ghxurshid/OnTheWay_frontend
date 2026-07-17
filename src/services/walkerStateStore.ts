@@ -4,46 +4,60 @@
    role, free mode, active trip, watched walkers, last location. Mutations are
    client-authoritative and synced to the server over SignalR; on app reopen the
    store is rehydrated from the server snapshot so the session is restored.
-   Persisted to localStorage as a warm cache until the server sync lands.
    ════════════════════════════════════════════════════════════════ */
 
 import { presenceClient } from '@/services/realtime';
 
 const KEY = 'ontheway_walker_state_v1';
 
-const DEFAULT = {
-  role: null,            // 'driver' | 'passenger'
-  freeMode: false,       // destination-less live sharing (driver-only)
-  activeTripId: null,    // read-only reference to the current trip
+export interface WalkerState {
+  role: 'driver' | 'passenger' | null;
+  freeMode: boolean;
+  activeTripId: string | null;
+  watchedWalkerIds: string[];
+  lat: number | null;
+  lng: number | null;
+  heading: number | null;
+  version: number;
+  updatedAt: number | null;
+}
+
+/** A local mutation: any subset of the state plus the clearActiveTrip flag. */
+export type WalkerStateDelta = Partial<WalkerState> & { clearActiveTrip?: boolean };
+
+const DEFAULT: WalkerState = {
+  role: null,
+  freeMode: false,
+  activeTripId: null,
   watchedWalkerIds: [],
   lat: null, lng: null, heading: null,
   version: 0,
   updatedAt: null,
 };
 
-let state = load();
-const listeners = new Set();
+let state: WalkerState = load();
+const listeners = new Set<(s: WalkerState) => void>();
 
-function load() {
+function load(): WalkerState {
   try { return { ...DEFAULT, ...JSON.parse(localStorage.getItem(KEY) || '{}') }; }
   catch { return { ...DEFAULT }; }
 }
-function persist() { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch { /* ignore */ } }
-function emit() {
+function persist(): void { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch { /* ignore */ } }
+function emit(): void {
   listeners.forEach((fn) => { try { fn(state); } catch (e) { console.error('[walkerState]', e); } });
 }
 
 // Only these fields are client-owned and pushed to the server. `role` rides the
 // existing SetRole channel; `lat/lng` ride UpdateLocation — so neither is here.
-const WIRE_FIELDS = ['freeMode', 'activeTripId', 'clearActiveTrip', 'watchedWalkerIds'];
+const WIRE_FIELDS = ['freeMode', 'activeTripId', 'clearActiveTrip', 'watchedWalkerIds'] as const;
 
 export const walkerStateStore = {
-  get: () => state,
-  subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },
+  get: (): WalkerState => state,
+  subscribe(fn: (s: WalkerState) => void) { listeners.add(fn); return () => listeners.delete(fn); },
 
   /** Apply a local change and sync the client-owned fields to the server. */
-  patch(delta) {
-    const next = { ...state };
+  patch(delta: WalkerStateDelta): WalkerState {
+    const next: WalkerState = { ...state };
     if (delta.role !== undefined) next.role = delta.role;
     if (delta.freeMode !== undefined) next.freeMode = delta.freeMode;
     if (delta.watchedWalkerIds !== undefined) next.watchedWalkerIds = delta.watchedWalkerIds;
@@ -56,11 +70,10 @@ export const walkerStateStore = {
     state = next;
     persist(); emit();
 
-    const wire = {};
+    const wire: Record<string, unknown> = {};
     WIRE_FIELDS.forEach((k) => { if (delta[k] !== undefined) wire[k] = delta[k]; });
-    // Client-side ids are strings (id-string invariant), but the hub's
-    // WalkerStateDelta.ActiveTripId is a long — a string here fails the whole
-    // SyncWalkerState binding silently, so convert on the wire.
+    // Client-side ids are strings, but the hub's WalkerStateDelta.ActiveTripId is
+    // a long — a string here fails the whole binding silently, so convert.
     if (wire.activeTripId != null) {
       const n = Number(wire.activeTripId);
       if (Number.isFinite(n)) wire.activeTripId = n; else delete wire.activeTripId;
@@ -70,13 +83,12 @@ export const walkerStateStore = {
   },
 
   /** Replace local state from a server snapshot (restore) — does NOT re-sync. */
-  hydrate(serverState) {
+  hydrate(serverState: Partial<WalkerState> | null | undefined): WalkerState {
     if (!serverState) return state;
     state = {
       ...state,
       role: serverState.role ?? state.role,
       freeMode: !!serverState.freeMode,
-      // The server sends the trip id as a long — keep it a string locally.
       activeTripId: serverState.activeTripId != null ? String(serverState.activeTripId) : null,
       watchedWalkerIds: serverState.watchedWalkerIds || [],
       lat: serverState.lat ?? state.lat,
@@ -89,16 +101,15 @@ export const walkerStateStore = {
     return state;
   },
 
-  /** Fetch the server snapshot and rehydrate the local model on app reopen.
-      Returns { state, activeTrip, bookings } | null. */
-  async restoreFromServer() {
+  /** Fetch the server snapshot and rehydrate the local model on app reopen. */
+  async restoreFromServer(): Promise<{ state?: Partial<WalkerState>; activeTrip?: unknown; bookings?: unknown[] } | null> {
     const snap = await presenceClient.getWalkerState().catch(() => null);
     if (snap && snap.state) this.hydrate(snap.state);
     return snap;
   },
 
   /** True when there's a session worth restoring (a trip in flight or bookings). */
-  hasActiveSession(snap) {
+  hasActiveSession(snap: { activeTrip?: unknown; bookings?: unknown[] } | null): boolean {
     return !!(snap && (snap.activeTrip || (snap.bookings && snap.bookings.length)));
   },
 

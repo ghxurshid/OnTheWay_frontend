@@ -8,7 +8,7 @@ export function getDashboardSummary() {
 }
 
 /** Derive headline metrics from the weekly series. */
-export function weeklyMetrics(weekly) {
+export function weeklyMetrics(weekly: number[]) {
   const totalWeek = weekly.reduce((s, v) => s + v, 0).toFixed(1);
   return {
     totalWeek,

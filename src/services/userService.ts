@@ -8,6 +8,6 @@ export function getMe() {
 }
 
 /** Set or clear the caller's vehicle (driver ⇄ passenger). */
-export function updateVehicle(vehicle) {
+export function updateVehicle(vehicle: string | null) {
   return userApi.updateVehicle(vehicle);
 }

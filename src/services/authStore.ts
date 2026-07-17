@@ -10,11 +10,20 @@
 
 const STORAGE_KEY = 'otw-session';
 
-let session = load(); // { accessToken, accessTokenExpiresAt, refreshToken, user } | null
-let refresher = null; // async () => session, registered by authService
-let inflight = null; // single-flight refresh promise
+export interface AuthSession {
+  accessToken: string;
+  accessTokenExpiresAt?: string;
+  refreshToken?: string;
+  user?: unknown;
+}
 
-function load() {
+type Refresher = () => Promise<AuthSession>;
+
+let session: AuthSession | null = load();
+let refresher: Refresher | null = null; // registered by authService
+let inflight: Promise<AuthSession> | null = null; // single-flight refresh promise
+
+function load(): AuthSession | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     return raw ? JSON.parse(raw) : null;
@@ -23,7 +32,7 @@ function load() {
   }
 }
 
-function persist() {
+function persist(): void {
   try {
     if (session) localStorage.setItem(STORAGE_KEY, JSON.stringify(session));
     else localStorage.removeItem(STORAGE_KEY);
@@ -34,7 +43,7 @@ function persist() {
 
 export const authStore = {
   /** Replace the whole session (after login / refresh). */
-  set(next) {
+  set(next: AuthSession | null) {
     session = next || null;
     persist();
   },
@@ -44,34 +53,34 @@ export const authStore = {
     persist();
   },
 
-  get() {
+  get(): AuthSession | null {
     return session;
   },
 
-  getAccessToken() {
+  getAccessToken(): string | null {
     return session?.accessToken || null;
   },
 
-  getRefreshToken() {
+  getRefreshToken(): string | null {
     return session?.refreshToken || null;
   },
 
-  getUser() {
+  getUser(): unknown {
     return session?.user || null;
   },
 
-  isAuthenticated() {
+  isAuthenticated(): boolean {
     return !!session?.accessToken;
   },
 
   /** True when the access token is missing or within `skewMs` of expiry. */
-  isAccessTokenExpired(skewMs = 30_000) {
+  isAccessTokenExpired(skewMs = 30_000): boolean {
     if (!session?.accessTokenExpiresAt) return !session?.accessToken;
     return new Date(session.accessTokenExpiresAt).getTime() - Date.now() <= skewMs;
   },
 
   /** authService injects the concrete refresh implementation here. */
-  setRefresher(fn) {
+  setRefresher(fn: Refresher) {
     refresher = fn;
   },
 
@@ -79,7 +88,7 @@ export const authStore = {
    * Obtain a fresh session. Concurrent callers share one in-flight request so
    * a burst of 401s triggers a single /auth/refresh round-trip.
    */
-  async refresh() {
+  async refresh(): Promise<AuthSession> {
     if (!refresher) throw new Error('No refresher registered');
     if (!inflight) {
       inflight = Promise.resolve()

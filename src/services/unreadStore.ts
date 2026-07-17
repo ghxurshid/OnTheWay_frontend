@@ -4,17 +4,19 @@
 
 const UNREAD_KEY = 'ontheway_unread_v1';
 
+type UnreadMap = Record<string, number>;
+
 export const unreadStore = {
-  map: () => { try { return JSON.parse(localStorage.getItem(UNREAD_KEY) || '{}'); } catch { return {}; } },
-  get: (id) => unreadStore.map()[id] || 0,
-  total: () => Object.values(unreadStore.map()).reduce((a, b) => a + b, 0),
-  add: (id, n = 1) => {
+  map: (): UnreadMap => { try { return JSON.parse(localStorage.getItem(UNREAD_KEY) || '{}'); } catch { return {}; } },
+  get: (id: string): number => unreadStore.map()[id] || 0,
+  total: (): number => Object.values(unreadStore.map()).reduce((a, b) => a + b, 0),
+  add: (id: string, n = 1): void => {
     const m = unreadStore.map();
     m[id] = (m[id] || 0) + n;
     localStorage.setItem(UNREAD_KEY, JSON.stringify(m));
     window.dispatchEvent(new Event('ontheway:unread'));
   },
-  clear: (id) => {
+  clear: (id: string): void => {
     const m = unreadStore.map();
     if (m[id]) {
       delete m[id];

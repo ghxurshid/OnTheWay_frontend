@@ -20,7 +20,7 @@ authStore.setRefresher(async () => {
 });
 
 /** Sign in with the current Telegram initData and persist the session. */
-export async function login() {
+export async function login(): Promise<unknown> {
   const initData = getInitData();
   if (!initData) {
     throw new Error(
@@ -38,9 +38,8 @@ export async function login() {
  *  - valid token        → reuse it
  *  - expired but has RT → refresh
  *  - otherwise          → fresh Telegram login
- * Returns the authenticated user.
  */
-export async function ensureAuth() {
+export async function ensureAuth(): Promise<unknown> {
   if (authStore.isAuthenticated() && !authStore.isAccessTokenExpired()) {
     return authStore.getUser();
   }
@@ -55,10 +54,10 @@ export async function ensureAuth() {
   return login();
 }
 
-export function logout() {
+export function logout(): void {
   authStore.clear();
 }
 
-export function currentUser() {
+export function currentUser(): unknown {
   return authStore.getUser();
 }
