@@ -82,6 +82,13 @@ export interface PushNotif {
   duration?: number;
 }
 
+/** A task dispatched from UI panels to the map controller (imperative bridge). */
+export type MapTask =
+  | { type: 'pick'; label: string; current: LatLng; onDone: (point: LatLng) => void }
+  | { type: 'preview'; walker: Walker }
+  | { type: 'contactFocus'; contact: Contact }
+  | { type: 'contactClear' };
+
 /** A frequent destination on the analytics dashboard. */
 export interface DashboardDestination {
   label: string;

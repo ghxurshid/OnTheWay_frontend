@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import type { ReactNode } from 'react';
 import { T } from '@/constants/theme';
 import { t } from '@/i18n';
 import { SavedPanel } from '@/features/saved/SavedPanel';
@@ -6,20 +7,37 @@ import { HistoryPanel } from '@/features/history/HistoryPanel';
 import { SchedulePanel } from '@/features/schedule/SchedulePanel';
 import { ContactsPanel } from '@/features/contacts/ContactsPanel';
 import { ContactMinimized } from '@/features/contacts/ContactMinimized';
+import type { Contact, LatLng, MapTask, PartyType } from '@/models';
+
+type PanelState = 'idle' | 'opening' | 'open' | 'closing';
+interface TabDef { id: string; label: string; icon: ((c: string) => ReactNode) | null }
+
+interface BottomNavBarProps {
+  onRouteSheet: () => void;
+  mode: PartyType;
+  routeActive: boolean;
+  userLoc: LatLng | null;
+  onMapTask?: (task: MapTask) => void;
+  hidden?: boolean;
+  onContactCall?: (c: Contact) => void;
+  onContactSms?: (c: Contact) => void;
+  engaged?: boolean;
+  onTripCreated?: (trip: unknown) => void;
+}
 
 /** Bottom navigation bar + expanding panel host (saved/history/schedule/contacts). */
-export function BottomNavBar({ onRouteSheet, mode, routeActive, userLoc, onMapTask, hidden, onContactCall, onContactSms, engaged, onTripCreated }) {
-  const [panelState, setPanelState] = useState('idle'); // 'idle'|'opening'|'open'|'closing'
-  const [active, setActive] = useState(null);
-  const [, setNextActive] = useState(null);
-  const [selectedContact, setSelectedContact] = useState(null);
-  const timerRef = useRef(null);
+export function BottomNavBar({ onRouteSheet, mode, routeActive, userLoc, onMapTask, hidden, onContactCall, onContactSms, engaged, onTripCreated }: BottomNavBarProps) {
+  const [panelState, setPanelState] = useState<PanelState>('idle');
+  const [active, setActive] = useState<string | null>(null);
+  const [, setNextActive] = useState<string | null>(null);
+  const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const clearContactFocus = () => {
     setSelectedContact(null);
     onMapTask && onMapTask({ type: 'contactClear' });
   };
-  const selectContact = (c) => {
+  const selectContact = (c: Contact) => {
     setSelectedContact(c);
     onMapTask && onMapTask({ type: 'contactFocus', contact: c });
   };
@@ -27,7 +45,7 @@ export function BottomNavBar({ onRouteSheet, mode, routeActive, userLoc, onMapTa
   const OPEN_DUR = 380;
   const CLOSE_DUR = 280;
 
-  const openPanel = (id) => {
+  const openPanel = (id: string) => {
     clearTimeout(timerRef.current);
     if (selectedContact) clearContactFocus();
     if (panelState === 'open' || panelState === 'opening') {
@@ -72,7 +90,7 @@ export function BottomNavBar({ onRouteSheet, mode, routeActive, userLoc, onMapTa
   const isVisible = panelState !== 'idle';
   const navHidden = panelState !== 'idle';
 
-  const TABS = [
+  const TABS: TabDef[] = [
     { id: 'saved', label: t('nav.saved'),
       icon: (c) => <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
         <path d="M5 3h10a1 1 0 011 1v13l-6-3-6 3V4a1 1 0 011-1z" stroke={c} strokeWidth="1.6" strokeLinejoin="round" />
@@ -96,17 +114,17 @@ export function BottomNavBar({ onRouteSheet, mode, routeActive, userLoc, onMapTa
       </svg> },
   ];
 
-  const panelTitles = {
+  const panelTitles: Record<string, string> = {
     saved: t('nav.titleSaved'), history: t('nav.titleHistory'),
     schedule: t('nav.titleSchedule'), contacts: t('nav.titleContacts'),
   };
-  const panelMap = {
+  const panelMap: Record<string, ReactNode> = {
     saved: <SavedPanel />, history: <HistoryPanel />,
     schedule: <SchedulePanel mode={mode} userLoc={userLoc} onMapTask={onMapTask} onTripCreated={onTripCreated} />,
     contacts: <ContactsPanel onSelect={selectContact} />,
   };
 
-  const renderCenterButton = (size, fab) => (
+  const renderCenterButton = (size: number, fab: boolean) => (
     <button onClick={handleCenter} disabled={routeActive} style={{
       width: size, height: size, borderRadius: '50%',
       background: routeActive ? T.glassMid : `linear-gradient(135deg,${T.teal},#0e9e97)`,
@@ -133,7 +151,7 @@ export function BottomNavBar({ onRouteSheet, mode, routeActive, userLoc, onMapTa
     </button>
   );
 
-  const renderTab = (tab, isPanel) => {
+  const renderTab = (tab: TabDef, isPanel: boolean) => {
     const isAct = active === tab.id;
     // Planned Trips ("schedule") is disabled (not removed, so the bar layout is
     // preserved) once the viewer is Engaged (spec §17).
@@ -149,7 +167,7 @@ export function BottomNavBar({ onRouteSheet, mode, routeActive, userLoc, onMapTa
         color,
         transition: 'color .2s ease, opacity .2s ease',
       }}>
-        {tab.icon(color)}
+        {tab.icon?.(color)}
         <span style={{ fontSize: 9, fontWeight: isAct ? 600 : 400, letterSpacing: .3 }}>
           {tab.label}
         </span>

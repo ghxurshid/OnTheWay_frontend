@@ -1,11 +1,23 @@
+import type { ReactNode } from 'react';
 import { T } from '@/constants/theme';
 import { t } from '@/i18n';
+import type { PartyType } from '@/models';
+
+interface SideDrawerProps {
+  open: boolean;
+  onClose: () => void;
+  mode: PartyType;
+  freeMode: boolean;
+  onToggleFreeMode: () => void;
+  onExit: () => void;
+  onOpenPanel: (key: string) => void;
+}
 
 /** Left drawer: profile, Free Mode toggle, settings + account panels, exit.
  *  Search mode (passenger/driver) is chosen once on the home screen at app start
  *  and is intentionally not switchable here — changing it mid-session caused
  *  ambiguities, so a user who wants another mode re-opens the app and picks it. */
-export function SideDrawer({ open, onClose, mode, freeMode, onToggleFreeMode, onExit, onOpenPanel }) {
+export function SideDrawer({ open, onClose, mode, freeMode, onToggleFreeMode, onExit, onOpenPanel }: SideDrawerProps) {
   // Free Mode = sharing a live location with no destination. That only makes sense
   // for drivers (taxi-like: available, will go wherever asked). A passenger has no
   // destination to share, so they can't enable it — they become visible to drivers
@@ -14,16 +26,16 @@ export function SideDrawer({ open, onClose, mode, freeMode, onToggleFreeMode, on
   const freeModeActive = canFreeMode && freeMode;
   const navItems = [
     { key: 'complaint', label: t('drawer.complaint'), sub: t('drawer.complaintSub'),
-      color: T.amber, icon: (c) => (<svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+      color: T.amber, icon: (c: string) => (<svg width="20" height="20" viewBox="0 0 20 20" fill="none">
         <path d="M4 4h12v9H8l-4 3V4z" stroke={c} strokeWidth="1.6" strokeLinejoin="round" />
         <path d="M10 6.5v3M10 11.2v.1" stroke={c} strokeWidth="1.7" strokeLinecap="round" /></svg>) },
     { key: 'privacy', label: t('drawer.privacy'), sub: t('drawer.privacySub'),
-      color: T.purple, icon: (c) => (<svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+      color: T.purple, icon: (c: string) => (<svg width="20" height="20" viewBox="0 0 20 20" fill="none">
         <path d="M10 2.5l6 2.2v4.3c0 3.6-2.5 6.6-6 8-3.5-1.4-6-4.4-6-8V4.7l6-2.2z" stroke={c} strokeWidth="1.6" strokeLinejoin="round" />
         <path d="M7.6 10l1.7 1.7 3.1-3.4" stroke={c} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>) },
   ];
 
-  const sectionLabel = (label) => (
+  const sectionLabel = (label: ReactNode) => (
     <div style={{ fontSize: 11, fontWeight: 600, color: T.muted, margin: '0 0 8px',
       textTransform: 'uppercase', letterSpacing: .8 }}>{label}</div>
   );
