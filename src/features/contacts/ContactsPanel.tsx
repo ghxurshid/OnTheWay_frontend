@@ -5,14 +5,19 @@ import { useContacts } from '@/hooks/useContacts';
 import { groupByPresence, removeContact } from '@/services/contactService';
 import { Spinner } from '@/components/ui/Spinner';
 import { ContactRow } from './ContactRow';
+import type { Contact } from '@/models';
+
+interface ContactsPanelProps {
+  onSelect: (c: Contact) => void;
+}
 
 /** Contacts list grouped by online/offline presence. */
-export function ContactsPanel({ onSelect }) {
+export function ContactsPanel({ onSelect }: ContactsPanelProps) {
   const { contacts, loading } = useContacts();
-  const [removed, setRemoved] = useState(() => new Set());
+  const [removed, setRemoved] = useState<Set<string>>(() => new Set());
 
   // Optimistically hide a removed contact; revert if the request fails.
-  const handleRemove = (c) => {
+  const handleRemove = (c: Contact) => {
     if (!confirm(t('contacts.confirmRemove'))) return;
     setRemoved((s) => new Set(s).add(c.id));
     removeContact(c.id).catch(() =>

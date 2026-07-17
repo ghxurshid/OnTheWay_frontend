@@ -1,8 +1,16 @@
 import { T } from '@/constants/theme';
 import { t } from '@/i18n';
+import type { Contact } from '@/models';
+
+interface ContactMinimizedProps {
+  contact: Contact;
+  onBack: () => void;
+  onCall: (c: Contact) => void;
+  onSms: (c: Contact) => void;
+}
 
 /** Minimized contact sheet (shown when a contact is focused on the map). */
-export function ContactMinimized({ contact: c, onBack, onCall, onSms }) {
+export function ContactMinimized({ contact: c, onBack, onCall, onSms }: ContactMinimizedProps) {
   const color = c.type === 'driver' ? T.amber : T.purple;
   return (
     <div className="otw-sheet" style={{

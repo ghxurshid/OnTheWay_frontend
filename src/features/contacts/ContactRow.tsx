@@ -2,9 +2,16 @@ import { useState } from 'react';
 import { T } from '@/constants/theme';
 import { t } from '@/i18n';
 import { useUnread } from '@/hooks/useUnread';
+import type { Contact } from '@/models';
+
+interface ContactRowProps {
+  c: Contact;
+  onSelect: (c: Contact) => void;
+  onRemove?: (c: Contact) => void;
+}
 
 /** Single contact list row with presence dot, route badge and unread count. */
-export function ContactRow({ c, onSelect, onRemove }) {
+export function ContactRow({ c, onSelect, onRemove }: ContactRowProps) {
   const [p, setP] = useState(false);
   const unread = useUnread()[c.id] || 0;
   const color = c.type === 'driver' ? T.amber : T.purple;
