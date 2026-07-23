@@ -412,6 +412,12 @@ export const STRINGS = {
       rideAgreedTitle:{ uz: 'Birga ketish rejalashtirildi 🤝', ru: 'Поездка вместе запланирована 🤝', en: 'Ride together planned 🤝' },
       rideAgreedBody:{ uz: '{name} bilan birga ketishni rejalashtirdingiz', ru: 'Вы запланировали поездку с {name}', en: 'You planned to travel with {name}' },
     },
+    // Band ("to'ldi"): the walker marks their trip full — hidden from discovery —
+    // and back to available. There is no booking; arrangements happen over chat/call.
+    band: {
+      engage:    { uz: 'Bandman', ru: 'Я занят', en: 'Mark full' },
+      available: { uz: "Bo'shman", ru: 'Свободен', en: 'Mark available' },
+    },
     booking: {
       requestedTitle: { uz: 'Yangi booking soʻrovi', ru: 'Новый запрос на поездку', en: 'New booking request' },
       requestedBody:  { uz: 'Yoʻlovchi sayohatingizga qoʻshilmoqchi', ru: 'Пассажир хочет присоединиться', en: 'A passenger wants to join your trip' },

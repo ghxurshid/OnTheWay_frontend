@@ -1,8 +1,13 @@
 /* REPOSITORY — trips (/trips). Publish a driver or passenger trip, run the
-   role-aware match search, start a planned trip into a live one, and read one
-   trip. The backend wraps everything in the standard envelope; `http` unwraps it. */
+   role-aware match search, start a planned trip in place, read one trip, toggle
+   discovery visibility (band/engaged) and complete/cancel own trips. The backend
+   wraps everything in the standard envelope; `http` unwraps it. Booking was
+   removed — arrangements happen over chat/call and "band" is a visibility toggle. */
 
 import { USE_MOCKS, mockResponse, http } from './client';
+
+const post = (path: string, body?: unknown) =>
+  http(path, { method: 'POST', ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
 
 export const tripApi = {
   /** POST /trips — publish a trip. Category "Planned"/"Live", role "Driver"/"Passenger". */
@@ -26,21 +31,36 @@ export const tripApi = {
     return http(`/trips/search?${q}`).then((rows) => rows || []);
   },
 
-  /** POST /trips/{id}/start — start a planned trip, creating a new live trip. */
+  /** POST /trips/{id}/start — move a planned trip in place (Scheduled→InProgress);
+      the same record, no new trip is spawned. */
   start(id: string) {
-    if (USE_MOCKS) return mockResponse({ id: 'live_' + Date.now(), originatingTripId: id });
-    return http(`/trips/${id}/start`, { method: 'POST' });
+    if (USE_MOCKS) return mockResponse({ id, status: 'InProgress' });
+    return post(`/trips/${id}/start`);
   },
 
-  /** POST /trips/{id}/complete — finish own trip (accepted bookings complete). */
-  complete(id: string) {
+  /** POST /trips/{id}/hide — mark own trip "engaged/full" (band): hidden from
+      discovery and the opposite-role maps. Reversible via `show`. */
+  hide(id: string) {
+    if (USE_MOCKS) return mockResponse({ id, isVisible: false });
+    return post(`/trips/${id}/hide`);
+  },
+
+  /** POST /trips/{id}/show — restore own trip to discovery ("bo'sh"ga qaytish). */
+  show(id: string) {
+    if (USE_MOCKS) return mockResponse({ id, isVisible: true });
+    return post(`/trips/${id}/show`);
+  },
+
+  /** POST /trips/{id}/complete — finish own trip and optionally confirm the real
+      companions who travelled (drives ratings, history and statistics). */
+  complete(id: string, companionIds: (string | number)[] = []) {
     if (USE_MOCKS) return mockResponse({ id, status: 'Completed' });
-    return http(`/trips/${id}/complete`, { method: 'POST' });
+    return post(`/trips/${id}/complete`, { companionIds });
   },
 
-  /** POST /trips/{id}/cancel — call off own trip (accepted bookings cancelled). */
+  /** POST /trips/{id}/cancel — call off own trip (simply closes it). */
   cancel(id: string) {
     if (USE_MOCKS) return mockResponse({ id, status: 'Cancelled' });
-    return http(`/trips/${id}/cancel`, { method: 'POST' });
+    return post(`/trips/${id}/cancel`);
   },
 };

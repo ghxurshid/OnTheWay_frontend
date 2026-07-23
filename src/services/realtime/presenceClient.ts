@@ -13,7 +13,7 @@ const EVENTS = [
   'UserOnline', 'UserOffline', 'OnlineUsers',
   'Walkers', 'WalkerJoined', 'WalkerMoved', 'WalkerGone',
   'RoutePublished', 'RouteCleared',
-  'BookingEvent',
+  'TripEvent',
 ] as const;
 
 type Payload = any;
@@ -125,13 +125,26 @@ export const presenceClient = {
     return connected()?.invoke('UnwatchRoute', walkerUserId) ?? Promise.resolve();
   },
 
+  // --- band / engaged state -------------------------------------------
+
+  /** Mark the walker "engaged/full" (band): withheld from discovery and removed
+      from the opposite-role maps in realtime. Reversible via markAvailable. */
+  markEngaged() {
+    return connected()?.invoke('MarkEngaged') ?? Promise.resolve();
+  },
+
+  /** Clear the engaged flag ("bo'sh"ga qaytish): discoverable again. */
+  markAvailable() {
+    return connected()?.invoke('MarkAvailable') ?? Promise.resolve();
+  },
+
   // --- session state (retained server-side across disconnects) ---------
 
   syncWalkerState(delta: unknown) {
     return connected()?.invoke('SyncWalkerState', delta) ?? Promise.resolve(null);
   },
 
-  getWalkerState(): Promise<{ state?: Record<string, unknown>; activeTrip?: unknown; bookings?: unknown[] } | null> {
+  getWalkerState(): Promise<{ state?: Record<string, unknown>; activeTrip?: unknown } | null> {
     return connected()?.invoke('GetWalkerState') ?? Promise.resolve(null);
   },
 };

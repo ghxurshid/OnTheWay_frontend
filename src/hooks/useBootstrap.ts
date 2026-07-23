@@ -15,7 +15,6 @@ import { USE_MOCKS } from '@/api/client';
 import { ensureAuth } from '@/services/authService';
 import { connectRealtime } from '@/services/realtime';
 import { walkerStateStore } from '@/services/walkerStateStore';
-import { bookingStore } from '@/services/bookingStore';
 import { listContacts } from '@/services/contactService';
 import { initTelegramUi } from '@/services/telegram';
 
@@ -38,10 +37,9 @@ export function useBootstrap() {
         await ensureAuth();
         setAuthReady(true);
         await connectRealtime();
-        // Restore the retained session (role, free mode, active trip, bookings)
+        // Restore the retained session (role, free mode, engaged, active trip)
         // so a reopened app resumes its pre-close state.
         restoredSessionRef.current = await walkerStateStore.restoreFromServer();
-        if (restoredSessionRef.current) bookingStore.seed(restoredSessionRef.current.bookings);
         setSessionReady(true); // splash may proceed (and possibly auto-resume)
       } catch (e) {
         setAuthError((e as Error)?.message || String(e));

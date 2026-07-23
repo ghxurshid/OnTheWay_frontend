@@ -13,6 +13,7 @@ const KEY = 'ontheway_walker_state_v1';
 export interface WalkerState {
   role: 'driver' | 'passenger' | null;
   freeMode: boolean;
+  engaged: boolean;            // "band/to'ldi" — hidden from discovery, reversible
   activeTripId: string | null;
   watchedWalkerIds: string[];
   lat: number | null;
@@ -28,6 +29,7 @@ export type WalkerStateDelta = Partial<WalkerState> & { clearActiveTrip?: boolea
 const DEFAULT: WalkerState = {
   role: null,
   freeMode: false,
+  engaged: false,
   activeTripId: null,
   watchedWalkerIds: [],
   lat: null, lng: null, heading: null,
@@ -49,7 +51,7 @@ function emit(): void {
 
 // Only these fields are client-owned and pushed to the server. `role` rides the
 // existing SetRole channel; `lat/lng` ride UpdateLocation — so neither is here.
-const WIRE_FIELDS = ['freeMode', 'activeTripId', 'clearActiveTrip', 'watchedWalkerIds'] as const;
+const WIRE_FIELDS = ['freeMode', 'engaged', 'activeTripId', 'clearActiveTrip', 'watchedWalkerIds'] as const;
 
 export const walkerStateStore = {
   get: (): WalkerState => state,
@@ -60,6 +62,7 @@ export const walkerStateStore = {
     const next: WalkerState = { ...state };
     if (delta.role !== undefined) next.role = delta.role;
     if (delta.freeMode !== undefined) next.freeMode = delta.freeMode;
+    if (delta.engaged !== undefined) next.engaged = delta.engaged;
     if (delta.watchedWalkerIds !== undefined) next.watchedWalkerIds = delta.watchedWalkerIds;
     if (delta.clearActiveTrip) next.activeTripId = null;
     else if (delta.activeTripId !== undefined) next.activeTripId = delta.activeTripId;
@@ -89,6 +92,7 @@ export const walkerStateStore = {
       ...state,
       role: serverState.role ?? state.role,
       freeMode: !!serverState.freeMode,
+      engaged: !!serverState.engaged,
       activeTripId: serverState.activeTripId != null ? String(serverState.activeTripId) : null,
       watchedWalkerIds: serverState.watchedWalkerIds || [],
       lat: serverState.lat ?? state.lat,
@@ -102,15 +106,15 @@ export const walkerStateStore = {
   },
 
   /** Fetch the server snapshot and rehydrate the local model on app reopen. */
-  async restoreFromServer(): Promise<{ state?: Partial<WalkerState>; activeTrip?: unknown; bookings?: unknown[] } | null> {
+  async restoreFromServer(): Promise<{ state?: Partial<WalkerState>; activeTrip?: unknown } | null> {
     const snap = await presenceClient.getWalkerState().catch(() => null);
     if (snap && snap.state) this.hydrate(snap.state);
     return snap;
   },
 
-  /** True when there's a session worth restoring (a trip in flight or bookings). */
-  hasActiveSession(snap: { activeTrip?: unknown; bookings?: unknown[] } | null): boolean {
-    return !!(snap && (snap.activeTrip || (snap.bookings && snap.bookings.length)));
+  /** True when there's a session worth restoring (a trip in flight). */
+  hasActiveSession(snap: { activeTrip?: unknown } | null): boolean {
+    return !!(snap && snap.activeTrip);
   },
 
   reset() { state = { ...DEFAULT }; persist(); emit(); },

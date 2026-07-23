@@ -15,7 +15,6 @@ import { walkerToCallUser, contactToUser } from '@/utils/callUser';
 import { useMap } from '@/hooks/useMap';
 import type { MapHook } from '@/hooks/mapHook';
 import { useHeadingFollow } from '@/hooks/useHeadingFollow';
-import { useBookings } from '@/hooks/useBookings';
 import { useBootstrap } from '@/hooks/useBootstrap';
 import { useCallSession } from '@/hooks/useCallSession';
 import { usePresence } from '@/hooks/usePresence';
@@ -36,10 +35,7 @@ import { HomeScreen } from '@/pages/HomeScreen';
 import { MapUI } from '@/features/matching/MapUI';
 import { UserPopup } from '@/features/matching/UserPopup';
 import { WalkerPreviewCard } from '@/features/matching/WalkerPreviewCard';
-import { BookingRequestPrompt } from '@/features/matching/BookingRequestPrompt';
-import { BookingAgreementsSheet } from '@/features/matching/BookingAgreementsSheet';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
-import { authStore } from '@/services/authStore';
 import { SideDrawer } from '@/features/navigation/SideDrawer';
 import { PushToast } from '@/features/navigation/PushToast';
 import { RouteSheet } from '@/features/route/RouteSheet';
@@ -108,6 +104,7 @@ export function App() {
   const [followMe, setFollowMe] = useState(false); // compass: keep the map on the live location
   const [freeMode, setFreeMode] = useState(false); // share live location without a trip (asks permission on enable)
   const [hasCreatedTrip, setHasCreatedTrip] = useState(false); // created a trip this session (route or schedule)
+  const [banded, setBanded] = useState(() => walkerStateStore.get().engaged); // "band/to'ldi" — marked full, hidden from discovery
   // "Engaged" viewers (created a trip, or a driver in Free Mode) only browse the
   // live map; the separate Planned Trips board is hidden for them (spec §17).
   const engaged = hasCreatedTrip || (mode === 'driver' && freeMode);
@@ -272,12 +269,6 @@ export function App() {
     mapHook, userLocRef, applyFollow, followMeRef, lastHeadingRef,
     activeRouteRef, liveTripIdRef, setActiveRoute, setNavProgress,
   });
-
-  // Ride-agreement (booking) domain: owns its own state + realtime sync.
-  const {
-    incomingBooking, bookingBusy, agreements, showAgreements, setShowAgreements, busyBookingId,
-    requestRide, respondBooking, actOnAgreement,
-  } = useBookings({ authReady, notify: setPushNotif });
 
   // 1:1 voice-call lifecycle (owns callState + CallHub events).
   const {
@@ -524,7 +515,7 @@ export function App() {
     stopNav();
     if (!USE_MOCKS) {
       // Leaving the map abandons the journey deliberately: withdraw the shared
-      // route and call off the backing Live trip (its agreements cascade).
+      // route and call off the backing Live trip (it is simply closed).
       presenceClient.clearRoute().catch(() => {});
       const liveTripId = liveTripIdRef.current;
       if (liveTripId) {
@@ -537,6 +528,11 @@ export function App() {
     }
     setFreeMode(false); // stop sharing our live location when leaving the map
     setHasCreatedTrip(false); // reset engagement when leaving the map
+    if (banded) { // clear the band/engaged flag on leave
+      setBanded(false);
+      walkerStateStore.patch({ engaged: false });
+      if (!USE_MOCKS) presenceClient.markAvailable().catch(() => {});
+    }
     activeRouteRef.current = null; setActiveRoute(null); setNavProgress(0);
     mapHook.clearUserRoute(); mapHook.clearPlanning();
     if (simRef.current) { simRef.current.stop(); simRef.current = null; }
@@ -657,36 +653,30 @@ export function App() {
               onBack={cancelTask}
               onCall={(w) => { cancelTask(); handleCall(walkerToCallUser(w)); }}
               onChat={(w) => { cancelTask(); setChatUser(walkerToCallUser(w)); }}
-              onRequest={(w) => { cancelTask(); requestRide(w); }}
             />
           )}
-          {incomingBooking && (
-            <BookingRequestPrompt
-              booking={incomingBooking}
-              busy={bookingBusy}
-              onAccept={(b) => respondBooking(b, 'accept')}
-              onReject={(b) => respondBooking(b, 'reject')}
-            />
-          )}
-          {agreements.length > 0 && !navTask && !incomingBooking && (
-            <button onClick={() => setShowAgreements(true)} style={{ position: 'absolute', top: 62,
+          {/* Band ("to'ldi") toggle: once the walker has a discoverable trip they
+              can mark themselves full — hidden from search/maps — and back again.
+              No booking/seat accounting; just a reversible visibility flag. */}
+          {hasCreatedTrip && !navTask && (
+            <button onClick={() => {
+              const next = !banded;
+              setBanded(next);
+              walkerStateStore.patch({ engaged: next });
+              if (!USE_MOCKS) {
+                (next ? presenceClient.markEngaged() : presenceClient.markAvailable()).catch(() => {});
+                const tripId = liveTripIdRef.current || walkerStateStore.get().activeTripId;
+                if (tripId) (next ? tripApi.hide(tripId) : tripApi.show(tripId)).catch(() => {});
+              }
+            }} style={{ position: 'absolute', top: 62,
               left: '50%', transform: 'translateX(-50%)', zIndex: 26, pointerEvents: 'auto',
-              height: 36, padding: '0 14px', borderRadius: 18, border: `1px solid ${T.teal}55`,
-              background: T.glass, backdropFilter: 'blur(12px)', color: T.teal, fontSize: 13,
+              height: 36, padding: '0 14px', borderRadius: 18,
+              border: `1px solid ${(banded ? T.red : T.teal)}55`,
+              background: T.glass, backdropFilter: 'blur(12px)', color: banded ? T.red : T.teal, fontSize: 13,
               fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 7,
               fontFamily: 'DM Sans,sans-serif', boxShadow: `0 4px 14px rgba(0,0,0,.4)` }}>
-              🤝 {agreements.length} {t('booking.agreementsPill')}
+              {banded ? `🟢 ${t('band.available')}` : `🔴 ${t('band.engage')}`}
             </button>
-          )}
-          {showAgreements && (
-            <BookingAgreementsSheet
-              bookings={agreements}
-              myId={String((authStore.getUser() as { id?: string | number } | null)?.id ?? '')}
-              busyId={busyBookingId}
-              onCancel={(b) => actOnAgreement(b, 'cancel')}
-              onComplete={(b) => actOnAgreement(b, 'complete')}
-              onClose={() => setShowAgreements(false)}
-            />
           )}
         </>
       )}

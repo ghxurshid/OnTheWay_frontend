@@ -149,9 +149,9 @@ export function useTripNavigation({
     stopNav();
     if (!USE_MOCKS) {
       presenceClient.clearRoute().catch(() => {});
-      // Ending the route finishes the persisted Live trip (accepted bookings
-      // complete, pending ones expire). Only the live trip backing THIS route —
-      // a separately-scheduled planned trip must not be completed here.
+      // Ending the route finishes the persisted Live trip. Companions (if any) are
+      // confirmed separately; here we just complete. Only the live trip backing
+      // THIS route — a separately-scheduled planned trip must not be completed here.
       const liveTripId = liveTripIdRef.current;
       if (liveTripId) {
         liveTripIdRef.current = null;

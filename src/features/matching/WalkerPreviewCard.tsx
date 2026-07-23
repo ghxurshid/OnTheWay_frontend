@@ -16,11 +16,11 @@ interface WalkerPreviewCardProps {
   onBack: () => void;
   onCall: (w: Walker) => void;
   onChat: (w: Walker) => void;
-  onRequest?: (w: Walker) => void;
 }
 
-/** Minimized card showing a walker's server-loaded route preview + actions. */
-export function WalkerPreviewCard({ task, onBack, onCall, onChat, onRequest }: WalkerPreviewCardProps) {
+/** Minimized card showing a walker's server-loaded route preview + actions.
+ *  Arrangements are made over chat/call (there is no booking request). */
+export function WalkerPreviewCard({ task, onBack, onCall, onChat }: WalkerPreviewCardProps) {
   const w = task.walker;
   const { loading, data, dist } = task;
   const isDriver = w.type === 'driver';
@@ -68,7 +68,6 @@ export function WalkerPreviewCard({ task, onBack, onCall, onChat, onRequest }: W
               <span>🕐 {fmt12(w.when)}</span>
               <span style={{ color: T.amber }}>★ {w.rating}</span>
               {dist != null && isFinite(dist) && <span>📍 {dist.toFixed(1)} km</span>}
-              {isDriver && <span>{w.seats} {t('common.seats')}</span>}
             </div>
           </div>
         </div>
@@ -90,15 +89,6 @@ export function WalkerPreviewCard({ task, onBack, onCall, onChat, onRequest }: W
             </div>
           )}
         </div>
-
-        {/* Only a driver's trip can be booked (spec §2); passenger books it. */}
-        {isDriver && onRequest && (
-          <button onClick={() => onRequest(w)} style={{ width: '100%', padding: '12px', borderRadius: 13,
-            border: 'none', marginBottom: 10, background: `linear-gradient(135deg,${T.amber},#e0902a)`,
-            color: '#1a1205', fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: 'DM Sans,sans-serif',
-            boxShadow: `0 4px 16px ${T.amber}55`, display: 'flex', alignItems: 'center',
-            justifyContent: 'center', gap: 7 }}>🤝 {t('booking.requestRide')}</button>
-        )}
 
         <div style={{ display: 'flex', gap: 10 }}>
           <button onClick={() => onCall(w)} style={{ flex: 1, padding: '12px', borderRadius: 13, border: 'none',
