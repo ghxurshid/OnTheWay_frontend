@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { createHeadingSync, bindVectorGestureSync } from './mapRenderSync';
+import { createHeadingSync, createVectorGestureSync } from './mapRenderSync';
 
 /* Minimal Leaflet stand-ins: an Evented-like map (listeners fire in insertion
    order, as Leaflet does) plus the two internals each sync reaches into. */
@@ -41,7 +41,7 @@ const painted = (arrow: HTMLElement): number | null => {
 describe('createHeadingSync', () => {
   beforeEach(() => { document.body.innerHTML = ''; });
 
-  it('draws the heading in screen space (heading − bearing)', () => {
+  it('draws the heading in screen space (heading + bearing)', () => {
     const map = fakeMap(0);
     const mk = fakeMarker();
     const sync = createHeadingSync(map, () => mk);
@@ -50,19 +50,18 @@ describe('createHeadingSync', () => {
     sync.dispose();
   });
 
-  it('counter-rotates the arrow when the map bearing changes', () => {
+  it('turns the arrow WITH the map when the bearing changes', () => {
     const map = fakeMap(0);
     const mk = fakeMarker();
     const sync = createHeadingSync(map, () => mk);
-    sync.setHeading(90);
+    sync.setHeading(90);  // heading east, drawn pointing right
 
-    // Two-finger rotate: the map turns, the arrow must keep pointing east.
+    // setBearing(B) turns the map clockwise by B, so everything drawn on it —
+    // the arrow included — must move clockwise by B too.
     map.rotateTo(30);
-    expect(painted(mk.arrow)).toBe(60);
-    map.rotateTo(90);
-    expect(painted(mk.arrow)).toBe(0);    // heading is now straight up on screen
-    map.rotateTo(200);
-    expect(painted(mk.arrow)).toBe(-110);
+    expect(painted(mk.arrow)).toBe(120);
+    map.rotateTo(270);
+    expect(painted(mk.arrow)).toBe(360);  // heading-up: east is now screen-up
     sync.dispose();
   });
 
@@ -94,7 +93,7 @@ describe('createHeadingSync', () => {
     expect(painted(mk.arrow)).toBe(0);
 
     sync.setScreenLocked(false);     // follow explicitly turned off
-    expect(painted(mk.arrow)).toBe(45);
+    expect(painted(mk.arrow)).toBe(135);
     sync.dispose();
   });
 
@@ -137,45 +136,77 @@ describe('createHeadingSync', () => {
    baseline mid-pinch) and the transform/reset pair Leaflet drives. */
 function fakeRenderer() {
   return {
-    _map: {} as unknown,
+    _map: null as unknown,
     _container: {} as unknown,
     baselineResets: 0,
     transforms: [] as Array<[unknown, number]>,
     resets: 0,
     _update() { this.baselineResets++; },
     _updateTransform(center: unknown, zoom: number) { this.transforms.push([center, zoom]); },
+    _onZoom() { this._updateTransform((this._map as any).getCenter(), (this._map as any).getZoom()); },
     _reset() { this.resets++; },
+    // leaflet-rotate adds `rotate`; the rest is stock L.Renderer.
+    getEvents() { return { rotate: this._update, moveend: this._update, zoom: this._onZoom }; },
   };
 }
 
-describe('bindVectorGestureSync', () => {
+/**
+ * Model `L.Layer._layerAdd`: getEvents() is called ONCE and the RESOLVED
+ * function references are stored in the map's listener list. Anything patched
+ * onto the renderer after this point is invisible to those handlers — which is
+ * exactly why the sync must patch before the renderer reaches the map.
+ */
+function addRenderer(map: ReturnType<typeof fakeMap>, r: ReturnType<typeof fakeRenderer>) {
+  r._map = map;
+  const events = r.getEvents() as Record<string, () => void>;
+  Object.keys(events).forEach((type) => map.on(type, () => events[type].call(r)));
+}
+
+describe('createVectorGestureSync', () => {
+  it('reaches the handlers Leaflet resolved at add time', () => {
+    const map = fakeMap();
+    const r = fakeRenderer();
+    const sync = createVectorGestureSync(r);   // patched BEFORE the map sees it
+    addRenderer(map, r);
+    sync.attach(map);
+
+    map.fire('zoomstart');
+    map.fire('rotate');                        // goes through the stored ref
+    expect(r.baselineResets).toBe(0);          // the patch really is in the path
+    sync.dispose();
+  });
+
   it('freezes the projection baseline for the whole pinch', () => {
     const map = fakeMap();
     const r = fakeRenderer();
-    r._map = map;
-    const sync = bindVectorGestureSync(map, () => r);
+    const sync = createVectorGestureSync(r);
+    addRenderer(map, r);
+    sync.attach(map);
 
     // Outside a gesture (compass rotation) the renderer works normally.
-    map.fire('rotate');
-    r._update();
+    map.rotateTo(10);
     expect(r.baselineResets).toBe(1);
 
     map.fire('zoomstart');
     expect(sync.isGesturing()).toBe(true);
 
-    // Every pinch frame fires 'rotate' → _update. The baseline must NOT move;
-    // instead the container transform is re-applied from the frozen one.
+    // A pinch frame: leaflet-rotate fires 'rotate' from setBearing, then the
+    // rAF'd map._move fires 'zoom'. The baseline must NOT move, so the scale
+    // stays relative to the pinch-start zoom instead of collapsing to ~1.
     map._zoom = 15;
-    r._update();
+    map.rotateTo(12);
+    map.fire('zoom');
     map._zoom = 16;
-    r._update();
+    map.rotateTo(14);
+    map.fire('zoom');
+
     expect(r.baselineResets).toBe(1);          // still frozen at pinch start
-    expect(r.transforms).toEqual([['C', 15], ['C', 16]]);
+    expect(r.transforms).toEqual([['C', 15], ['C', 15], ['C', 16], ['C', 16]]);
 
     map.fire('zoomend');
     expect(sync.isGesturing()).toBe(false);
     expect(r.resets).toBe(1);                  // full resync once, on settle
-    r._update();
+    map.rotateTo(20);
     expect(r.baselineResets).toBe(2);          // normal behaviour restored
     sync.dispose();
   });
@@ -183,9 +214,10 @@ describe('bindVectorGestureSync', () => {
   it('flushes deferred geometry exactly once per gesture', () => {
     const map = fakeMap();
     const r = fakeRenderer();
-    r._map = map;
+    const sync = createVectorGestureSync(r);
+    addRenderer(map, r);
     const onSettle = vi.fn();
-    const sync = bindVectorGestureSync(map, () => r, onSettle);
+    sync.attach(map, onSettle);
 
     map.fire('zoomstart');
     map.fire('zoomend');
@@ -197,9 +229,10 @@ describe('bindVectorGestureSync', () => {
   it('releases on moveend when a gesture is interrupted before zoomend', () => {
     const map = fakeMap();
     const r = fakeRenderer();
-    r._map = map;
+    const sync = createVectorGestureSync(r);
+    addRenderer(map, r);
     const onSettle = vi.fn();
-    const sync = bindVectorGestureSync(map, () => r, onSettle);
+    sync.attach(map, onSettle);
 
     map.fire('zoomstart');
     map.fire('moveend');
@@ -211,16 +244,17 @@ describe('bindVectorGestureSync', () => {
   it('restores the original _update and detaches on dispose', () => {
     const map = fakeMap();
     const r = fakeRenderer();
-    r._map = map;
     const original = r._update;
-    const sync = bindVectorGestureSync(map, () => r);
-
-    map.fire('zoomstart');
+    const sync = createVectorGestureSync(r);
     expect(r._update).not.toBe(original);   // patched on the instance only
+    addRenderer(map, r);
+    sync.attach(map);
+
     sync.dispose();
     expect(r._update).toBe(original);
     expect(map.listenerCount('zoomstart')).toBe(0);
     expect(map.listenerCount('zoomend')).toBe(0);
-    expect(map.listenerCount('moveend')).toBe(0);
+    // The renderer's own moveend handler stays — only the sync's is removed.
+    expect(map.listenerCount('moveend')).toBe(1);
   });
 });

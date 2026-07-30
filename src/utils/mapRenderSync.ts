@@ -22,14 +22,20 @@ type LeafletRenderer = any;
    leaflet-rotate keeps marker icons upright while the map rotates
    (`L.Marker.options.rotateWithView` defaults to false), so the arrow inside
    the icon is drawn in SCREEN space while the heading it represents is
-   GEOGRAPHIC. The screen angle is therefore
+   GEOGRAPHIC.
 
-       screen = heading − map.getBearing()
+   Sign convention — `setBearing(B)` puts `rotate(+B rad)` on the rotate pane
+   (leaflet-rotate DomUtil.setTransform), and CSS positive rotation is
+   CLOCKWISE, so the whole map turns clockwise by B. A geographic heading H,
+   which sits at screen angle H on a north-up map, therefore appears at
 
-   and it has to be rewritten whenever EITHER term changes — including on
-   every frame of a two-finger rotate gesture, not just when a GPS fix lands.
-   Writing it only on a fix is what left the arrow stuck pointing at its
-   initial direction while the map turned underneath it.
+       screen = heading + map.getBearing()
+
+   (the plugin's own rotate control confirms it: it draws its north arrow at
+   `rotate(+bearing deg)`.) The angle has to be rewritten whenever EITHER term
+   changes — including on every frame of a two-finger rotate gesture, not just
+   when a GPS fix lands. Writing it only on a fix is what left the arrow stuck
+   pointing at its initial direction while the map turned underneath it.
 
    The two terms are treated differently on purpose, which is what makes this
    feel native:
@@ -104,7 +110,7 @@ export function createHeadingSync(map: LeafletMap, getMarker: () => LeafletMarke
   const render = () => {
     if (locked) { paint(0); return; }   // map carries the heading → arrow points up
     if (shown == null) return;          // no heading observed yet: leave as drawn
-    paint(shown - (typeof map.getBearing === 'function' ? map.getBearing() : 0));
+    paint(shown + (typeof map.getBearing === 'function' ? map.getBearing() : 0));
   };
 
   // Ease `shown` toward `heading`; stops itself once settled.
@@ -161,12 +167,14 @@ export function createHeadingSync(map: LeafletMap, getMarker: () => LeafletMarke
    the same way, so the two move as one.
 
    What broke it: leaflet-rotate binds `rotate → renderer._update`, and
-   `_update` RESETS that baseline to the live view. A two-finger pinch is also
-   a rotate gesture — finger wobble makes `setBearing` fire on nearly every
-   `touchmove` — so the baseline was being reset immediately before the frame's
-   `zoom` event, leaving scale = getZoomScale(z, z) ≈ 1. The tiles scaled, the
-   route did not, and only `zoomend` (which reprojects every path) snapped it
-   into place. That is the lag/flicker.
+   `L.SVG._update` both RESETS that baseline to the live view (via
+   `Renderer._update`) and calls `setPosition(container, bounds.min)`, which
+   overwrites the container transform — scale included. A two-finger pinch is
+   also a rotate gesture: finger wobble makes `setBearing` fire on nearly every
+   `touchmove`, so on each frame the pinch scale was wiped and the baseline
+   moved to the live zoom, leaving scale = getZoomScale(z, z) ≈ 1. The tiles
+   scaled, the route did not, and only `zoomend` (which reprojects every path)
+   snapped it into place. That is the lag/flicker.
 
    The fix: freeze the baseline for the whole zoomstart→zoomend window and
    re-apply the transform from it on every rotate frame. That is exactly what
@@ -174,86 +182,78 @@ export function createHeadingSync(map: LeafletMap, getMarker: () => LeafletMarke
    the vector pane scale on one atomic frame. Bounds clipping is a non-issue:
    the renderer is built with `padding: 2` (5× the viewport per axis), far more
    than the ≤1.42× a rotated viewport can need.
+
+   ORDERING IS LOAD-BEARING. `Layer._layerAdd` calls `getEvents()` ONCE and
+   stores the resolved function references in the map's listener list, so a
+   patch installed after the renderer joins the map would never be reached by
+   the `rotate`/`moveend` handlers. `createVectorGestureSync` therefore patches
+   the renderer at construction — before it is handed to `L.map()` — and
+   `attach(map)` only wires the gesture window afterwards.
    ════════════════════════════════════════════════════════════════ */
 
 export interface VectorGestureSync {
+  /** Wire the gesture window. Call AFTER the map exists, before layers. */
+  attach(map: LeafletMap, onSettle?: () => void): void;
   /** True between zoomstart and zoomend — geometry writes must be deferred. */
   isGesturing(): boolean;
   dispose(): void;
 }
 
 /**
- * @param map          the live Leaflet map
- * @param getRenderer  late-bound accessor for the shared vector renderer
- *                     (`L.svg()` has no `_map`/`_container` until the first
- *                     path is added, so it can't be captured eagerly)
- * @param onSettle     called once the gesture ends, after the renderer has
- *                     resynced — the moment to flush deferred geometry
+ * @param renderer  the shared vector renderer, freshly built by `L.svg()` and
+ *                  NOT yet added to a map (see the ordering note above)
  */
-export function bindVectorGestureSync(
-  map: LeafletMap,
-  getRenderer: () => LeafletRenderer,
-  onSettle?: () => void,
-): VectorGestureSync {
+export function createVectorGestureSync(renderer: LeafletRenderer): VectorGestureSync {
   let gesturing = false;
-  let patched: LeafletRenderer = null;
-  let baseUpdate: ((...args: unknown[]) => unknown) | null = null;
-
-  const live = (): LeafletRenderer => {
-    const r = getRenderer();
-    return r && r._map && r._container ? r : null;
-  };
+  let map: LeafletMap = null;
+  let settleCb: (() => void) | undefined;
 
   // Shadow `_update` on the INSTANCE only (never the prototype), so no other
-  // map or renderer in the app is affected. Installed lazily: the renderer is
-  // only reachable once it has been added to the map.
-  const install = () => {
-    const r = live();
-    if (!r || patched === r) return r;
-    if (patched && baseUpdate) patched._update = baseUpdate;  // renderer swapped
-    baseUpdate = r._update;
-    r._update = function patchedUpdate(this: LeafletRenderer, ...args: unknown[]) {
-      if (!gesturing) return baseUpdate!.apply(this, args);
-      // Mid-gesture: keep _zoom/_center/_topLeft exactly where the paths are
-      // projected and only re-apply the transform, so the SVG scales with the
-      // tiles on this very frame instead of resetting to scale ≈ 1.
-      if (this._map && this._container) {
-        this._updateTransform(this._map.getCenter(), this._map.getZoom());
-      }
-      return undefined;
-    };
-    patched = r;
-    return r;
+  // map or renderer in the app is affected.
+  const baseUpdate = renderer._update;
+  renderer._update = function patchedUpdate(this: LeafletRenderer, ...args: unknown[]) {
+    if (!gesturing) return baseUpdate.apply(this, args);
+    // Mid-gesture: keep _zoom/_center/_topLeft exactly where the paths are
+    // projected, leave the viewBox alone, and only re-apply the transform — so
+    // the SVG scales with the tiles on this very frame instead of being reset.
+    if (this._map && this._container) {
+      this._updateTransform(this._map.getCenter(), this._map.getZoom());
+    }
+    return undefined;
   };
 
-  const onZoomStart = () => { install(); gesturing = true; };
+  const onZoomStart = () => { gesturing = true; };
 
   // `zoomend` always precedes `moveend`; `moveend` is a safety release for a
   // gesture that is interrupted (map._stop()) before its zoom animation ends.
   const settle = () => {
     if (!gesturing) return;
     gesturing = false;
-    const r = live();
     // One full resync: rebuild bounds, re-apply the transform, reproject every
     // path against the settled view. Leaflet's own zoomend/moveend handlers run
     // the same work right after — idempotent, so ordering can't bite us.
-    if (r && typeof r._reset === 'function') r._reset();
-    if (onSettle) onSettle();
+    if (renderer._map && renderer._container) renderer._reset();
+    if (settleCb) settleCb();
   };
 
-  map.on('zoomstart', onZoomStart);
-  map.on('zoomend', settle);
-  map.on('moveend', settle);
-
   return {
+    attach(nextMap, onSettle) {
+      map = nextMap;
+      settleCb = onSettle;
+      map.on('zoomstart', onZoomStart);
+      map.on('zoomend', settle);
+      map.on('moveend', settle);
+    },
     isGesturing: () => gesturing,
     dispose() {
-      map.off('zoomstart', onZoomStart);
-      map.off('zoomend', settle);
-      map.off('moveend', settle);
-      if (patched && baseUpdate) patched._update = baseUpdate;
-      patched = null;
-      baseUpdate = null;
+      if (map) {
+        map.off('zoomstart', onZoomStart);
+        map.off('zoomend', settle);
+        map.off('moveend', settle);
+        map = null;
+      }
+      renderer._update = baseUpdate;
+      settleCb = undefined;
       gesturing = false;
     },
   };

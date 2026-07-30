@@ -62,7 +62,11 @@ export function useHeadingFollow({ mapHook, screen, activeRoute, followMe, setFo
     // screenLocked: the MAP carries the heading, so the arrow is pinned to
     // screen-up and stays there while rotateTo eases the bearing into place.
     mapHook.setUserLocation(pos, lastHeadingRef.current, { screenLocked: true });
-    mapHook.rotateTo(lastHeadingRef.current != null ? lastHeadingRef.current : DEFAULT_HEADING);
+    // Heading-up needs the NEGATIVE heading: setBearing(B) turns the map
+    // clockwise by B, so bringing heading H to the top of the screen means
+    // B = −H. (leaflet-rotate's own compass handler does the same — it feeds
+    // deviceorientation `alpha`, which is 360 − compass heading.)
+    mapHook.rotateTo(-(lastHeadingRef.current != null ? lastHeadingRef.current : DEFAULT_HEADING));
     mapHook.navFollow(pos, zoomForSpeed(kmh));
   }, [mapHook]);
 

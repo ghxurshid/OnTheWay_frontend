@@ -21,7 +21,7 @@ import {
   makeMarkerIcon, makeUserDot, makeMatchedIcon, makeAntPath,
   makeWalkerIcon, makeStartIcon, makeDestIcon, makeMeIcon,
 } from '@/utils/leafletIcons';
-import { createHeadingSync, bindVectorGestureSync } from '@/utils/mapRenderSync';
+import { createHeadingSync, createVectorGestureSync } from '@/utils/mapRenderSync';
 
 export function useMap(containerRef, active) {
   const mapRef = useRef(null);
@@ -45,14 +45,27 @@ export function useMap(containerRef, active) {
 
   useEffect(() => {
     if (!active || !containerRef.current || mapRef.current) return;
+
+    // The vector renderer must be patched BEFORE it reaches the map: Leaflet
+    // resolves a layer's getEvents() handlers once, when the layer is added, so
+    // a later patch would never be reached by the rotate/moveend handlers.
+    const renderer = (rendererRef.current = L.svg({ padding: 2 }));
+    gestureRef.current = createVectorGestureSync(renderer);
+
     const map = L.map(containerRef.current, {
       center: TASHKENT, zoom: 14,
       zoomControl: false, attributionControl: false,
-      renderer: (rendererRef.current = L.svg({ padding: 2 })),
+      renderer,
       // Rotation: two-finger gesture rotates the map; compass/follow mode drives
       // the bearing programmatically via setBearing. rotateControl off (custom UI).
       rotate: true, touchRotate: true, bearing: 0, rotateControl: false,
     });
+
+    // Wire the two frame-accurate syncs before any layer joins the map, so the
+    // gesture window is already open when the layers' own handlers run.
+    gestureRef.current.attach(map, () => { if (flushRef.current) flushRef.current(); });
+    headingSyncRef.current = createHeadingSync(map, () => userMarkerRef.current);
+
     tileRef.current = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
       subdomains: 'abcd', maxZoom: 19,
     }).addTo(map);
@@ -62,16 +75,6 @@ export function useMap(containerRef, active) {
     layersRef.current.markers.addTo(map);
     layersRef.current.matched.addTo(map);
     mapRef.current = map;
-
-    // Bind the two frame-accurate syncs to the map's lifecycle. Registered
-    // immediately after creation — before any layer is added — so their
-    // listeners run ahead of the layers' own handlers on shared events.
-    gestureRef.current = bindVectorGestureSync(
-      map,
-      () => rendererRef.current,
-      () => { if (flushRef.current) flushRef.current(); },
-    );
-    headingSyncRef.current = createHeadingSync(map, () => userMarkerRef.current);
 
     return () => {
       if (bearingRafRef.current) { cancelAnimationFrame(bearingRafRef.current); bearingRafRef.current = null; }
