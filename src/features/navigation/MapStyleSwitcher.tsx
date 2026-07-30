@@ -11,12 +11,16 @@ interface MapStyleSwitcherProps {
   current: string;
   onChange: (id: string) => void;
   appTheme?: string;
+  /** Which way the popup opens — 'down' when the stack sits at the top edge. */
+  placement?: 'up' | 'down';
 }
 
 /** Floating basemap-mode picker (app theme / streets / satellite). Designed to
-    sit in a vertical control stack: the root is relative, the popup opens above. */
-export function MapStyleSwitcher({ current, onChange, appTheme = 'dark' }: MapStyleSwitcherProps) {
+    sit in a vertical control stack: the root is relative and the popup opens
+    away from the screen edge the stack is docked to. */
+export function MapStyleSwitcher({ current, onChange, appTheme = 'dark', placement = 'up' }: MapStyleSwitcherProps) {
   const [open, setOpen] = useState(false);
+  const down = placement === 'down';
 
   // The preview swatch (and sub-label) for "theme" mirrors the current app theme.
   const previewFor = (id: string): CSSProperties => mapStylePreviewBg(id === 'theme' ? (appTheme === 'light' ? 'light' : 'dark') : id);
@@ -25,12 +29,12 @@ export function MapStyleSwitcher({ current, onChange, appTheme = 'dark' }: MapSt
   return (
     <div style={{ position: 'relative', pointerEvents: 'auto' }}>
       {open && (
-        <div style={{ position: 'absolute', right: 0, bottom: 46, width: 184,
+        <div style={{ position: 'absolute', right: 0, ...(down ? { top: 46 } : { bottom: 46 }), width: 184,
           background: T.glassSolid, backdropFilter: 'blur(20px)',
           borderRadius: 14, padding: '8px',
           border: `1px solid ${T.border}`,
           boxShadow: '0 8px 28px rgba(0,0,0,.45)',
-          animation: 'fadeUp .2s ease both' }}>
+          animation: `${down ? 'fadeDown' : 'fadeUp'} .2s ease both` }}>
           <div style={{ fontSize: 10, fontWeight: 600, color: T.muted,
             padding: '4px 8px 6px', textTransform: 'uppercase', letterSpacing: .6 }}>
             {t('mapui.mapStyle')}

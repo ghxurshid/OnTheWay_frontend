@@ -106,6 +106,12 @@ html[data-theme="light"] .user-dot { border-color: #ffffff; }
   right: calc(16px + var(--sar)) !important;
 }
 .otw-edge { right: calc(16px + var(--sar)) !important; }
+/* Map control stack, top-right. Starts below the floating top bar (14 + 40)
+   AND below the toast band, so a notification sliding in never lands on the
+   zoom / basemap buttons; --sat keeps it clear of the notch and status bar. */
+.otw-edge-top { top: calc(88px + var(--sat)) !important; }
+/* The toast reserves the control column on its right (see PushToast). */
+.otw-toast { right: calc(62px + var(--sar)) !important; left: calc(16px + var(--sal)) !important; }
 .otw-navbar { margin-bottom: calc(20px + var(--sab)) !important; }
 .otw-drawer {
   width: min(322px, 86vw) !important;
@@ -122,11 +128,25 @@ html[data-theme="light"] .user-dot { border-color: #ffffff; }
 }
 html[data-theme="light"] .otw-sheet { border-color: rgba(18,22,30,.10) !important; }
 
-/* Push-toast keyframes (were inline in the prototype's PushToast) */
+/* Push-toast keyframes (were inline in the prototype's PushToast).
+   pushSlideOut's duration must stay in sync with TOAST_EXIT_MS in
+   hooks/useToastQueue.ts — that timer is what releases the next toast. */
 @keyframes pushSlide {
   from { opacity: 0; transform: translateY(-32px) scale(.96); }
   to   { opacity: 1; transform: translateY(0) scale(1); }
 }
+@keyframes pushSlideOut {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to   { opacity: 0; transform: translateY(-24px) scale(.97); }
+}
+
+/* Popup that opens downward from a control (mirror of fadeUp). */
+@keyframes fadeDown { from { opacity: 0; transform: translateY(-14px); } to { opacity: 1; transform: translateY(0); } }
+
+/* Drawer toggle rows (Free Mode / Busy) — one shared interaction model. */
+.otw-toggle-row { transition: border-color .15s ease, background .15s ease, transform .12s ease; }
+.otw-toggle-row:not(:disabled):hover { background: var(--otw-toggle-hover, rgba(255,255,255,.06)); }
+.otw-toggle-row:not(:disabled):active { transform: scale(.985); }
 
 /* Bottom-nav panel transition keyframes (were inline in BottomNavBar) */
 @keyframes nb-panel-in  { 0% { opacity: 0; transform: translateY(100%); } 60% { opacity: 1; } 100% { opacity: 1; transform: translateY(0); } }

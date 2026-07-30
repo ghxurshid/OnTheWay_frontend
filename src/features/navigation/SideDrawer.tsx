@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { T } from '@/constants/theme';
 import { t } from '@/i18n';
+import { ToggleRow } from '@/components/ui/ToggleRow';
 import type { PartyType } from '@/models';
 
 interface SideDrawerProps {
@@ -9,15 +10,21 @@ interface SideDrawerProps {
   mode: PartyType;
   freeMode: boolean;
   onToggleFreeMode: () => void;
+  /** "Bandman" — marked full, hidden from discovery. */
+  banded: boolean;
+  /** Only meaningful once the walker has a discoverable trip. */
+  canBand: boolean;
+  onToggleBanded: () => void;
   onExit: () => void;
   onOpenPanel: (key: string) => void;
 }
 
-/** Left drawer: profile, Free Mode toggle, settings + account panels, exit.
+/** Left drawer: profile, status toggles, settings + account panels, exit.
  *  Search mode (passenger/driver) is chosen once on the home screen at app start
  *  and is intentionally not switchable here — changing it mid-session caused
  *  ambiguities, so a user who wants another mode re-opens the app and picks it. */
-export function SideDrawer({ open, onClose, mode, freeMode, onToggleFreeMode, onExit, onOpenPanel }: SideDrawerProps) {
+export function SideDrawer({ open, onClose, mode, freeMode, onToggleFreeMode,
+  banded, canBand, onToggleBanded, onExit, onOpenPanel }: SideDrawerProps) {
   // Free Mode = sharing a live location with no destination. That only makes sense
   // for drivers (taxi-like: available, will go wherever asked). A passenger has no
   // destination to share, so they can't enable it — they become visible to drivers
@@ -85,38 +92,45 @@ export function SideDrawer({ open, onClose, mode, freeMode, onToggleFreeMode, on
             </div>
           </div>
 
-          {/* Free Mode: share live location without a trip (asks permission on enable).
-              Drivers only — passengers see a disabled switch explaining why. */}
+          {/* Status: how discoverable you are right now. Free Mode shares a live
+              location with no destination (drivers only — passengers see a
+              disabled switch explaining why); Busy hides an existing trip from
+              search. Both are the same ToggleRow, stacked, so they read and
+              behave as one control group. */}
           <div>
-            {sectionLabel(t('drawer.freeMode'))}
-            <button onClick={canFreeMode ? onToggleFreeMode : undefined} role="switch"
-              aria-checked={!!freeModeActive} aria-disabled={!canFreeMode} disabled={!canFreeMode}
-              style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderRadius: 13,
-                width: '100%', textAlign: 'left', cursor: canFreeMode ? 'pointer' : 'not-allowed',
-                fontFamily: 'DM Sans,sans-serif', opacity: canFreeMode ? 1 : 0.6,
-                border: `1.5px solid ${freeModeActive ? T.teal + '60' : T.border}`,
-                background: freeModeActive ? `${T.teal}14` : T.surface2, transition: 'all .15s ease' }}>
-              <div style={{ width: 38, height: 38, borderRadius: 11, flexShrink: 0,
-                background: `${T.teal}18`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-                  <path d="M10 2.5l6 2.2v4.3c0 3.6-2.5 6.6-6 8-3.5-1.4-6-4.4-6-8V4.7l6-2.2z" stroke={T.teal} strokeWidth="1.6" strokeLinejoin="round" opacity=".35" />
-                  <circle cx="10" cy="9" r="2.4" stroke={T.teal} strokeWidth="1.6" />
-                  <path d="M10 11.4v3" stroke={T.teal} strokeWidth="1.6" strokeLinecap="round" />
-                </svg>
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 14, fontWeight: 600, color: T.text }}>{t('drawer.freeMode')}</div>
-                <div style={{ fontSize: 11.5, color: freeModeActive ? T.teal : T.muted }}>
-                  {canFreeMode ? t('drawer.freeModeSub') : t('drawer.freeModePassenger')}</div>
-              </div>
-              {/* Pill switch */}
-              <div style={{ width: 40, height: 23, borderRadius: 12, flexShrink: 0, position: 'relative',
-                background: freeModeActive ? T.teal : T.border, transition: 'background .2s ease' }}>
-                <div style={{ position: 'absolute', top: 2.5, left: freeModeActive ? 19.5 : 2.5, width: 18, height: 18,
-                  borderRadius: 9, background: '#fff', transition: 'left .2s ease',
-                  boxShadow: '0 1px 3px rgba(0,0,0,.3)' }} />
-              </div>
-            </button>
+            {sectionLabel(t('drawer.status'))}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <ToggleRow
+                label={t('drawer.freeMode')}
+                sub={canFreeMode ? t('drawer.freeModeSub') : t('drawer.freeModePassenger')}
+                checked={freeModeActive}
+                disabled={!canFreeMode}
+                onToggle={onToggleFreeMode}
+                icon={(
+                  <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                    <path d="M10 2.5l6 2.2v4.3c0 3.6-2.5 6.6-6 8-3.5-1.4-6-4.4-6-8V4.7l6-2.2z" stroke={T.teal} strokeWidth="1.6" strokeLinejoin="round" opacity=".35" />
+                    <circle cx="10" cy="9" r="2.4" stroke={T.teal} strokeWidth="1.6" />
+                    <path d="M10 11.4v3" stroke={T.teal} strokeWidth="1.6" strokeLinecap="round" />
+                  </svg>
+                )}
+              />
+              {/* Band ("to'ldi"): a reversible visibility flag — no booking or seat
+                  accounting. Only actionable once a discoverable trip exists. */}
+              <ToggleRow
+                label={t('drawer.busy')}
+                sub={!canBand ? t('drawer.busyNoTrip') : (banded ? t('drawer.busyOn') : t('drawer.busyOff'))}
+                checked={canBand && banded}
+                disabled={!canBand}
+                accent={T.red}
+                onToggle={onToggleBanded}
+                icon={(
+                  <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                    <circle cx="10" cy="10" r="7" stroke={T.red} strokeWidth="1.6" opacity=".45" />
+                    <path d="M5.4 5.4l9.2 9.2" stroke={T.red} strokeWidth="1.7" strokeLinecap="round" />
+                  </svg>
+                )}
+              />
+            </div>
           </div>
 
           {/* Settings */}

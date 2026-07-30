@@ -7,7 +7,7 @@
    profiles, and focuses the map on entry.
 
    Shared app pieces are injected (map controller, the live-walker ref,
-   openWalker popup opener, matchCount/showMatching setters, notify, and
+   openWalker popup opener, the toast `notify` sink, and
    the auto-resume hook for a retained trip) — the coupling mirrors the
    real data flow rather than hiding it.
    ════════════════════════════════════════════════════════════════ */
@@ -34,8 +34,6 @@ interface UsePresenceArgs {
   userLocRef: MutableRefObject<LatLng | null>;
   openWalker: (id: string) => void;
   notify: (n: { title: string; body: string }) => void;
-  setMatchCount: (n: number) => void;
-  setShowMatching: (v: boolean) => void;
   restoreLiveRoute: (trip: Any) => void;
   pendingRestoreRef: MutableRefObject<Any>;
   getCurrentLatLng: () => Promise<LatLng | null>;
@@ -43,7 +41,7 @@ interface UsePresenceArgs {
 
 export function usePresence({
   screen, mode, mapHook, liveWalkersRef, userLocRef, openWalker, notify,
-  setMatchCount, setShowMatching, restoreLiveRoute, pendingRestoreRef, getCurrentLatLng,
+  restoreLiveRoute, pendingRestoreRef, getCurrentLatLng,
 }: UsePresenceArgs) {
   useEffect(() => {
     if (USE_MOCKS || screen !== 'map' || !mode) return undefined;
@@ -72,7 +70,6 @@ export function usePresence({
       [...liveWalkersRef.current.keys()].forEach((id) => {
         if (!seen.has(id)) { liveWalkersRef.current.delete(id); mapHook.removeWalkerMarker(id); }
       });
-      setMatchCount(liveWalkersRef.current.size);
     };
 
     const refresh = async () => {
@@ -103,7 +100,6 @@ export function usePresence({
       liveWalkersRef.current.delete(id);
       mapHook.removeWalkerRoute(id);
       mapHook.removeWalkerMarker(id);
-      setMatchCount(liveWalkersRef.current.size);
     };
 
     // Offline grace: a disconnected walker STAYS on the map — marker and route
@@ -170,7 +166,6 @@ export function usePresence({
       mapHook.flyTo(userLoc, 15); // focus the map on the current location on entry
       await refresh();
       if (!alive) return;
-      setShowMatching(true);
       const pts = [userLoc, ...[...liveWalkersRef.current.values()].map((w) => w.position).filter(Boolean)];
       if (pts.length > 1) mapHook.fitPoints(pts);
       // Auto-resume: redraw the retained session's live route once per boot.

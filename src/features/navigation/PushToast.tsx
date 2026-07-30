@@ -1,25 +1,28 @@
-import { useEffect } from 'react';
 import { T } from '@/constants/theme';
 import type { PushNotif } from '@/models';
 
 interface PushToastProps {
   notif: PushNotif | null;
+  /** True while the toast plays its exit animation (driven by useToastQueue). */
+  exiting?: boolean;
   onDismiss: () => void;
   onView?: (n: PushNotif) => void;
 }
 
-/** Transient push-notification toast (match found / new message). */
-export function PushToast({ notif, onDismiss, onView }: PushToastProps) {
-  useEffect(() => {
-    if (!notif) return;
-    const id = setTimeout(() => onDismiss(), notif.duration || 6500);
-    return () => clearTimeout(id);
-  }, [notif]); // eslint-disable-line react-hooks/exhaustive-deps
+/** Transient push-notification toast (walker joined / new message).
+ *  Purely presentational: the visible/exit lifecycle, the auto-dismiss timer
+ *  and the queueing of back-to-back messages all live in `useToastQueue`, so
+ *  this component never owns a timer of its own. It reserves the right-hand
+ *  column so it can't sit on top of the map controls (see MapUI). */
+export function PushToast({ notif, exiting = false, onDismiss, onView }: PushToastProps) {
   if (!notif) return null;
   const color = notif.user?.type === 'driver' ? T.amber : T.teal;
   return (
-    <div style={{ position: 'absolute', top: 14, left: 16, right: 16, zIndex: 35, pointerEvents: 'auto',
-      animation: 'pushSlide .45s cubic-bezier(.34,1.56,.64,1) both' }}>
+    <div className="otw-toast" style={{ position: 'absolute', top: 14, left: 16, right: 62, zIndex: 35,
+      pointerEvents: 'auto', willChange: 'transform, opacity',
+      animation: exiting
+        ? 'pushSlideOut .28s ease-in both'
+        : 'pushSlide .45s cubic-bezier(.34,1.56,.64,1) both' }}>
       <style>{`
         @keyframes pushGlow{0%,100%{box-shadow:0 8px 28px rgba(0,0,0,.5),0 0 0 1px ${T.teal}40}
           50%{box-shadow:0 8px 28px rgba(0,0,0,.5),0 0 0 1px ${T.teal}aa,0 0 28px ${T.tealGlow}}}

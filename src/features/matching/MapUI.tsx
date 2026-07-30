@@ -11,8 +11,6 @@ interface MapUIProps {
   mode: PartyType;
   mapHook: MapHook;
   onRouteSheet: () => void;
-  showMatching: boolean;
-  matchCount: number;
   onMenu: () => void;
   mapStyleMode: string;
   appTheme: string;
@@ -32,8 +30,10 @@ interface MapUIProps {
   onTripCreated: (tripId: unknown) => void;
 }
 
-/** Map screen chrome: top bar, speedometer, match badge, zoom, nav bar. */
-export function MapUI({ mode, mapHook, onRouteSheet, showMatching, matchCount, onMenu, mapStyleMode,
+/** Map screen chrome: top bar, speedometer, map controls, nav bar.
+ *  New matches are no longer announced by a persistent badge here — each
+ *  arrival surfaces as a queued toast (see useToastQueue + PushToast). */
+export function MapUI({ mode, mapHook, onRouteSheet, onMenu, mapStyleMode,
   appTheme, onMapStyleChange, routeActive, activeRoute, navProgress, onEndRoute, userLoc, onMapTask,
   navHidden, onContactCall, onContactSms, follow, onToggleFollow, engaged, onTripCreated }: MapUIProps) {
   return (
@@ -82,24 +82,15 @@ export function MapUI({ mode, mapHook, onRouteSheet, showMatching, matchCount, o
 
       <Speedometer />
 
-      {/* Matching badge */}
-      {showMatching && (
-        <div style={{ position: 'absolute', top: 64, left: '50%', transform: 'translateX(-50%)',
-          background: T.glass, backdropFilter: 'blur(12px)', borderRadius: 20,
-          padding: '6px 16px', border: `1px solid ${T.tealGlow}`, pointerEvents: 'none',
-          animation: 'fadeUp .4s ease both', display: 'flex', alignItems: 'center', gap: 6 }}>
-          <div style={{ width: 6, height: 6, borderRadius: 3, background: T.teal, animation: 'pulse 1s ease infinite' }} />
-          <span style={{ fontSize: 12, color: T.teal, fontWeight: 600 }}>
-            {/* A driver discovers passengers; a passenger discovers drivers. */}
-            {t(mode === 'driver' ? 'mapui.matchFoundPassengers' : 'mapui.matchFoundDrivers', { n: matchCount })}
-          </span>
-        </div>
-      )}
-
-      {/* Right control stack: map-style switcher + zoom, on one vertical line */}
-      <div className="otw-edge" style={{ position: 'absolute', right: 16, bottom: 120, display: 'flex',
-        flexDirection: 'column', alignItems: 'flex-end', gap: 8, pointerEvents: 'auto' }}>
-        <MapStyleSwitcher current={mapStyleMode} onChange={onMapStyleChange} appTheme={appTheme} />
+      {/* Top-right control stack: basemap switcher + follow + zoom, on one
+          vertical line. `.otw-edge-top` parks it under the top bar and clear of
+          the toast band (see global.css) and applies the safe-area insets, so it
+          never collides with the notch, a notification or the bottom nav.
+          zIndex 12 keeps it above the map scrims inside this overlay layer while
+          staying below the modal surfaces (sheet 20, drawer 28, toast 35). */}
+      <div className="otw-edge otw-edge-top" style={{ position: 'absolute', right: 16, top: 88, zIndex: 12,
+        display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8, pointerEvents: 'auto' }}>
+        <MapStyleSwitcher current={mapStyleMode} onChange={onMapStyleChange} appTheme={appTheme} placement="down" />
         <button onClick={onToggleFollow} title={t('mapui.follow')} aria-pressed={follow}
           style={{ width: 36, height: 36, borderRadius: 10,
             background: follow ? T.tealDim : T.glass, backdropFilter: 'blur(12px)',

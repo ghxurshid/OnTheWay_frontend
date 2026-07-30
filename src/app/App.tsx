@@ -19,6 +19,7 @@ import { useBootstrap } from '@/hooks/useBootstrap';
 import { useCallSession } from '@/hooks/useCallSession';
 import { usePresence } from '@/hooks/usePresence';
 import { useTripNavigation } from '@/hooks/useTripNavigation';
+import { useToastQueue } from '@/hooks/useToastQueue';
 import WalkerSim from '@/services/simulationService';
 import { simStore } from '@/services/simStore';
 import { unreadStore } from '@/services/unreadStore';
@@ -28,7 +29,7 @@ import { walkerStateStore } from '@/services/walkerStateStore';
 import { tripApi } from '@/api/tripApi';
 import { getRoute } from '@/services/routeService';
 import { USE_MOCKS } from '@/api/client';
-import type { ActiveRoute, LatLng, MapTask, PartyType, Place, PushNotif, RouteData, Walker } from '@/models';
+import type { ActiveRoute, LatLng, MapTask, PartyType, Place, RouteData, Walker } from '@/models';
 
 import { LoadingScreen } from '@/pages/LoadingScreen';
 import { HomeScreen } from '@/pages/HomeScreen';
@@ -86,17 +87,21 @@ export function App() {
   const [screen, setScreen] = useState<Screen>('loading');
   const [mode, setMode] = useState<PartyType | null>(null);
   const [showSheet, setShowSheet] = useState(false);
-  const [showMatching, setShowMatching] = useState(false);
   // Popup / chat user shapes vary by source (sim walker, contact, call invite),
   // so they stay loosely typed at this orchestration boundary.
   const [selectedUser, setSelectedUser] = useState<any>(null);
   const [chatUser, setChatUser] = useState<any>(null);
-  const [pushNotif, setPushNotif] = useState<PushNotif | null>(null);
+  // Transient notifications (walker joined, new message, …). The queue shows
+  // one at a time, so a burst of arrivals can't stack toasts on top of each
+  // other, and it owns every auto-dismiss timer.
+  // Destructured because `push`/`dismiss`/`clear` are referentially stable
+  // (the queue object itself changes whenever a toast enters or leaves), which
+  // keeps them safe to use as effect/callback dependencies.
+  const { current: toast, exiting: toastExiting, push: notify, dismiss: dismissToast, clear: clearToasts } = useToastQueue();
   // Basemap mode is the user's choice ('theme' follows the app light/dark theme,
   // 'streets', 'satellite'); mapStyle is the resolved tile id it maps to.
   const [mapStyleMode, setMapStyleMode] = useState('theme');
   const [mapStyle, setMapStyle] = useState(themeStore.mode === 'light' ? 'light' : 'dark');
-  const [matchCount, setMatchCount] = useState(0);
   const [, setRoutePicking] = useState(false);
   const [activeRoute, setActiveRoute] = useState<ActiveRoute | null>(null);
   const [navProgress, setNavProgress] = useState(0);
@@ -217,15 +222,13 @@ export function App() {
     mapHook.renderWalkers(enriched, mapStyleRef.current, openWalker);
     mapHook.fitWalkers(userLoc, enriched);
     sim.start();
-    setMatchCount(enriched.length);
-    setShowMatching(true);
     const nearest = enriched.slice().sort((a, b) =>
       Sim.haversine(userLoc, a.position) - Sim.haversine(userLoc, b.position))[0];
     if (nearest) {
       const f = formatForPopup(nearest);
-      setPushNotif({ title: t('push.matchTitle'), body: `${f.name} • ${f.dist} • ${f.eta}`, user: f });
+      notify({ title: t('push.matchTitle'), body: `${f.name} • ${f.dist} • ${f.eta}`, user: f });
     }
-  }, [screen, mode, mapHook, openWalker, formatForPopup]);
+  }, [screen, mode, mapHook, openWalker, formatForPopup, notify]);
 
   useEffect(() => {
     if (USE_MOCKS && screen === 'map' && mode) buildSim();
@@ -244,8 +247,8 @@ export function App() {
   // hook keeps its original position (and effect order) in the component.
   const restoreLiveRouteRef = useRef<((trip: any) => void) | null>(null);
   usePresence({
-    screen, mode, mapHook, liveWalkersRef, userLocRef, openWalker, notify: setPushNotif,
-    setMatchCount, setShowMatching, pendingRestoreRef, getCurrentLatLng,
+    screen, mode, mapHook, liveWalkersRef, userLocRef, openWalker, notify,
+    pendingRestoreRef, getCurrentLatLng,
     restoreLiveRoute: (trip) => restoreLiveRouteRef.current?.(trip),
   });
 
@@ -274,7 +277,7 @@ export function App() {
   const {
     callState, callStateRef, clearCall, handleCall, endCall, declineCall, handleAcceptCall, handleAgreeRide,
   } = useCallSession({
-    authReady, notify: setPushNotif, mapHook, userLocRef, liveWalkersRef, contactsRef,
+    authReady, notify, mapHook, userLocRef, liveWalkersRef, contactsRef,
     dismissSelected: () => setSelectedUser(null),
   });
 
@@ -301,7 +304,7 @@ export function App() {
 
   const openRouteSheet = () => {
     if (activeRouteRef.current) {
-      setPushNotif({ title: t('push.routeActiveTitle'), body: t('push.routeActiveBody') });
+      notify({ title: t('push.routeActiveTitle'), body: t('push.routeActiveBody') });
       return;
     }
     if (simRef.current) simRef.current.stop();
@@ -399,13 +402,11 @@ export function App() {
       mapHook.renderWalkers(enriched, mapStyleRef.current, openWalker);
       mapHook.fitWalkers(userLoc, enriched);
       sim.start();
-      setMatchCount(enriched.length);
-      setShowMatching(true);
       const nearest = enriched.slice().sort((a, b) =>
         Sim.haversine(userLoc, a.position) - Sim.haversine(userLoc, b.position))[0];
       if (nearest) {
         const f = formatForPopup(nearest);
-        setPushNotif({ title: t('push.routeMatchTitle'), body: `${f.name} • ${f.dist} • ${f.eta}`, user: f });
+        notify({ title: t('push.routeMatchTitle'), body: `${f.name} • ${f.dist} • ${f.eta}`, user: f });
       }
     } else {
       // Live: keep real walkers on the map and share this route over presence
@@ -491,7 +492,7 @@ export function App() {
           const target = pick.k === 'w' ? formatForPopup(pick.o) : contactToUser(pick.o);
           unreadStore.add(target.id, 1);
           const body = t(CHAT_REPLY_KEYS[Math.floor(Math.random() * CHAT_REPLY_KEYS.length)]);
-          setPushNotif({ title: target.name, body, user: target, chat: true, action: t('common.chat') });
+          notify({ title: target.name, body, user: target, chat: true, action: t('common.chat') });
         }
       }
       timer = setTimeout(fire, 8000 + Math.random() * 9000);
@@ -510,8 +511,23 @@ export function App() {
     setNavTask(null);
   };
 
+  // "Bandman" — mark yourself full so you drop out of discovery, and back again.
+  // Lives in the side drawer next to Free Mode; both write through the same
+  // pattern (local state → walkerStateStore → server), so the two status
+  // toggles stay in step whichever one the user flips.
+  const toggleBanded = () => {
+    const next = !banded;
+    setBanded(next);
+    walkerStateStore.patch({ engaged: next });
+    if (USE_MOCKS) return;
+    (next ? presenceClient.markEngaged() : presenceClient.markAvailable()).catch(() => {});
+    const tripId = liveTripIdRef.current || walkerStateStore.get().activeTripId;
+    if (tripId) (next ? tripApi.hide(tripId) : tripApi.show(tripId)).catch(() => {});
+  };
+
   const exitToHome = () => {
-    setScreen('home'); setShowMatching(false); setShowSheet(false); setRoutePicking(false);
+    setScreen('home'); setShowSheet(false); setRoutePicking(false);
+    clearToasts(); // drop any queued arrival toasts from the session we're leaving
     stopNav();
     if (!USE_MOCKS) {
       // Leaving the map abandons the journey deliberately: withdraw the shared
@@ -536,7 +552,7 @@ export function App() {
     activeRouteRef.current = null; setActiveRoute(null); setNavProgress(0);
     mapHook.clearUserRoute(); mapHook.clearPlanning();
     if (simRef.current) { simRef.current.stop(); simRef.current = null; }
-    mapHook.clearWalkers(); userLocRef.current = null; setMatchCount(0);
+    mapHook.clearWalkers(); userLocRef.current = null;
   };
 
   return (
@@ -574,8 +590,6 @@ export function App() {
           <MapUI
             mode={mode as PartyType}
             mapHook={mapHook}
-            showMatching={showMatching && !showSheet}
-            matchCount={matchCount}
             routeActive={!!activeRoute}
             activeRoute={activeRoute}
             navProgress={navProgress}
@@ -606,6 +620,12 @@ export function App() {
             // Free Mode (destination-less live sharing) is driver-only; passengers
             // become visible by creating a trip instead. See business-spec §9.3.
             onToggleFreeMode={() => { if (mode === 'driver') setFreeMode((f) => !f); }}
+            // Band ("to'ldi"): once the walker has a discoverable trip they can
+            // mark themselves full — hidden from search/maps — and back again.
+            // No booking or seat accounting; just a reversible visibility flag.
+            banded={banded}
+            canBand={hasCreatedTrip}
+            onToggleBanded={toggleBanded}
             onExit={() => { setDrawerOpen(false); exitToHome(); }}
             onOpenPanel={(key) => { setDrawerOpen(false); setOverlayPanel(key); }}
           />
@@ -629,10 +649,11 @@ export function App() {
             />
           )}
           <PushToast
-            notif={pushNotif}
-            onDismiss={() => setPushNotif(null)}
+            notif={toast}
+            exiting={toastExiting}
+            onDismiss={dismissToast}
             onView={(n) => {
-              setPushNotif(null);
+              dismissToast();
               if (n && n.chat && n.user) { setChatUser(n.user); }
               else if (n && n.user) { setSelectedUser(n.user); }
             }}
@@ -654,29 +675,6 @@ export function App() {
               onCall={(w) => { cancelTask(); handleCall(walkerToCallUser(w)); }}
               onChat={(w) => { cancelTask(); setChatUser(walkerToCallUser(w)); }}
             />
-          )}
-          {/* Band ("to'ldi") toggle: once the walker has a discoverable trip they
-              can mark themselves full — hidden from search/maps — and back again.
-              No booking/seat accounting; just a reversible visibility flag. */}
-          {hasCreatedTrip && !navTask && (
-            <button onClick={() => {
-              const next = !banded;
-              setBanded(next);
-              walkerStateStore.patch({ engaged: next });
-              if (!USE_MOCKS) {
-                (next ? presenceClient.markEngaged() : presenceClient.markAvailable()).catch(() => {});
-                const tripId = liveTripIdRef.current || walkerStateStore.get().activeTripId;
-                if (tripId) (next ? tripApi.hide(tripId) : tripApi.show(tripId)).catch(() => {});
-              }
-            }} style={{ position: 'absolute', top: 62,
-              left: '50%', transform: 'translateX(-50%)', zIndex: 26, pointerEvents: 'auto',
-              height: 36, padding: '0 14px', borderRadius: 18,
-              border: `1px solid ${(banded ? T.red : T.teal)}55`,
-              background: T.glass, backdropFilter: 'blur(12px)', color: banded ? T.red : T.teal, fontSize: 13,
-              fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 7,
-              fontFamily: 'DM Sans,sans-serif', boxShadow: `0 4px 14px rgba(0,0,0,.4)` }}>
-              {banded ? `🟢 ${t('band.available')}` : `🔴 ${t('band.engage')}`}
-            </button>
           )}
         </>
       )}
