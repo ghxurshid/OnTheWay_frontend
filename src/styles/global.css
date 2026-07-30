@@ -32,6 +32,12 @@ body { height: 100dvh; display: flex; align-items: center; justify-content: cent
 .owner-route-glow { filter: blur(2.5px); }
 .owner-route-main { filter: drop-shadow(0 0 5px rgba(31,200,192,.95)) drop-shadow(0 2px 4px rgba(0,0,0,.45)); }
 
+/* Two-finger rotate (leaflet-rotate) transforms this pane on every touchmove;
+   promoting it keeps the whole map — tiles, routes and markers — on one
+   composited layer so a gesture never triggers a layout/paint pass.
+   (Leaflet already does the same for the vector SVG via .leaflet-zoom-animated.) */
+.leaflet-rotate-pane { will-change: transform; }
+
 /* Nozik, chiroyli overlay-uslubidagi scrollbar — barcha panellar uchun */
 * { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.18) transparent; }
 * { -webkit-overflow-scrolling: touch; }

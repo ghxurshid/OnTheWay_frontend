@@ -81,6 +81,11 @@ export function makeDestIcon(color: string, theme: StyleTheme): LeafletIcon {
 }
 
 // Current user ("you") — distinct rippling marker with a heading arrow.
+// The arrow carries NO CSS transition: its angle is (heading − map bearing) and
+// is rewritten per frame by the heading sync (utils/mapRenderSync), so an
+// easing curve here would only add lag to a two-finger rotate. Smoothing of the
+// noisy GPS heading happens in JS instead; `will-change` keeps the arrow on its
+// own compositor layer so each rotation is a GPU transform, not a repaint.
 export function makeMeIcon(): LeafletIcon {
   return L.divIcon({
     html: `<div style="position:relative;width:44px;height:44px">
@@ -95,7 +100,7 @@ export function makeMeIcon(): LeafletIcon {
         border:3.5px solid #fff;
         box-shadow:0 0 0 2px ${T.teal},0 0 22px ${T.teal},0 4px 14px rgba(0,0,0,.65);
         display:flex;align-items:center;justify-content:center">
-        <div class="me-arrow" style="display:flex;align-items:center;justify-content:center;transform-origin:center;transition:transform .35s ease">
+        <div class="me-arrow" style="display:flex;align-items:center;justify-content:center;transform-origin:center;will-change:transform;backface-visibility:hidden">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
             <path d="M12 2 L20 21 L12 16 L4 21 Z" fill="#fff"/>
           </svg>

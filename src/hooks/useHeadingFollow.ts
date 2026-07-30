@@ -59,7 +59,9 @@ export function useHeadingFollow({ mapHook, screen, activeRoute, followMe, setFo
   // heading, hold a speed-balanced zoom, and lock the "me" arrow pointing up.
   const applyFollow = useCallback((pos: LatLng, kmh: number | null) => {
     if (!followMeRef.current || !pos) return;
-    mapHook.setUserLocation(pos, 0); // arrow forward = screen up (map carries heading)
+    // screenLocked: the MAP carries the heading, so the arrow is pinned to
+    // screen-up and stays there while rotateTo eases the bearing into place.
+    mapHook.setUserLocation(pos, lastHeadingRef.current, { screenLocked: true });
     mapHook.rotateTo(lastHeadingRef.current != null ? lastHeadingRef.current : DEFAULT_HEADING);
     mapHook.navFollow(pos, zoomForSpeed(kmh));
   }, [mapHook]);
@@ -104,7 +106,9 @@ export function useHeadingFollow({ mapHook, screen, activeRoute, followMe, setFo
       if (userLocRef.current) applyFollow(userLocRef.current, null);
     } else {
       mapHook.setBearing(0); // straighten north-up instantly
-      if (userLocRef.current) mapHook.setUserLocation(userLocRef.current, null);
+      // Release the screen lock: the arrow goes back to pointing at the real
+      // geographic heading, tracked against whatever bearing the map has.
+      if (userLocRef.current) mapHook.setUserLocation(userLocRef.current, null, { screenLocked: false });
     }
   }, [followMe]); // eslint-disable-line react-hooks/exhaustive-deps
 

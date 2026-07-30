@@ -21,12 +21,20 @@ import {
   makeMarkerIcon, makeUserDot, makeMatchedIcon, makeAntPath,
   makeWalkerIcon, makeStartIcon, makeDestIcon, makeMeIcon,
 } from '@/utils/leafletIcons';
+import { createHeadingSync, bindVectorGestureSync } from '@/utils/mapRenderSync';
 
 export function useMap(containerRef, active) {
   const mapRef = useRef(null);
   const tileRef = useRef(null);
   const rendererRef = useRef(null);
-  const zoomingRef = useRef(false);
+  const gestureRef = useRef(null);      // vector↔pinch sync (owns the gesture flag)
+  const headingSyncRef = useRef(null);  // "me" arrow ↔ map bearing sync
+  const flushRef = useRef(null);        // deferred geometry flush (set below)
+  const pendingRef = useRef({ userRoute: null, walkers: null });
+  // True only between zoomstart and zoomend. Geometry written in that window
+  // would be projected against the live zoom while the container still carries
+  // the frozen-baseline transform, so it is queued and flushed on settle.
+  const isGesturing = () => !!gestureRef.current && gestureRef.current.isGesturing();
   const layersRef = useRef({ routes: [], markers: L.layerGroup(), matched: L.layerGroup(), walkers: L.layerGroup(), userRoute: L.layerGroup(), preview: L.layerGroup() });
   const walkerLayersRef = useRef(new Map());
   const walkerBadgeRef = useRef({});
@@ -54,10 +62,22 @@ export function useMap(containerRef, active) {
     layersRef.current.markers.addTo(map);
     layersRef.current.matched.addTo(map);
     mapRef.current = map;
-    map.on('zoomstart', () => { zoomingRef.current = true; });
-    map.on('zoomend', () => { zoomingRef.current = false; });
+
+    // Bind the two frame-accurate syncs to the map's lifecycle. Registered
+    // immediately after creation — before any layer is added — so their
+    // listeners run ahead of the layers' own handlers on shared events.
+    gestureRef.current = bindVectorGestureSync(
+      map,
+      () => rendererRef.current,
+      () => { if (flushRef.current) flushRef.current(); },
+    );
+    headingSyncRef.current = createHeadingSync(map, () => userMarkerRef.current);
+
     return () => {
       if (bearingRafRef.current) { cancelAnimationFrame(bearingRafRef.current); bearingRafRef.current = null; }
+      if (headingSyncRef.current) { headingSyncRef.current.dispose(); headingSyncRef.current = null; }
+      if (gestureRef.current) { gestureRef.current.dispose(); gestureRef.current = null; }
+      pendingRef.current = { userRoute: null, walkers: null };
       map.remove(); mapRef.current = null; tileRef.current = null; userMarkerRef.current = null; userCircleRef.current = null;
     };
   }, [active, containerRef]);
@@ -177,7 +197,14 @@ export function useMap(containerRef, active) {
     layersRef.current.matched.clearLayers();
   }, []);
 
-  const setUserLocation = useCallback((latlng, heading) => {
+  // `heading` is a GEOGRAPHIC bearing in degrees (null/omitted = keep the last
+  // known one). The arrow's screen angle is heading − map bearing and is kept
+  // in sync per frame by the heading sync, so a two-finger rotate turns the
+  // arrow with the map instead of leaving it pointing at its initial direction.
+  // `opts.screenLocked` is the follow/navigation mode: the MAP carries the
+  // heading, so the arrow is pinned to screen-up. It is sticky — plain
+  // setUserLocation calls (presence, sim setup) never toggle it by accident.
+  const setUserLocation = useCallback((latlng, heading, opts) => {
     const map = mapRef.current; if (!map || !latlng) return;
     if (userCircleRef.current) userCircleRef.current.setLatLng(latlng);
     else userCircleRef.current = L.circle(latlng, {
@@ -185,11 +212,13 @@ export function useMap(containerRef, active) {
       fillColor: T.teal, fillOpacity: 0.12,
     }).addTo(map);
     if (userMarkerRef.current) userMarkerRef.current.setLatLng(latlng);
-    else userMarkerRef.current = L.marker(latlng, { icon: makeMeIcon(), zIndexOffset: 1500 }).addTo(map);
-    if (heading != null && userMarkerRef.current._icon) {
-      const arrow = userMarkerRef.current._icon.querySelector('.me-arrow');
-      if (arrow) arrow.style.transform = 'rotate(' + heading + 'deg)';
+    else {
+      userMarkerRef.current = L.marker(latlng, { icon: makeMeIcon(), zIndexOffset: 1500 }).addTo(map);
+      headingSyncRef.current?.refresh(); // fresh icon element → re-bind + repaint
     }
+    const sync = headingSyncRef.current; if (!sync) return;
+    sync.setScreenLocked(opts ? opts.screenLocked : undefined);
+    sync.setHeading(heading);
   }, []);
 
   const applyWalkerBadges = useCallback(() => {
@@ -209,6 +238,7 @@ export function useMap(containerRef, active) {
   const renderWalkers = useCallback((walkers, mode, onSelect) => {
     const map = mapRef.current; if (!map) return;
     layersRef.current.walkers.clearLayers();
+    pendingRef.current.walkers = null; // fresh set — drop the old queue
     const lm = new Map();
     const theme = themeFor(mode);
     const grp = layersRef.current.walkers;
@@ -237,9 +267,8 @@ export function useMap(containerRef, active) {
     applyWalkerBadges();
   }, [applyWalkerBadges]);
 
-  const tickWalkers = useCallback((walkers) => {
+  const applyWalkerTick = useCallback((walkers) => {
     const lm = walkerLayersRef.current; if (!lm) return;
-    if (zoomingRef.current) return;
     walkers.forEach((w) => {
       const layer = lm.get(w.id); if (!layer) return;
       if (w._remaining && w._remaining.length > 1 && layer.ant.setLatLngs) layer.ant.setLatLngs(w._remaining);
@@ -248,6 +277,14 @@ export function useMap(containerRef, active) {
     });
     applyWalkerBadges();
   }, [applyWalkerBadges]);
+
+  // Reprojecting geometry mid-pinch would fight the frozen-baseline transform
+  // that keeps the vectors scaling with the tiles, so the newest frame is
+  // queued and applied the instant the gesture settles (never dropped).
+  const tickWalkers = useCallback((walkers) => {
+    if (isGesturing()) { pendingRef.current.walkers = walkers; return; }
+    applyWalkerTick(walkers);
+  }, [applyWalkerTick]);
 
   // ── Live presence walkers (marker-only; no precomputed route) ──
   // Reuses the same walkers group + walkerLayersRef so badges/highlight/dim
@@ -319,6 +356,7 @@ export function useMap(containerRef, active) {
   const clearWalkers = useCallback(() => {
     layersRef.current.walkers.clearLayers();
     walkerLayersRef.current = new Map();
+    pendingRef.current.walkers = null; // queued frames belong to the old set
     if (mapRef.current) {
       if (userMarkerRef.current) { mapRef.current.removeLayer(userMarkerRef.current); userMarkerRef.current = null; }
       if (userCircleRef.current) { mapRef.current.removeLayer(userCircleRef.current); userCircleRef.current = null; }
@@ -381,6 +419,7 @@ export function useMap(containerRef, active) {
   const renderUserRoute = useCallback((coords, mode) => {
     const map = mapRef.current; if (!map || !coords || coords.length < 2) return;
     layersRef.current.userRoute.clearLayers();
+    pendingRef.current.userRoute = null; // fresh geometry — drop the old queue
     const theme = themeFor(mode);
     const glow = L.polyline(coords, {
       color: T.teal, weight: 17, opacity: 0.20, lineCap: 'round', lineJoin: 'round',
@@ -395,13 +434,16 @@ export function useMap(containerRef, active) {
     }).addTo(layersRef.current.userRoute);
     userRouteRef.current = { trav, rem, glow };
   }, []);
-  const updateUserRoute = useCallback((traveled, remaining) => {
+  const applyUserRoute = useCallback((traveled, remaining) => {
     const r = userRouteRef.current; if (!r) return;
-    if (zoomingRef.current) return;
     if (r.trav && traveled) r.trav.setLatLngs(traveled);
     if (r.rem && remaining) r.rem.setLatLngs(remaining);
     if (r.glow && remaining) r.glow.setLatLngs(remaining);
   }, []);
+  const updateUserRoute = useCallback((traveled, remaining) => {
+    if (isGesturing()) { pendingRef.current.userRoute = [traveled, remaining]; return; }
+    applyUserRoute(traveled, remaining);
+  }, [applyUserRoute]);
   const recolorUserRoute = useCallback((mode) => {
     const r = userRouteRef.current; if (!r || !r.trav) return;
     const theme = themeFor(mode);
@@ -410,6 +452,7 @@ export function useMap(containerRef, active) {
   const clearUserRoute = useCallback(() => {
     layersRef.current.userRoute.clearLayers();
     userRouteRef.current = { trav: null, rem: null, glow: null };
+    pendingRef.current.userRoute = null; // don't replay the old route's last frame
   }, []);
 
   // ── Walker route preview (server-provided ready route) ──
@@ -512,6 +555,16 @@ export function useMap(containerRef, active) {
     }, 400);
     return () => { clearInterval(trackingRef.current); marker.remove(); };
   }, []);
+
+  // Drain whatever was queued while the pinch was running. Bound through a ref
+  // because the map effect (which owns the gesture binding) is created before
+  // these callbacks exist.
+  const flushPending = useCallback(() => {
+    const p = pendingRef.current;
+    if (p.walkers) { const w = p.walkers; p.walkers = null; applyWalkerTick(w); }
+    if (p.userRoute) { const [tv, rm] = p.userRoute; p.userRoute = null; applyUserRoute(tv, rm); }
+  }, [applyWalkerTick, applyUserRoute]);
+  useEffect(() => { flushRef.current = flushPending; }, [flushPending]);
 
   // Stable API object: every member above is a ref or a useCallback, so the
   // facade never needs to change identity. Memoising it lets consumers (and
