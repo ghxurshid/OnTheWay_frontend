@@ -1,13 +1,5 @@
-import { useState, useEffect } from 'react';
-import { unreadStore } from '@/services/unreadStore';
+import { UNREAD_EVENT, unreadStore } from '@/services/unreadStore';
+import { useStoreEvent } from './useStoreEvent';
 
-/** Live map of unread counts; re-reads on the 'ontheway:unread' event. */
-export function useUnread() {
-  const [map, setMap] = useState(() => unreadStore.map());
-  useEffect(() => {
-    const h = () => setMap(unreadStore.map());
-    window.addEventListener('ontheway:unread', h);
-    return () => window.removeEventListener('ontheway:unread', h);
-  }, []);
-  return map;
-}
+/** Live map of unread counts per contact/walker id. */
+export const useUnread = () => useStoreEvent(UNREAD_EVENT, unreadStore.map);

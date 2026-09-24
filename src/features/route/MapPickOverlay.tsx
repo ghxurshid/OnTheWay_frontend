@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { T } from '@/constants/theme';
+import { T, TEAL_GRADIENT } from '@/constants/theme';
 import { t } from '@/i18n';
 import { reverseGeocode } from '@/services/geocodingService';
 import type { LatLng, Place } from '@/models';
@@ -8,13 +8,15 @@ import type { MapHook } from '@/hooks/mapHook';
 interface MapPickOverlayProps {
   mapHook: MapHook;
   label: string;
+  /** Heading over the picked address in the bottom sheet (defaults to label). */
+  caption?: string;
   initial: LatLng | null;
   onConfirm: (place: Place) => void;
   onCancel: () => void;
 }
 
-/** Drag-the-map center-pin picker used by schedule filter/add fields. */
-export function MapPickOverlay({ mapHook, label, initial, onConfirm, onCancel }: MapPickOverlayProps) {
+/** Drag-the-map center-pin picker (route planner waypoints, schedule fields). */
+export function MapPickOverlay({ mapHook, label, caption = label, initial, onConfirm, onCancel }: MapPickOverlayProps) {
   const [addr, setAddr] = useState('');
   const [loading, setLoading] = useState(true);
   const centerRef = useRef<LatLng | null>(null);
@@ -37,10 +39,10 @@ export function MapPickOverlay({ mapHook, label, initial, onConfirm, onCancel }:
     const tm = setTimeout(() => {
       const c1 = mapHook.onMove(() => setLoading(true));
       const c2 = mapHook.onMoveEnd(() => refresh());
-      cleanupRef.current = () => { c1 && c1(); c2 && c2(); };
+      cleanupRef.current = () => { c1(); c2(); };
       refresh();
     }, initial ? 850 : 60);
-    return () => { clearTimeout(tm); if (cleanupRef.current) cleanupRef.current(); clearTimeout(debRef.current); };
+    return () => { clearTimeout(tm); cleanupRef.current?.(); clearTimeout(debRef.current); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const confirm = () => {
@@ -76,14 +78,15 @@ export function MapPickOverlay({ mapHook, label, initial, onConfirm, onCancel }:
         width: 8, height: 8, borderRadius: 4, background: 'rgba(0,0,0,.4)',
         border: '1px solid rgba(255,255,255,.5)', pointerEvents: 'none', zIndex: 4 }} />
 
-      <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, background: T.surface,
-        borderRadius: '20px 20px 0 0', padding: '16px 20px 28px', borderTop: `1px solid ${T.border}`,
+      <div className="otw-sheet" style={{ position: 'absolute', left: 0, right: 0, bottom: 0, background: T.surface,
+        borderRadius: '20px 20px 0 0', padding: '16px 20px calc(28px + env(safe-area-inset-bottom,0px))',
+        borderTop: `1px solid ${T.border}`,
         pointerEvents: 'auto', zIndex: 6, animation: 'slideUp .3s cubic-bezier(.34,1.2,.64,1)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
           <div style={{ width: 36, height: 36, borderRadius: 11, background: T.tealDim,
             display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, flexShrink: 0 }}>📍</div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 11, color: T.muted }}>{label}</div>
+            <div style={{ fontSize: 11, color: T.muted }}>{caption}</div>
             <div style={{ fontSize: 13, fontWeight: 600, color: T.text,
               overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {loading ? t('route.detecting') : (addr || t('route.dragMapShort'))}
@@ -96,7 +99,7 @@ export function MapPickOverlay({ mapHook, label, initial, onConfirm, onCancel }:
             fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans,sans-serif' }}>{t('common.cancel')}</button>
           <button onClick={confirm} disabled={loading || !addr} style={{ flex: 1, padding: '13px',
             borderRadius: 13, border: 'none',
-            background: (loading || !addr) ? T.surface2 : `linear-gradient(135deg,${T.teal},#0e9e97)`,
+            background: (loading || !addr) ? T.surface2 : TEAL_GRADIENT,
             color: (loading || !addr) ? T.muted : 'white', fontSize: 15, fontWeight: 600,
             cursor: (loading || !addr) ? 'not-allowed' : 'pointer',
             boxShadow: (loading || !addr) ? 'none' : `0 4px 18px ${T.tealGlow}`,

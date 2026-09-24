@@ -19,7 +19,7 @@ export const dashboardApi = {
         period, fromUtc: null, toUtc: null,
         totalCompletedTrips: 0, driverTrips: 0, passengerTrips: 0, cancelledTrips: 0,
         totalDistanceKm: 0, totalTravelMinutes: 0, averageTripDistanceKm: 0,
-        averageTripDurationMinutes: 0, totalPassengersTransported: 0, averageVehicleOccupancy: 0,
+        averageTripDurationMinutes: 0, totalPassengersTransported: 0,
         estimated: { fuelSavedLiters: 0, co2ReducedKg: 0, costSaved: 0 },
       });
     }

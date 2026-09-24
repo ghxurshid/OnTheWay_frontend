@@ -6,34 +6,48 @@
    ════════════════════════════════════════════════════════════════ */
 
 import { geoApi } from '@/api/geoApi';
-import { haversineKm, sleep } from '@/utils/geo';
+import { haversineKm, osrmToLatLngs, sleep } from '@/utils/geo';
 import type { LatLng } from '@/utils/geo';
 import type { RouteData } from '@/models';
 
-interface OsrmRoute {
+/** One OSRM route alternative (distance in metres, duration in seconds). */
+export interface OsrmRoute {
   geometry?: { coordinates: [number, number][] };
   distance: number;
   duration: number;
 }
 
-/** OSRM driving routes through ordered [lat,lng] coords. */
-export function getRoute(coords: LatLng[]) {
-  return geoApi.route(coords);
+/** OSRM driving routes through ordered [lat,lng] coords (best first). */
+export function getRoute(coords: LatLng[], options?: { alternatives?: boolean }): Promise<OsrmRoute[]> {
+  return geoApi.route(coords, options) as Promise<OsrmRoute[]>;
+}
+
+/** The route's polyline as [lat,lng] points (empty when OSRM sent none). */
+export const routeCoords = (route: OsrmRoute): LatLng[] =>
+  route.geometry ? osrmToLatLngs(route.geometry.coordinates) : [];
+
+/** A drawn route → the PresenceHub RoutePublishDto shared with watchers. */
+export function toRoutePublishDto(coords: LatLng[], route: Partial<OsrmRoute> | null) {
+  const points = coords.map(([lat, lng]) => ({ lat, lng }));
+  return {
+    origin: points[0],
+    originLabel: null,
+    destination: points[points.length - 1],
+    points,
+    distanceKm: route?.distance ? route.distance / 1000 : null,
+    etaMinutes: route?.duration ? Math.round(route.duration / 60) : null,
+  };
 }
 
 // Build a single normalized route between two points, falling back to a
 // straight line when OSRM is unavailable.
 async function build(from: LatLng, to: LatLng): Promise<RouteData> {
-  const routes = await getRoute([from, to]) as OsrmRoute[];
-  const r = routes && routes[0];
-  if (r && r.geometry) {
-    return {
-      coords: r.geometry.coordinates.map((c) => [c[1], c[0]] as LatLng),
-      distanceKm: r.distance / 1000,
-      durationMin: r.duration / 60,
-    };
+  const [r] = await getRoute([from, to]);
+  if (r?.geometry) {
+    return { coords: routeCoords(r), distanceKm: r.distance / 1000, durationMin: r.duration / 60 };
   }
-  return { coords: [from, to], distanceKm: haversineKm(from, to), durationMin: haversineKm(from, to) / 0.4 };
+  const km = haversineKm(from, to);
+  return { coords: [from, to], distanceKm: km, durationMin: km / 0.4 };
 }
 
 const cache = new Map<string, RouteData>(); // walkerId → route

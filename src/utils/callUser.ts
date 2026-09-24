@@ -4,7 +4,7 @@
    call-session hook can share them. */
 
 import { t } from '@/i18n';
-import { initialsOf } from '@/services/liveWalkers';
+import { initialsOf } from '@/utils/avatar';
 import type { LatLng } from '@/utils/geo';
 
 type PartyType = 'driver' | 'passenger';

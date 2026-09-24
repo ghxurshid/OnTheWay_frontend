@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { T } from '@/constants/theme';
+import { T, TEAL_GRADIENT } from '@/constants/theme';
 import { t } from '@/i18n';
 import { TASHKENT } from '@/constants/map';
 import { NOW } from '@/utils/datetime';
@@ -76,16 +76,8 @@ export function SchedulePanel({ mode, userLoc, onMapTask, onTripCreated }: Sched
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, overflow: 'hidden' }}>
       {/* Sub-tabs */}
-      <div style={{ display: 'flex', gap: 0, margin: '12px 16px 0', background: T.bg,
-        borderRadius: 12, padding: 3, border: `1px solid ${T.border}`, flexShrink: 0 }}>
-        {[{ id: 'search', label: t('schedule.tabSearch', { role: walkerLabel }) }, { id: 'add', label: t('schedule.tabAdd') }].map((tb) => (
-          <button key={tb.id} onClick={() => setTab(tb.id)} style={{
-            flex: 1, padding: '9px 0', borderRadius: 10, border: 'none', cursor: 'pointer',
-            background: tab === tb.id ? T.teal : 'transparent', color: tab === tb.id ? 'white' : T.muted,
-            fontSize: 12, fontWeight: tab === tb.id ? 600 : 400, transition: 'all .2s ease',
-            fontFamily: 'DM Sans,sans-serif' }}>{tb.label}</button>
-        ))}
-      </div>
+      <Segmented value={tab} onChange={setTab} pad={9} style={{ margin: '12px 16px 0', flexShrink: 0 }}
+        options={[{ id: 'search', label: t('schedule.tabSearch', { role: walkerLabel }) }, { id: 'add', label: t('schedule.tabAdd') }]} />
 
       {/* ── SEARCH TAB ── */}
       {tab === 'search' && (
@@ -121,7 +113,7 @@ export function SchedulePanel({ mode, userLoc, onMapTask, onTripCreated }: Sched
                   </button>
                 )}
                 <button onClick={runSearch} style={{ flex: 1, padding: '13px', borderRadius: 13, border: 'none',
-                  background: `linear-gradient(135deg,${T.teal},#0e9e97)`, color: 'white',
+                  background: TEAL_GRADIENT, color: 'white',
                   fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans,sans-serif',
                   boxShadow: `0 4px 18px ${T.tealGlow}`, display: 'flex', alignItems: 'center',
                   justifyContent: 'center', gap: 8 }}>

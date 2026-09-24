@@ -318,7 +318,7 @@ export const STRINGS = {
       totalTrips:  { uz: 'Jami sayohatlar', ru: 'Всего поездок', en: 'Total trips' },
       totalDistance:{ uz: 'Jami masofa', ru: 'Общая дистанция', en: 'Total distance' },
       passengersCarried:{ uz: 'Tashilgan yoʻlovchilar', ru: 'Перевезено пассажиров', en: 'Passengers carried' },
-      occupancy:   { uz: 'Oʻrtacha band oʻrin', ru: 'Средняя загрузка', en: 'Avg occupancy' },
+      cancelled:   { uz: 'Bekor qilingan', ru: 'Отменено', en: 'Cancelled' },
       estimatedSavings:{ uz: 'Taxminiy tejamkorlik', ru: 'Оценка экономии', en: 'Estimated savings' },
       fuel:        { uz: 'Yoqilgʻi', ru: 'Топливо', en: 'Fuel' },
       estimateNote:{ uz: 'Taxminiy qiymatlar — aniq emas.', ru: 'Это оценки, не точные значения.', en: 'Estimated values, not exact.' },

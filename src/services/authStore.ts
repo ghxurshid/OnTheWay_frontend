@@ -8,6 +8,8 @@
    persistence + a single-flight refresh guard.
    ════════════════════════════════════════════════════════════════ */
 
+import { readJson, writeJson } from '@/utils/storage';
+
 const STORAGE_KEY = 'otw-session';
 
 export interface AuthSession {
@@ -19,27 +21,11 @@ export interface AuthSession {
 
 type Refresher = () => Promise<AuthSession>;
 
-let session: AuthSession | null = load();
+let session: AuthSession | null = readJson<AuthSession | null>(STORAGE_KEY, null);
 let refresher: Refresher | null = null; // registered by authService
 let inflight: Promise<AuthSession> | null = null; // single-flight refresh promise
 
-function load(): AuthSession | null {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
-}
-
-function persist(): void {
-  try {
-    if (session) localStorage.setItem(STORAGE_KEY, JSON.stringify(session));
-    else localStorage.removeItem(STORAGE_KEY);
-  } catch {
-    /* storage unavailable — keep the in-memory session only */
-  }
-}
+const persist = (): void => writeJson(STORAGE_KEY, session);
 
 export const authStore = {
   /** Replace the whole session (after login / refresh). */

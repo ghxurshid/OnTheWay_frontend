@@ -2,7 +2,7 @@
    ChatHub; these endpoints back-fill history and provide a non-realtime
    send fallback. All list endpoints unwrap PaginatedList → items. */
 
-import { USE_MOCKS, mockResponse, http } from './client';
+import { USE_MOCKS, mockResponse, http, send } from './client';
 
 export const chatApi = {
   /** GET /chat/conversations — the caller's conversations. */
@@ -22,9 +22,6 @@ export const chatApi = {
   /** POST /chat/messages — REST fallback when the hub is unavailable. */
   send(recipientId: string, content: string) {
     if (USE_MOCKS) return mockResponse(null);
-    return http('/chat/messages', {
-      method: 'POST',
-      body: JSON.stringify({ recipientId, content }),
-    });
+    return send('POST', '/chat/messages', { recipientId, content });
   },
 };

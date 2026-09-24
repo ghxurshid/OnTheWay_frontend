@@ -20,7 +20,9 @@ import { TASHKENT } from '@/constants/map';
 import { haversineKm } from '@/utils/geo';
 import type { LatLng } from '@/utils/geo';
 import { presenceClient } from '@/services/realtime';
-import { enrichLiveWalker, colorForId } from '@/services/liveWalkers';
+import { enrichLiveWalker } from '@/services/liveWalkers';
+import { getCurrentLatLng } from '@/services/geolocation';
+import { colorForId } from '@/utils/avatar';
 import { walkerApi } from '@/api/walkerApi';
 import type { MapHook } from './mapHook';
 
@@ -36,12 +38,11 @@ interface UsePresenceArgs {
   notify: (n: { title: string; body: string }) => void;
   restoreLiveRoute: (trip: Any) => void;
   pendingRestoreRef: MutableRefObject<Any>;
-  getCurrentLatLng: () => Promise<LatLng | null>;
 }
 
 export function usePresence({
   screen, mode, mapHook, liveWalkersRef, userLocRef, openWalker, notify,
-  restoreLiveRoute, pendingRestoreRef, getCurrentLatLng,
+  restoreLiveRoute, pendingRestoreRef,
 }: UsePresenceArgs) {
   useEffect(() => {
     if (USE_MOCKS || screen !== 'map' || !mode) return undefined;

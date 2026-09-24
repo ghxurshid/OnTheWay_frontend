@@ -53,11 +53,3 @@ export async function ensureAuth(): Promise<unknown> {
   }
   return login();
 }
-
-export function logout(): void {
-  authStore.clear();
-}
-
-export function currentUser(): unknown {
-  return authStore.getUser();
-}

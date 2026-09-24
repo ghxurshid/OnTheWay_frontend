@@ -7,6 +7,7 @@
    ════════════════════════════════════════════════════════════════ */
 
 import { presenceClient } from '@/services/realtime';
+import { readJson, writeJson } from '@/utils/storage';
 
 const KEY = 'ontheway_walker_state_v1';
 
@@ -37,21 +38,24 @@ const DEFAULT: WalkerState = {
   updatedAt: null,
 };
 
-let state: WalkerState = load();
-const listeners = new Set<(s: WalkerState) => void>();
-
-function load(): WalkerState {
-  try { return { ...DEFAULT, ...JSON.parse(localStorage.getItem(KEY) || '{}') }; }
-  catch { return { ...DEFAULT }; }
-}
-function persist(): void { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch { /* ignore */ } }
-function emit(): void {
-  listeners.forEach((fn) => { try { fn(state); } catch (e) { console.error('[walkerState]', e); } });
-}
-
+/** Fields a local patch may change (version/updatedAt are store-managed). */
+const PATCHABLE = ['role', 'freeMode', 'engaged', 'activeTripId', 'watchedWalkerIds', 'lat', 'lng', 'heading'] as const;
 // Only these fields are client-owned and pushed to the server. `role` rides the
 // existing SetRole channel; `lat/lng` ride UpdateLocation — so neither is here.
 const WIRE_FIELDS = ['freeMode', 'engaged', 'activeTripId', 'clearActiveTrip', 'watchedWalkerIds'] as const;
+
+let state: WalkerState = { ...DEFAULT, ...readJson<Partial<WalkerState>>(KEY, {}) };
+const listeners = new Set<(s: WalkerState) => void>();
+
+const pick = (delta: WalkerStateDelta, keys: readonly (keyof WalkerStateDelta)[]) =>
+  Object.fromEntries(keys.filter((k) => delta[k] !== undefined).map((k) => [k, delta[k]]));
+
+function commit(next: WalkerState): WalkerState {
+  state = next;
+  writeJson(KEY, state);
+  listeners.forEach((fn) => { try { fn(state); } catch (e) { console.error('[walkerState]', e); } });
+  return state;
+}
 
 export const walkerStateStore = {
   get: (): WalkerState => state,
@@ -59,24 +63,13 @@ export const walkerStateStore = {
 
   /** Apply a local change and sync the client-owned fields to the server. */
   patch(delta: WalkerStateDelta): WalkerState {
-    const next: WalkerState = { ...state };
-    if (delta.role !== undefined) next.role = delta.role;
-    if (delta.freeMode !== undefined) next.freeMode = delta.freeMode;
-    if (delta.engaged !== undefined) next.engaged = delta.engaged;
-    if (delta.watchedWalkerIds !== undefined) next.watchedWalkerIds = delta.watchedWalkerIds;
+    const next: WalkerState = { ...state, ...pick(delta, PATCHABLE), updatedAt: Date.now() };
     if (delta.clearActiveTrip) next.activeTripId = null;
-    else if (delta.activeTripId !== undefined) next.activeTripId = delta.activeTripId;
-    if (delta.lat !== undefined) next.lat = delta.lat;
-    if (delta.lng !== undefined) next.lng = delta.lng;
-    if (delta.heading !== undefined) next.heading = delta.heading;
-    next.updatedAt = Date.now();
-    state = next;
-    persist(); emit();
+    commit(next);
 
-    const wire: Record<string, unknown> = {};
-    WIRE_FIELDS.forEach((k) => { if (delta[k] !== undefined) wire[k] = delta[k]; });
+    const wire = pick(delta, WIRE_FIELDS);
     // Client-side ids are strings, but the hub's WalkerStateDelta.ActiveTripId is
-    // a long — a string here fails the whole binding silently, so convert.
+    // a long — send a number (and drop a non-numeric mock id rather than fail).
     if (wire.activeTripId != null) {
       const n = Number(wire.activeTripId);
       if (Number.isFinite(n)) wire.activeTripId = n; else delete wire.activeTripId;
@@ -88,7 +81,7 @@ export const walkerStateStore = {
   /** Replace local state from a server snapshot (restore) — does NOT re-sync. */
   hydrate(serverState: Partial<WalkerState> | null | undefined): WalkerState {
     if (!serverState) return state;
-    state = {
+    return commit({
       ...state,
       role: serverState.role ?? state.role,
       freeMode: !!serverState.freeMode,
@@ -100,9 +93,7 @@ export const walkerStateStore = {
       heading: serverState.heading ?? state.heading,
       version: serverState.version ?? state.version,
       updatedAt: Date.now(),
-    };
-    persist(); emit();
-    return state;
+    });
   },
 
   /** Fetch the server snapshot and rehydrate the local model on app reopen. */
@@ -112,10 +103,5 @@ export const walkerStateStore = {
     return snap;
   },
 
-  /** True when there's a session worth restoring (a trip in flight). */
-  hasActiveSession(snap: { activeTrip?: unknown } | null): boolean {
-    return !!(snap && snap.activeTrip);
-  },
-
-  reset() { state = { ...DEFAULT }; persist(); emit(); },
+  reset() { commit({ ...DEFAULT }); },
 };

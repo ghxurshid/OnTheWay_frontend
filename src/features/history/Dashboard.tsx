@@ -1,4 +1,4 @@
-import { T } from '@/constants/theme';
+import { T, TEAL_GRADIENT } from '@/constants/theme';
 import { t } from '@/i18n';
 import { useDashboard } from '@/hooks/useDashboard';
 import { useHistory } from '@/hooks/useHistory';
@@ -135,7 +135,7 @@ export function Dashboard() {
             🚗 {driverPct}%
           </div>
           <div style={{ flex: 1,
-            background: `linear-gradient(135deg,${T.teal},#0e9e97)`,
+            background: TEAL_GRADIENT,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             fontSize: 11, fontWeight: 600, color: 'white' }}>
             🧑‍✈️ {100 - driverPct}%

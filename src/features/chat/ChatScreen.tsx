@@ -1,11 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
-import { T } from '@/constants/theme';
+import { T, TEAL_GRADIENT, partyColor } from '@/constants/theme';
 import { t } from '@/i18n';
 import { useEscapeKey } from '@/hooks/useEscapeKey';
-import { CHAT_QUICK_KEYS, CHAT_REPLY_KEYS } from '@/constants/app';
+import { CHAT_QUICK_KEYS, randomChatReplyKey } from '@/constants/app';
 import { authStore } from '@/services/authStore';
 import { chatClient } from '@/services/realtime/chatClient';
 import { chatApi } from '@/api/chatApi';
+import { fmt12 } from '@/utils/datetime';
+import { idOf, isRealUserId } from '@/utils/ids';
 import type { PartyType } from '@/models';
 
 interface ChatUser { id: string | number; type: PartyType; name: string; initials: string }
@@ -16,25 +18,21 @@ interface ChatScreenProps {
   onBack: () => void;
 }
 
-// Real backend user ids are numeric (long); simulated walkers use 'sim_' ids.
-// Ids arrive as numbers over REST and as strings over the hub, so compare as
-// strings everywhere (sid) to avoid number-vs-string mismatches.
-const REAL_ID_RE = /^\d+$/;
-const sid = (v: unknown) => String(v ?? '');
-const isRealUser = (id: unknown) => REAL_ID_RE.test(sid(id));
+// Ids arrive as numbers over REST and as strings over the hub, so they are
+// always compared as strings (idOf) to avoid number-vs-string mismatches.
 const toMsg = (m: any, myId: string | null): Msg => ({
-  id: m.id, from: sid(m.senderId) === myId ? 'me' : 'them', text: m.content, at: new Date(m.sentAtUtc),
+  id: m.id, from: idOf(m.senderId) === myId ? 'me' : 'them', text: m.content, at: new Date(m.sentAtUtc),
 });
 
 /** 1:1 chat screen. Talks to the ChatHub for real users (REST back-fills
     history); falls back to a local auto-responder for simulated walkers. */
 export function ChatScreen({ user, onBack }: ChatScreenProps) {
   const isDriver = user.type === 'driver';
-  const color = isDriver ? T.amber : T.purple;
-  const live = isRealUser(user.id);
-  const uid = sid(user.id);
+  const color = partyColor(user.type);
+  const live = isRealUserId(user.id);
+  const uid = idOf(user.id);
   const authedId = (authStore.getUser() as { id?: string | number } | null)?.id;
-  const myId = authedId != null ? sid(authedId) : null;
+  const myId = authedId != null ? idOf(authedId) : null;
   useEscapeKey(onBack); // dismiss the chat from the keyboard
 
   const [msgs, setMsgs] = useState<Msg[]>(live ? [] : [
@@ -61,7 +59,7 @@ export function ChatScreen({ user, onBack }: ChatScreenProps) {
     (async () => {
       try {
         const convos = await chatApi.conversations();
-        const convo = convos.find((c: { otherParticipantId?: unknown }) => sid(c.otherParticipantId) === uid);
+        const convo = convos.find((c: { otherParticipantId?: unknown }) => idOf(c.otherParticipantId) === uid);
         if (!convo || !alive) return;
         const history = await chatApi.messages(convo.id);
         if (!alive) return;
@@ -70,13 +68,13 @@ export function ChatScreen({ user, onBack }: ChatScreenProps) {
     })();
 
     const offMsg = chatClient.on('ReceiveMessage', (m) => {
-      const from = sid(m.senderId);
+      const from = idOf(m.senderId);
       if (from !== uid && from !== myId) return; // other conversation
       if (from === uid) setTyping(false);
       setMsgs((cur) => (cur.some((x) => x.id === m.id) ? cur : [...cur, toMsg(m, myId)]));
     });
     const offTyping = chatClient.on('TypingIndicator', (fromUserId, isTyping) => {
-      if (sid(fromUserId) === uid) setTyping(isTyping);
+      if (idOf(fromUserId) === uid) setTyping(isTyping);
     });
 
     return () => { alive = false; offMsg(); offTyping(); };
@@ -90,7 +88,7 @@ export function ChatScreen({ user, onBack }: ChatScreenProps) {
     if (live) {
       // The hub echoes the persisted message back to us, so we don't append
       // optimistically. Fall back to REST if the socket is down.
-      chatClient.sendMessage(sid(user.id), txt).catch(() => chatApi.send(sid(user.id), txt).catch(() => {}));
+      chatClient.sendMessage(uid, txt).catch(() => chatApi.send(uid, txt).catch(() => {}));
       return;
     }
 
@@ -98,9 +96,8 @@ export function ChatScreen({ user, onBack }: ChatScreenProps) {
     setMsgs((m) => [...m, { id: idRef.current++, from: 'me', text: txt, at: new Date() }]);
     setTimeout(() => setTyping(true), 600);
     setTimeout(() => {
-      const reply = t(CHAT_REPLY_KEYS[Math.floor(Math.random() * CHAT_REPLY_KEYS.length)]);
       setTyping(false);
-      setMsgs((m) => [...m, { id: idRef.current++, from: 'them', text: reply, at: new Date() }]);
+      setMsgs((m) => [...m, { id: idRef.current++, from: 'them', text: t(randomChatReplyKey()), at: new Date() }]);
     }, 1700 + Math.random() * 1400);
   };
 
@@ -108,12 +105,10 @@ export function ChatScreen({ user, onBack }: ChatScreenProps) {
   const onInput = (val: string) => {
     setInput(val);
     if (!live) return;
-    chatClient.sendTyping(sid(user.id), true);
+    chatClient.sendTyping(uid, true);
     clearTimeout(typingTimerRef.current);
-    typingTimerRef.current = setTimeout(() => chatClient.sendTyping(sid(user.id), false), 1500);
+    typingTimerRef.current = setTimeout(() => chatClient.sendTyping(uid, false), 1500);
   };
-
-  const fmtT = (d: Date) => d.toLocaleTimeString('uz', { hour: '2-digit', minute: '2-digit', hour12: false });
 
   return (
     <div className="otw-screen" style={{ position: 'absolute', inset: 0, zIndex: 40,
@@ -161,7 +156,7 @@ export function ChatScreen({ user, onBack }: ChatScreenProps) {
       <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: '14px 14px 6px',
         display: 'flex', flexDirection: 'column', gap: 6 }}>
         <div style={{ textAlign: 'center', fontSize: 10, color: T.muted, padding: '4px 0 8px' }}>
-          {fmtT(new Date(Date.now() - 5 * 60000))} · {t('chat.connected')}
+          {fmt12(new Date(Date.now() - 5 * 60000))} · {t('chat.connected')}
         </div>
         {msgs.map((m) => {
           const me = m.from === 'me';
@@ -170,13 +165,13 @@ export function ChatScreen({ user, onBack }: ChatScreenProps) {
               animation: 'fadeUp .25s ease both' }}>
               <div style={{ maxWidth: '78%', padding: '8px 12px',
                 borderRadius: me ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
-                background: me ? `linear-gradient(135deg,${T.teal},#0e9e97)` : T.surface2,
+                background: me ? TEAL_GRADIENT : T.surface2,
                 color: me ? 'white' : T.text,
                 border: me ? 'none' : `1px solid ${T.border}`,
                 boxShadow: me ? `0 2px 10px ${T.tealGlow}` : 'none' }}>
                 <div style={{ fontSize: 13, lineHeight: 1.4 }}>{m.text}</div>
                 <div style={{ fontSize: 9, opacity: .6, marginTop: 3,
-                  textAlign: 'right', color: me ? 'white' : T.muted }}>{fmtT(m.at)}</div>
+                  textAlign: 'right', color: me ? 'white' : T.muted }}>{fmt12(m.at)}</div>
               </div>
             </div>
           );
@@ -228,7 +223,7 @@ export function ChatScreen({ user, onBack }: ChatScreenProps) {
             maxHeight: 80, minHeight: 40, lineHeight: 1.4 }} />
         <button onClick={() => send(input)} disabled={!input.trim()}
           style={{ width: 40, height: 40, borderRadius: 12, border: 'none',
-            background: input.trim() ? `linear-gradient(135deg,${T.teal},#0e9e97)` : T.surface2,
+            background: input.trim() ? TEAL_GRADIENT : T.surface2,
             color: input.trim() ? 'white' : T.muted,
             cursor: input.trim() ? 'pointer' : 'not-allowed',
             display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,

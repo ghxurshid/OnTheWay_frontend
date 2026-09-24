@@ -1,114 +1,70 @@
 import { Fragment, useState, useRef, useEffect } from 'react';
-import { T } from '@/constants/theme';
+import { T, TEAL_GRADIENT } from '@/constants/theme';
 import { t } from '@/i18n';
 import { TASHKENT } from '@/constants/map';
-import { geocode, reverseGeocode } from '@/services/geocodingService';
+import { geocode, placeLabel, reverseGeocode, suggestionToPlace } from '@/services/geocodingService';
+import type { PlaceSuggestion } from '@/services/geocodingService';
 import { getRoute } from '@/services/routeService';
-import type { LatLng } from '@/models';
+import type { OsrmRoute } from '@/services/routeService';
+import { InlineSpinner } from '@/components/ui/Spinner';
+import { MapPickOverlay } from './MapPickOverlay';
+import type { LatLng, Place } from '@/models';
 import type { MapHook } from '@/hooks/mapHook';
 
 interface Waypoint { value: string; latlng: LatLng | null; placeholder: string }
-interface NominatimSuggestion { lat: string; lon: string; display_name: string }
-/** One OSRM route alternative (raw shape consumed by the picker). */
-export interface RouteOption { distance: number; duration: number; geometry?: { coordinates: [number, number][] } }
 
 interface RouteSheetProps {
   onClose: () => void;
-  onShowRoute: (route: RouteOption, waypoints: Waypoint[]) => void;
+  onShowRoute: (route: OsrmRoute, waypoints: Waypoint[]) => void;
   mapHook: MapHook;
   userLoc: LatLng | null;
-  onPickModeChange?: (picking: boolean) => void;
 }
 
+const ROUTE_ICONS = ['🏁', '🔀', '🛣️'];
+
 /** Multi-waypoint route planner sheet: input → calculate → choose route. */
-export function RouteSheet({ onClose, onShowRoute, mapHook, userLoc, onPickModeChange }: RouteSheetProps) {
+export function RouteSheet({ onClose, onShowRoute, mapHook, userLoc }: RouteSheetProps) {
   const [waypoints, setWaypoints] = useState<Waypoint[]>([
     { value: '', latlng: userLoc || TASHKENT, placeholder: t('route.startPlaceholder') },
     { value: '', latlng: null, placeholder: t('route.where') },
   ]);
   const [activeIdx, setActiveIdx] = useState(1);
-  const [suggestions, setSuggestions] = useState<NominatimSuggestion[]>([]);
+  const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([]);
   const [searching, setSearching] = useState(false);
-  const [step, setStep] = useState('input');
-  const [routeOptions, setRouteOptions] = useState<RouteOption[]>([]);
+  const [step, setStep] = useState<'input' | 'calculating' | 'routes'>('input');
+  const [routeOptions, setRouteOptions] = useState<OsrmRoute[]>([]);
   const [selectedRouteIdx, setSelectedRouteIdx] = useState(0);
   const [pickingIdx, setPickingIdx] = useState<number | null>(null);
-  const [pickAddr, setPickAddr] = useState('');
-  const [pickLoading, setPickLoading] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const pickCenterRef = useRef<LatLng | null>(null);
-  const moveCleanupRef = useRef<(() => void) | null>(null);
-  const revDebRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
+  // Label the start point with the user's current address.
   useEffect(() => {
     let alive = true;
-    (async () => {
-      const loc = userLoc || TASHKENT;
-      const label = await reverseGeocode(loc);
+    const loc = userLoc || TASHKENT;
+    reverseGeocode(loc).then((label) => {
       if (alive) setWaypoints((wp) => wp.map((w, i) => (i === 0 ? { ...w, value: label, latlng: loc } : w)));
-    })();
+    });
     return () => { alive = false; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => () => {
-    if (moveCleanupRef.current) moveCleanupRef.current();
-    clearTimeout(revDebRef.current);
-  }, []);
+  useEffect(() => () => clearTimeout(debounceRef.current), []);
 
-  const refreshPickAddr = () => {
-    const c = mapHook.getCenter(); if (!c) return;
-    pickCenterRef.current = c;
-    setPickLoading(true);
-    clearTimeout(revDebRef.current);
-    revDebRef.current = setTimeout(async () => {
-      const here = mapHook.getCenter() || c;
-      const label = await reverseGeocode(here);
-      pickCenterRef.current = here;
-      setPickAddr(label);
-      setPickLoading(false);
-    }, 400);
+  // Fill waypoint `idx` and redraw the A/B markers of every placed waypoint.
+  const placeWaypoint = (idx: number, { latlng, label }: Place) => {
+    const next = waypoints.map((w, i) => (i === idx ? { ...w, value: label, latlng } : w));
+    setWaypoints(next);
+    mapHook.setWaypointMarkers(next.filter((w) => w.latlng));
   };
 
   const enterMapPick = (idx: number) => {
     setSuggestions([]);
     setActiveIdx(idx);
     setPickingIdx(idx);
-    onPickModeChange && onPickModeChange(true);
-    const wp = waypoints[idx];
-    const hasLoc = wp && wp.latlng;
-    if (hasLoc) mapHook.flyTo(wp.latlng, 16);
-    setPickAddr('');
-    setPickLoading(true);
-    setTimeout(() => {
-      if (moveCleanupRef.current) moveCleanupRef.current();
-      const c1 = mapHook.onMove(() => setPickLoading(true));
-      const c2 = mapHook.onMoveEnd(() => refreshPickAddr());
-      moveCleanupRef.current = () => { c1 && c1(); c2 && c2(); };
-      refreshPickAddr();
-    }, hasLoc ? 850 : 60);
   };
 
-  const exitMapPick = () => {
-    if (moveCleanupRef.current) { moveCleanupRef.current(); moveCleanupRef.current = null; }
-    clearTimeout(revDebRef.current);
+  const confirmPick = (place: Place) => {
+    if (pickingIdx !== null) placeWaypoint(pickingIdx, place);
     setPickingIdx(null);
-    setPickAddr('');
-    setPickLoading(false);
-    onPickModeChange && onPickModeChange(false);
-  };
-
-  const confirmPick = () => {
-    const idx = pickingIdx;
-    const c: LatLng | null = pickCenterRef.current || mapHook.getCenter();
-    if (idx !== null && c) {
-      const label = pickAddr || `${c[0].toFixed(4)}, ${c[1].toFixed(4)}`;
-      setWaypoints((wp) => {
-        const next = wp.map((w, i) => (i === idx ? { ...w, value: label, latlng: c } : w));
-        mapHook.setWaypointMarkers(next.filter((w) => w.latlng));
-        return next;
-      });
-    }
-    exitMapPick();
   };
 
   const handleInput = (idx: number, val: string) => {
@@ -117,19 +73,16 @@ export function RouteSheet({ onClose, onShowRoute, mapHook, userLoc, onPickModeC
     if (val.length < 2) { setSuggestions([]); return; }
     setSearching(true);
     debounceRef.current = setTimeout(async () => {
-      const res = await geocode(val);
-      setSuggestions(res.slice(0, 5) as NominatimSuggestion[]);
+      setSuggestions(await geocode(val));
       setSearching(false);
     }, 400);
   };
 
-  const handleSuggest = (s: NominatimSuggestion) => {
-    const latlng = [parseFloat(s.lat), parseFloat(s.lon)] as LatLng;
-    const label = s.display_name.split(',').slice(0, 2).join(', ');
-    setWaypoints((wp) => wp.map((w, i) => (i === activeIdx ? { ...w, value: label, latlng } : w)));
+  const handleSuggest = (s: PlaceSuggestion) => {
+    const place = suggestionToPlace(s);
     setSuggestions([]);
-    mapHook.flyTo(latlng, 15);
-    mapHook.setWaypointMarkers(waypoints.map((w, i) => (i === activeIdx ? { ...w, value: label, latlng } : w)));
+    mapHook.flyTo(place.latlng, 15);
+    placeWaypoint(activeIdx, place);
   };
 
   const addWaypoint = () => {
@@ -141,7 +94,7 @@ export function RouteSheet({ onClose, onShowRoute, mapHook, userLoc, onPickModeC
     setSuggestions([]);
     const pts = waypoints.filter((w) => w.latlng);
     if (pts.length >= 2) {
-      const routes = await getRoute(pts.map((w) => w.latlng as LatLng)) as RouteOption[];
+      const routes = await getRoute(pts.map((w) => w.latlng as LatLng));
       setRouteOptions(routes);
       setSelectedRouteIdx(0);
       mapHook.setWaypointMarkers(pts);
@@ -158,13 +111,16 @@ export function RouteSheet({ onClose, onShowRoute, mapHook, userLoc, onPickModeC
   const startSelectedRoute = () => {
     // Pass the picked waypoints too so the app can persist the journey (origin/
     // destination labels + coords) as a Live trip, not just draw it.
-    if (routeOptions[selectedRouteIdx]) {
-      onShowRoute(routeOptions[selectedRouteIdx], waypoints.filter((w) => w.latlng));
-    }
+    const route = routeOptions[selectedRouteIdx];
+    if (route) onShowRoute(route, waypoints.filter((w) => w.latlng));
   };
 
   const canCalc = waypoints.every((w) => w.latlng);
   const picking = pickingIdx !== null;
+  const pickLabel = pickingIdx === 0 ? t('route.pickStart')
+    : pickingIdx === waypoints.length - 1 ? t('route.pickDest') : t('route.pickMid');
+  const routeLabels = [t('route.labelFastest'), t('route.labelAlt1'), t('route.labelAlt2')];
+  const routeNotes = [t('route.noteOptimal'), t('route.noteLights'), t('route.noteAlt')];
 
   return (
     <div style={{ position: 'absolute', inset: 0, zIndex: 20, pointerEvents: (picking || step === 'routes') ? 'none' : 'auto' }}>
@@ -173,72 +129,15 @@ export function RouteSheet({ onClose, onShowRoute, mapHook, userLoc, onPickModeC
       )}
 
       {picking && (
-        <>
-          <div style={{ position: 'absolute', top: 64, left: '50%', transform: 'translateX(-50%)',
-            background: T.glass2, backdropFilter: 'blur(12px)',
-            borderRadius: 20, padding: '7px 16px', border: `1px solid ${T.teal}40`,
-            pointerEvents: 'none', whiteSpace: 'nowrap' }}>
-            <span style={{ fontSize: 12, color: T.teal, fontWeight: 600 }}>
-              {pickingIdx === 0 ? t('route.pickStart') : pickingIdx === waypoints.length - 1 ? t('route.pickDest') : t('route.pickMid')} — {t('route.dragMap')}
-            </span>
-          </div>
-
-          <div style={{ position: 'absolute', left: '50%', top: '50%',
-            transform: 'translate(-50%,-100%)', pointerEvents: 'none', zIndex: 5,
-            display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-            <div style={{ maxWidth: 230, background: T.glass2, backdropFilter: 'blur(12px)',
-              borderRadius: 12, padding: '8px 12px', marginBottom: 8,
-              border: `1px solid ${T.border}`, boxShadow: '0 6px 20px rgba(0,0,0,.5)' }}>
-              <div style={{ fontSize: 12, color: T.text, fontWeight: 600, textAlign: 'center',
-                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {pickLoading ? t('route.detecting') : (pickAddr || t('route.pickPlace'))}
-              </div>
-            </div>
-            <svg width="34" height="42" viewBox="0 0 34 42" style={{ filter: 'drop-shadow(0 4px 6px rgba(0,0,0,.5))' }}>
-              <path d="M17 1C8.7 1 2 7.7 2 16c0 10.5 15 25 15 25s15-14.5 15-25C32 7.7 25.3 1 17 1z"
-                fill={T.teal} stroke="#fff" strokeWidth="2" />
-              <circle cx="17" cy="16" r="5.5" fill="#fff" />
-            </svg>
-          </div>
-          <div style={{ position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%,-50%)',
-            width: 8, height: 8, borderRadius: 4, background: 'rgba(0,0,0,.4)',
-            border: '1px solid rgba(255,255,255,.5)', pointerEvents: 'none', zIndex: 4 }} />
-
-          <div className="otw-sheet" style={{ position: 'absolute', left: 0, right: 0, bottom: 0,
-            background: T.surface, borderRadius: '20px 20px 0 0',
-            padding: '16px 20px calc(28px + env(safe-area-inset-bottom,0px))', borderTop: `1px solid ${T.border}`,
-            pointerEvents: 'auto', zIndex: 6,
-            animation: 'slideUp .3s cubic-bezier(.34,1.2,.64,1)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-              <div style={{ width: 36, height: 36, borderRadius: 11, background: T.tealDim,
-                display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, flexShrink: 0 }}>📍</div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 11, color: T.muted }}>{t('route.pickedAddr')}</div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: T.text,
-                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {pickLoading ? t('route.detecting') : (pickAddr || t('route.dragMapShort'))}
-                </div>
-              </div>
-            </div>
-            <div style={{ display: 'flex', gap: 10 }}>
-              <button onClick={exitMapPick}
-                style={{ padding: '13px 18px', borderRadius: 13, border: `1px solid ${T.border}`,
-                  background: 'transparent', color: T.muted, fontSize: 14, fontWeight: 600,
-                  cursor: 'pointer', fontFamily: 'DM Sans,sans-serif' }}>
-                {t('common.cancel')}
-              </button>
-              <button onClick={confirmPick} disabled={pickLoading || !pickAddr}
-                style={{ flex: 1, padding: '13px', borderRadius: 13, border: 'none',
-                  background: (pickLoading || !pickAddr) ? T.surface2 : `linear-gradient(135deg,${T.teal},#0e9e97)`,
-                  color: (pickLoading || !pickAddr) ? T.muted : 'white', fontSize: 15, fontWeight: 600,
-                  cursor: (pickLoading || !pickAddr) ? 'not-allowed' : 'pointer',
-                  boxShadow: (pickLoading || !pickAddr) ? 'none' : `0 4px 18px ${T.tealGlow}`,
-                  fontFamily: 'DM Sans,sans-serif', transition: 'all .2s ease' }}>
-                {t('common.confirm')}
-              </button>
-            </div>
-          </div>
-        </>
+        <MapPickOverlay
+          key={pickingIdx}
+          mapHook={mapHook}
+          label={pickLabel}
+          caption={t('route.pickedAddr')}
+          initial={waypoints[pickingIdx].latlng}
+          onConfirm={confirmPick}
+          onCancel={() => setPickingIdx(null)}
+        />
       )}
 
       {!picking && (
@@ -330,13 +229,7 @@ export function RouteSheet({ onClose, onShowRoute, mapHook, userLoc, onPickModeC
                 <span style={{ fontSize: 16 }}>+</span> {t('route.addMidPoint')}
               </button>
 
-              {searching && (
-                <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0' }}>
-                  <div style={{ width: 16, height: 16, borderRadius: 8, border: `2px solid ${T.tealDim}`,
-                    borderTop: `2px solid ${T.teal}`, animation: 'spin .7s linear infinite' }} />
-                  <span style={{ fontSize: 12, color: T.muted }}>{t('form.searching')}</span>
-                </div>
-              )}
+              {searching && <InlineSpinner style={{ marginTop: 10, padding: '8px 0' }} />}
               {suggestions.length > 0 && (
                 <div style={{ marginTop: 10, borderRadius: 14, overflow: 'hidden', border: `1px solid ${T.border}` }}>
                   {suggestions.map((s, i) => (
@@ -351,7 +244,7 @@ export function RouteSheet({ onClose, onShowRoute, mapHook, userLoc, onPickModeC
                         <path d="M7 10 L7 13" stroke={T.muted} strokeWidth="1.5" strokeLinecap="round" />
                       </svg>
                       <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {s.display_name.split(',').slice(0, 3).join(', ')}
+                        {placeLabel(s.display_name, 3)}
                       </span>
                     </button>
                   ))}
@@ -360,7 +253,7 @@ export function RouteSheet({ onClose, onShowRoute, mapHook, userLoc, onPickModeC
 
               <button onClick={calcRoute} disabled={!canCalc}
                 style={{ width: '100%', marginTop: 14, padding: '15px', borderRadius: 14,
-                  background: canCalc ? `linear-gradient(135deg,${T.teal},#0e9e97)` : T.surface2,
+                  background: canCalc ? TEAL_GRADIENT : T.surface2,
                   border: 'none', color: canCalc ? 'white' : T.muted,
                   fontSize: 15, fontWeight: 600, cursor: canCalc ? 'pointer' : 'not-allowed',
                   boxShadow: canCalc ? `0 4px 20px ${T.tealGlow}` : 'none',
@@ -398,8 +291,6 @@ export function RouteSheet({ onClose, onShowRoute, mapHook, userLoc, onPickModeC
                 {routeOptions.map((rt, i) => {
                   const mins = Math.round(rt.duration / 60);
                   const km = (rt.distance / 1000).toFixed(1);
-                  const labels = [t('route.labelFastest'), t('route.labelAlt1'), t('route.labelAlt2')];
-                  const notes = [t('route.noteOptimal'), t('route.noteLights'), t('route.noteAlt')];
                   const sel = i === selectedRouteIdx;
                   return (
                     <button key={i} onClick={() => pickRouteOption(i)}
@@ -412,11 +303,11 @@ export function RouteSheet({ onClose, onShowRoute, mapHook, userLoc, onPickModeC
                       <div style={{ width: 36, height: 36, borderRadius: 10,
                         background: sel ? T.teal : T.surface2,
                         display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 16 }}>
-                        {i === 0 ? '🏁' : i === 1 ? '🔀' : '🛣️'}
+                        {ROUTE_ICONS[i]}
                       </div>
                       <div style={{ textAlign: 'left', flex: 1 }}>
-                        <div style={{ fontSize: 14, fontWeight: 600, color: sel ? T.teal : T.text }}>{labels[i]}</div>
-                        <div style={{ fontSize: 12, color: T.muted }}>{notes[i]}</div>
+                        <div style={{ fontSize: 14, fontWeight: 600, color: sel ? T.teal : T.text }}>{routeLabels[i]}</div>
+                        <div style={{ fontSize: 12, color: T.muted }}>{routeNotes[i]}</div>
                       </div>
                       <div style={{ textAlign: 'right' }}>
                         <div style={{ fontSize: 15, fontWeight: 700, color: sel ? T.teal : T.text }}>{mins} min</div>
@@ -439,7 +330,7 @@ export function RouteSheet({ onClose, onShowRoute, mapHook, userLoc, onPickModeC
                 {routeOptions.length > 0 && (
                   <button onClick={startSelectedRoute}
                     style={{ width: '100%', marginTop: 6, padding: '15px', borderRadius: 14, border: 'none',
-                      background: `linear-gradient(135deg,${T.teal},#0e9e97)`,
+                      background: TEAL_GRADIENT,
                       color: 'white', fontSize: 15, fontWeight: 700, cursor: 'pointer',
                       display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
                       boxShadow: `0 4px 20px ${T.tealGlow}`, fontFamily: 'DM Sans,sans-serif' }}>

@@ -4,16 +4,15 @@
    wraps everything in the standard envelope; `http` unwraps it. Booking was
    removed — arrangements happen over chat/call and "band" is a visibility toggle. */
 
-import { USE_MOCKS, mockResponse, http } from './client';
+import { USE_MOCKS, mockResponse, http, send } from './client';
 
-const post = (path: string, body?: unknown) =>
-  http(path, { method: 'POST', ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
+const post = (path: string, body?: unknown) => send('POST', path, body);
 
 export const tripApi = {
   /** POST /trips — publish a trip. Category "Planned"/"Live", role "Driver"/"Passenger". */
   create(payload: Record<string, unknown>) {
     if (USE_MOCKS) return mockResponse({ id: 'trip_' + Date.now(), ...payload });
-    return http('/trips', { method: 'POST', body: JSON.stringify(payload) });
+    return post('/trips', payload);
   },
 
   /** GET /trips/{id}. */

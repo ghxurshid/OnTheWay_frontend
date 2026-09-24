@@ -5,8 +5,7 @@
    methods. Subscribe with on(event, handler); it returns an unsubscribe fn.
    ════════════════════════════════════════════════════════════════ */
 
-import type { HubConnection } from '@microsoft/signalr';
-import { createHubConnection, startConnection } from './hubConnection';
+import { createEmitter, createHubClient } from './hubConnection';
 
 // Server→client events (must match the C# IPresenceClient method names).
 const EVENTS = [
@@ -17,22 +16,12 @@ const EVENTS = [
 ] as const;
 
 type Payload = any;
-type Handler = (payload: Payload) => void;
 
 interface PresencePosition { userId: string; lat: number; lng: number; heading?: number; role?: string; updatedAtUtc?: string }
 
-let connection: HubConnection | null = null;
 let currentMode: string | null = null; // last announced search role
-const listeners = new Map<string, Set<Handler>>();
-
 const positions = new Map<string, PresencePosition>();
 const onlineIds = new Set<string>();
-
-function emit(event: string, payload: Payload) {
-  listeners.get(event)?.forEach((fn) => {
-    try { fn(payload); } catch (e) { console.error(`[presence] ${event} handler`, e); }
-  });
-}
 
 function updateCaches(event: string, payload: Payload) {
   switch (event) {
@@ -40,111 +29,62 @@ function updateCaches(event: string, payload: Payload) {
     case 'UserOnline': onlineIds.add(payload); break;
     case 'UserOffline': onlineIds.delete(payload); break;
     case 'Walkers': (payload || []).forEach((p: PresencePosition) => positions.set(p.userId, p)); break;
-    case 'WalkerJoined': if (payload) positions.set(payload.userId, payload); break;
+    case 'WalkerJoined':
     case 'WalkerMoved': if (payload) positions.set(payload.userId, payload); break;
     case 'WalkerGone': positions.delete(payload); break;
     default: break;
   }
 }
 
-function ensureConnection(): HubConnection {
-  if (connection) return connection;
-  const conn = createHubConnection('/hubs/presence');
-  connection = conn;
-  EVENTS.forEach((ev) => conn.on(ev, (payload: Payload) => { updateCaches(ev, payload); emit(ev, payload); }));
+const events = createEmitter('presence');
+const hub = createHubClient('/hubs/presence', (conn) => {
+  EVENTS.forEach((ev) => conn.on(ev, (payload: Payload) => { updateCaches(ev, payload); events.emit(ev, payload); }));
   conn.onreconnected(() => {
     positions.clear(); // server re-seeds via Walkers…
     if (currentMode) conn.invoke('SetRole', currentMode).catch(() => {}); // …once we re-announce our role
   });
-  return conn;
-}
+});
 
-const connected = (): HubConnection | null => (connection && connection.state === 'Connected' ? connection : null);
+/** Client→server call; resolves to `fallback` (no-op) while disconnected. */
+const invoke = <T = void>(method: string, fallback: T, ...args: unknown[]): Promise<T> =>
+  hub.connected()?.invoke(method, ...args) ?? Promise.resolve(fallback);
 
 export const presenceClient = {
   /** Subscribe to a server event. Returns an unsubscribe function. */
-  on(event: string, handler: Handler) {
-    if (!listeners.has(event)) listeners.set(event, new Set());
-    listeners.get(event)!.add(handler);
-    return () => { listeners.get(event)?.delete(handler); };
-  },
-
-  async connect() {
-    await startConnection(ensureConnection());
-  },
-
-  async disconnect() {
-    if (connection) { try { await connection.stop(); } catch { /* ignore */ } }
-    connection = null;
-  },
-
-  isConnected(): boolean {
-    return connection?.state === 'Connected';
-  },
+  on: events.on,
+  connect: hub.connect,
+  disconnect: hub.disconnect,
+  isConnected: hub.isConnected,
 
   /** Snapshot of all known live positions. */
-  getPositions(): PresencePosition[] {
-    return [...positions.values()];
-  },
+  getPositions: (): PresencePosition[] => [...positions.values()],
 
-  /** Set of currently-online user ids. */
-  getOnlineIds(): string[] {
-    return [...onlineIds];
-  },
+  /** Currently-online user ids. */
+  getOnlineIds: (): string[] => [...onlineIds],
 
   // --- client→server -------------------------------------------------
 
   setMode(role: string | null) {
     currentMode = role || null;
-    const c = connected();
-    if (currentMode && c) return c.invoke('SetRole', currentMode);
-    return Promise.resolve();
+    return currentMode ? invoke('SetRole', undefined, currentMode) : Promise.resolve();
   },
-
-  updateLocation(lat: number, lng: number, heading: number | null = null) {
-    return connected()?.invoke('UpdateLocation', lat, lng, heading) ?? Promise.resolve();
-  },
-
-  stopSharing() {
-    return connected()?.invoke('StopSharing') ?? Promise.resolve();
-  },
-
-  publishRoute(routeDto: unknown) {
-    return connected()?.invoke('PublishRoute', routeDto) ?? Promise.resolve();
-  },
-
-  clearRoute() {
-    return connected()?.invoke('ClearRoute') ?? Promise.resolve();
-  },
-
-  watchRoute(walkerUserId: string) {
-    return connected()?.invoke('WatchRoute', walkerUserId) ?? Promise.resolve();
-  },
-
-  unwatchRoute(walkerUserId: string) {
-    return connected()?.invoke('UnwatchRoute', walkerUserId) ?? Promise.resolve();
-  },
-
-  // --- band / engaged state -------------------------------------------
+  updateLocation: (lat: number, lng: number, heading: number | null = null) =>
+    invoke('UpdateLocation', undefined, lat, lng, heading),
+  stopSharing: () => invoke('StopSharing', undefined),
+  publishRoute: (routeDto: unknown) => invoke('PublishRoute', undefined, routeDto),
+  clearRoute: () => invoke('ClearRoute', undefined),
+  watchRoute: (walkerUserId: string) => invoke('WatchRoute', undefined, walkerUserId),
+  unwatchRoute: (walkerUserId: string) => invoke('UnwatchRoute', undefined, walkerUserId),
 
   /** Mark the walker "engaged/full" (band): withheld from discovery and removed
       from the opposite-role maps in realtime. Reversible via markAvailable. */
-  markEngaged() {
-    return connected()?.invoke('MarkEngaged') ?? Promise.resolve();
-  },
-
+  markEngaged: () => invoke('MarkEngaged', undefined),
   /** Clear the engaged flag ("bo'sh"ga qaytish): discoverable again. */
-  markAvailable() {
-    return connected()?.invoke('MarkAvailable') ?? Promise.resolve();
-  },
+  markAvailable: () => invoke('MarkAvailable', undefined),
 
   // --- session state (retained server-side across disconnects) ---------
 
-  syncWalkerState(delta: unknown) {
-    return connected()?.invoke('SyncWalkerState', delta) ?? Promise.resolve(null);
-  },
-
-  getWalkerState(): Promise<{ state?: Record<string, unknown>; activeTrip?: unknown } | null> {
-    return connected()?.invoke('GetWalkerState') ?? Promise.resolve(null);
-  },
+  syncWalkerState: (delta: unknown) => invoke<unknown>('SyncWalkerState', null, delta),
+  getWalkerState: () =>
+    invoke<{ state?: Record<string, unknown>; activeTrip?: unknown } | null>('GetWalkerState', null),
 };

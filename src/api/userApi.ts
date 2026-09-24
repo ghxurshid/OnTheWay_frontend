@@ -1,6 +1,6 @@
 /* REPOSITORY — the authenticated user (/users/me). */
 
-import { USE_MOCKS, mockResponse, http } from './client';
+import { USE_MOCKS, mockResponse, http, send } from './client';
 
 const MOCK_ME = {
   id: 'me', email: 'demo@ontheway.uz', fullName: 'Alisher Karimov',
@@ -19,6 +19,6 @@ export const userApi = {
   /** PUT /users/me/vehicle — set/clear vehicle (driver ⇄ passenger). */
   updateVehicle(vehicle: string | null) {
     if (USE_MOCKS) return mockResponse({ vehicle, kind: vehicle ? 'driver' : 'passenger' });
-    return http('/users/me/vehicle', { method: 'PUT', body: JSON.stringify({ vehicle }) });
+    return send('PUT', '/users/me/vehicle', { vehicle });
   },
 };

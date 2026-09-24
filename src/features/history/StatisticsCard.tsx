@@ -61,8 +61,7 @@ export function StatisticsCard() {
             <Metric label={t('common.driver')} value={stats.driverTrips} />
             <Metric label={t('common.passenger')} value={stats.passengerTrips} />
             <Metric label={t('dashboard.passengersCarried')} value={stats.totalPassengersTransported} />
-            <Metric label={t('dashboard.occupancy')}
-              value={`${Math.round((stats.averageVehicleOccupancy || 0) * 100)}%`} />
+            <Metric label={t('dashboard.cancelled')} value={stats.cancelledTrips} />
           </div>
 
           {/* Estimated savings — clearly marked as estimates (spec §52) */}

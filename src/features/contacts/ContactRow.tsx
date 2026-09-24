@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { T } from '@/constants/theme';
+import { T, partyColor } from '@/constants/theme';
 import { t } from '@/i18n';
 import { useUnread } from '@/hooks/useUnread';
 import type { Contact } from '@/models';
@@ -14,7 +14,7 @@ interface ContactRowProps {
 export function ContactRow({ c, onSelect, onRemove }: ContactRowProps) {
   const [p, setP] = useState(false);
   const unread = useUnread()[c.id] || 0;
-  const color = c.type === 'driver' ? T.amber : T.purple;
+  const color = partyColor(c.type);
   return (
     <div role="button" tabIndex={0} onClick={() => onSelect(c)}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onSelect(c); }}

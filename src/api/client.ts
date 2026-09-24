@@ -79,6 +79,11 @@ export async function http<T = any>(path: string, options: HttpOptions = {}): Pr
 }
 
 /** Parse the envelope, returning `data` or throwing a rich ApiError. */
+/** A JSON write request: `send('POST', '/trips', dto)`. The body is optional. */
+export function send<T = any>(method: string, path: string, body?: unknown, options: HttpOptions = {}): Promise<T> {
+  return http<T>(path, { ...options, method, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
+}
+
 async function parse<T>(res: Response, method: string, url: string): Promise<T> {
   if (res.status === 204) return null as T;
 

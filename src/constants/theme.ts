@@ -51,8 +51,18 @@ export const THEMES: Record<ThemeMode, Theme> = {
 // T — the single object mutated in place; all components read `T.xxx`.
 export const T: Theme = { ...THEMES.dark };
 
+/** The brand call-to-action gradient (accents are identical across themes). */
+export const TEAL_GRADIENT = `linear-gradient(135deg,${ACCENTS.teal},#0e9e97)`;
+
+/** A person's accent by role: drivers amber, passengers purple. */
+export const partyColor = (type?: string | null): string => (type === 'driver' ? ACCENTS.amber : ACCENTS.purple);
+
+function storedMode(): ThemeMode {
+  try { return (localStorage.getItem('otw-theme') as ThemeMode) || 'dark'; } catch { return 'dark'; }
+}
+
 export const themeStore = {
-  mode: ((typeof localStorage !== 'undefined' && localStorage.getItem('otw-theme')) || 'dark') as ThemeMode,
+  mode: storedMode(),
   listeners: new Set<(mode: ThemeMode) => void>(),
   apply() {
     Object.assign(T, THEMES[this.mode] || THEMES.dark);

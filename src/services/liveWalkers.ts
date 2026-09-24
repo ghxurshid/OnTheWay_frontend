@@ -6,25 +6,8 @@
    publishes one.
    ════════════════════════════════════════════════════════════════ */
 
+import { colorForId, initialsOf } from '@/utils/avatar';
 import type { LatLng } from '@/utils/geo';
-
-const PALETTE = [
-  '#1fc8c0', '#f0a832', '#a78bfa', '#ff5c72', '#2ecc8e',
-  '#4d9fff', '#ff8a4d', '#e85ad6', '#5fd0e0', '#ffd24d',
-];
-
-/** Stable colour per user id (so a walker keeps the same colour across ticks). */
-export function colorForId(id: string | number): string {
-  const s = String(id || '');
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
-  return PALETTE[h % PALETTE.length];
-}
-
-export function initialsOf(name?: string): string {
-  if (!name) return '👤';
-  return name.split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase();
-}
 
 export interface WalkerProfile {
   id: string | number;

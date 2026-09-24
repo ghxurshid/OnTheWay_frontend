@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { http, ApiError } from './client';
+import { http, send, ApiError } from './client';
 
 // Minimal Response stub matching what parse() reads (status, ok, text()).
 function res(status: number, bodyObj: unknown) {
@@ -46,5 +46,25 @@ describe('http() envelope handling', () => {
   it('throws ApiError when success:false even on a 200', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => res(200, { success: false, message: 'Nope' })));
     await expect(http('/thing', { auth: false })).rejects.toBeInstanceOf(ApiError);
+  });
+});
+
+describe('send()', () => {
+  it('sends the method with a JSON body', async () => {
+    const fetchMock = vi.fn(async (..._args: unknown[]) => res(200, { success: true, data: { ok: true } }));
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(send('POST', '/things', { a: 1 }, { auth: false })).resolves.toEqual({ ok: true });
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(init.method).toBe('POST');
+    expect(init.body).toBe('{"a":1}');
+  });
+
+  it('omits the body when none is given', async () => {
+    const fetchMock = vi.fn(async (..._args: unknown[]) => res(204, null));
+    vi.stubGlobal('fetch', fetchMock);
+    await send('DELETE', '/things/1', undefined, { auth: false });
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(init.method).toBe('DELETE');
+    expect(init.body).toBeUndefined();
   });
 });

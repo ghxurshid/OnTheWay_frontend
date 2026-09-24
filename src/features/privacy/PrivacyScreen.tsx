@@ -50,7 +50,7 @@ export function PrivacyScreen({ onClose }: { onClose: () => void }) {
         </div>
 
         <div style={{ textAlign: 'center', fontSize: 11, color: T.muted, marginTop: 22 }}>
-          OnTheWay v1.0.0 · © 2025
+          {t('common.version')}
         </div>
       </div>
     </FullScreenPanel>

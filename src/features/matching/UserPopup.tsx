@@ -1,4 +1,4 @@
-import { T } from '@/constants/theme';
+import { T, TEAL_GRADIENT, partyColor } from '@/constants/theme';
 import { t } from '@/i18n';
 
 interface PopupUser {
@@ -21,7 +21,7 @@ interface UserPopupProps {
 /** Bottom-sheet profile popup for a selected matched user (call / chat). */
 export function UserPopup({ user, onClose, onCall, onChat }: UserPopupProps) {
   const isDriver = user.type === 'driver';
-  const color = isDriver ? T.amber : T.purple;
+  const color = partyColor(user.type);
   const stats: [string, string | undefined, string][] = [
     [t('userPopup.distance'), user.dist, color],
     [t('userPopup.arrival'), user.eta, color],
@@ -67,7 +67,7 @@ export function UserPopup({ user, onClose, onCall, onChat }: UserPopupProps) {
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
           <button onClick={onCall} style={{ flex: 1, padding: '14px', borderRadius: 14, border: 'none',
-            background: `linear-gradient(135deg,${T.teal},#0e9e97)`,
+            background: TEAL_GRADIENT,
             color: 'white', fontSize: 15, fontWeight: 600, cursor: 'pointer',
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
             boxShadow: `0 4px 20px ${T.tealGlow}`, fontFamily: 'DM Sans,sans-serif',

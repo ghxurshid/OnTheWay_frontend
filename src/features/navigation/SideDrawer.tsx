@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { T } from '@/constants/theme';
+import { T, TEAL_GRADIENT } from '@/constants/theme';
 import { t } from '@/i18n';
 import { ToggleRow } from '@/components/ui/ToggleRow';
 import type { PartyType } from '@/models';
@@ -79,7 +79,7 @@ export function SideDrawer({ open, onClose, mode, freeMode, onToggleFreeMode,
           <div style={{ background: T.surface2, borderRadius: 18, padding: '14px',
             border: `1px solid ${T.border}`, display: 'flex', gap: 14, alignItems: 'center' }}>
             <div style={{ width: 50, height: 50, borderRadius: 15,
-              background: `linear-gradient(135deg,${T.teal},#0e9e97)`,
+              background: TEAL_GRADIENT,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               fontSize: 19, fontWeight: 700, color: 'white', flexShrink: 0 }}>AK</div>
             <div style={{ flex: 1, minWidth: 0 }}>
@@ -192,7 +192,7 @@ export function SideDrawer({ open, onClose, mode, freeMode, onToggleFreeMode,
           </div>
 
           <div style={{ textAlign: 'center', fontSize: 11, color: T.muted, marginTop: 2 }}>
-            OnTheWay v1.0.0 · © 2025
+            {t('common.version')}
           </div>
         </div>
       </div>

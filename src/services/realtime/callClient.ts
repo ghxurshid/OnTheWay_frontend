@@ -7,7 +7,7 @@
    ════════════════════════════════════════════════════════════════ */
 
 import type { HubConnection } from '@microsoft/signalr';
-import { createHubConnection, startConnection } from './hubConnection';
+import { createEmitter, createHubClient } from './hubConnection';
 import { callApi } from '@/api/callApi';
 
 const FALLBACK_ICE_SERVERS: RTCIceServer[] = [{ urls: 'stun:stun.l.google.com:19302' }];
@@ -16,10 +16,9 @@ const CALLER_RING_TIMEOUT_MS = 40_000;
 const CALLEE_RING_TIMEOUT_MS = 50_000;
 
 interface CallState { callId: string; peerId: string; role: 'caller' | 'callee'; accepted: boolean }
-type Handler = (payload?: any) => void;
 
-let connection: HubConnection | null = null;
-const listeners = new Map<string, Set<Handler>>();
+const { on, emit } = createEmitter('call');
+const hub = createHubClient('/hubs/call', wireHandlers);
 
 // Active call state (one 1:1 call at a time).
 let call: CallState | null = null;
@@ -30,11 +29,11 @@ let remoteAudioEl: HTMLAudioElement | null = null;
 let ringTimer: ReturnType<typeof setTimeout> | null = null;
 const pendingIce: RTCIceCandidateInit[] = []; // ICE that arrived before remote desc
 
-function emit(event: string, payload?: unknown) {
-  listeners.get(event)?.forEach((fn) => {
-    try { fn(payload); } catch (e) { console.error(`[call] ${event} handler`, e); }
-  });
-}
+/** Fire-and-forget: tell the server the call is over (best-effort). */
+const hangupOnServer = (callId: string): void => { hub.current()?.invoke('Hangup', callId).catch(() => {}); };
+
+/** True when a server event belongs to the call in progress. */
+const isCurrent = (callId: string): boolean => !!call && call.callId === callId;
 
 function clearRingTimer() {
   if (ringTimer) { clearTimeout(ringTimer); ringTimer = null; }
@@ -45,18 +44,18 @@ function armRingTimer(ms: number) {
   clearRingTimer();
   ringTimer = setTimeout(() => {
     if (!call || call.accepted) return;
-    const callId = call.callId;
-    connection?.invoke('Hangup', callId).catch(() => {});
-    teardown();
-    emit('ended', { callId, reason: 'timeout' });
+    endLocally(call.callId, 'timeout', true);
   }, ms);
 }
 
-function ensureConnection(): HubConnection {
-  if (connection) return connection;
-  const conn = createHubConnection('/hubs/call');
-  connection = conn;
+/** Tear the call down and surface 'ended' with a reason. */
+function endLocally(callId: string, reason: string, notifyServer = false) {
+  if (notifyServer) hangupOnServer(callId);
+  teardown();
+  emit('ended', { callId, reason });
+}
 
+function wireHandlers(conn: HubConnection) {
   conn.on('IncomingCall', (invite: { callId: string; fromUserId: string }) => {
     if (call) { conn.invoke('RejectCall', invite.callId).catch(() => {}); return; }
     call = { callId: invite.callId, peerId: invite.fromUserId, role: 'callee', accepted: false };
@@ -66,7 +65,7 @@ function ensureConnection(): HubConnection {
   });
 
   conn.on('CallAccepted', async (callId: string, byUserId: string) => {
-    if (!call || call.callId !== callId) return;
+    if (!call || !isCurrent(callId)) return;
     call.accepted = true;
     clearRingTimer();
     emit('accepted', { callId, byUserId });
@@ -76,20 +75,18 @@ function ensureConnection(): HubConnection {
   });
 
   conn.on('CallRejected', (callId: string) => {
-    if (!call || call.callId !== callId) return;
+    if (!isCurrent(callId)) return;
     teardown();
     emit('rejected', { callId });
   });
 
   conn.on('CallEnded', (callId: string) => {
-    if (!call || call.callId !== callId) return;
-    teardown();
-    emit('ended', { callId, reason: 'remote' });
+    if (isCurrent(callId)) endLocally(callId, 'remote');
   });
 
   conn.on('ReceiveOffer', async (payload: { callId: string; sdp: string }) => {
     const c = call;
-    if (!c || c.callId !== payload.callId) return;
+    if (!c || !isCurrent(payload.callId)) return;
     try {
       const peer = await ensurePeer();
       await peer.setRemoteDescription({ type: 'offer', sdp: payload.sdp });
@@ -104,7 +101,7 @@ function ensureConnection(): HubConnection {
 
   conn.on('ReceiveAnswer', async (payload: { callId: string; sdp: string }) => {
     const peer = pc;
-    if (!call || call.callId !== payload.callId || !peer) return;
+    if (!isCurrent(payload.callId) || !peer) return;
     try {
       await peer.setRemoteDescription({ type: 'answer', sdp: payload.sdp });
       await drainIce(peer);
@@ -114,7 +111,7 @@ function ensureConnection(): HubConnection {
   });
 
   conn.on('ReceiveIceCandidate', async (payload: { callId: string; candidate: string; sdpMid: string; sdpMLineIndex: number }) => {
-    if (!call || call.callId !== payload.callId) return;
+    if (!isCurrent(payload.callId)) return;
     const candidate: RTCIceCandidateInit = {
       candidate: payload.candidate,
       sdpMid: payload.sdpMid,
@@ -125,23 +122,14 @@ function ensureConnection(): HubConnection {
   });
 
   conn.onclose(() => {
-    if (!call) return;
-    const callId = call.callId;
-    teardown();
-    emit('ended', { callId, reason: 'connection' });
+    if (call) endLocally(call.callId, 'connection');
   });
-
-  return conn;
 }
 
 /** Abort the active call after an unrecoverable local error. */
 function failCall(reason: string, err?: unknown) {
   if (err && import.meta.env?.DEV) console.warn(`[call] ${reason}:`, (err as Error)?.message || err);
-  if (!call) return;
-  const callId = call.callId;
-  connection?.invoke('Hangup', callId).catch(() => {});
-  teardown();
-  emit('ended', { callId, reason });
+  if (call) endLocally(call.callId, reason, true);
 }
 
 // --- WebRTC plumbing --------------------------------------------------
@@ -158,6 +146,7 @@ async function getIceServers(): Promise<RTCIceServer[]> {
         ? { urls: s.urls, username: s.username, credential: s.credential }
         : { urls: s.urls }));
     if (servers.length) {
+      // Refresh at 80% of the credential lifetime so a call never starts on stale TURN auth.
       const ttlMs = Math.max(60, dto.ttlSeconds || 3600) * 1000 * 0.8;
       iceCache = { servers, expiresAt: Date.now() + ttlMs };
       return servers;
@@ -195,7 +184,7 @@ async function createPeer(): Promise<RTCPeerConnection> {
 
   peer.onicecandidate = (e) => {
     if (e.candidate && call) {
-      connection?.invoke('SendIceCandidate', call.peerId, call.callId,
+      hub.current()?.invoke('SendIceCandidate', call.peerId, call.callId,
         e.candidate.candidate, e.candidate.sdpMid, e.candidate.sdpMLineIndex).catch(() => {});
     }
   };
@@ -219,7 +208,7 @@ async function makeOffer() {
   if (!c) return;
   const offer = await peer.createOffer();
   await peer.setLocalDescription(offer);
-  await connection?.invoke('SendOffer', c.peerId, c.callId, offer.sdp);
+  await hub.current()?.invoke('SendOffer', c.peerId, c.callId, offer.sdp);
 }
 
 async function drainIce(peer: RTCPeerConnection) {
@@ -253,30 +242,19 @@ function teardown() {
 // --- public API -------------------------------------------------------
 
 export const callClient = {
-  on(event: string, handler: Handler) {
-    if (!listeners.has(event)) listeners.set(event, new Set());
-    listeners.get(event)!.add(handler);
-    return () => { listeners.get(event)?.delete(handler); };
-  },
-
-  async connect() {
-    await startConnection(ensureConnection());
-  },
+  on,
+  connect: hub.connect,
+  isConnected: hub.isConnected,
 
   async disconnect() {
     teardown();
-    if (connection) { try { await connection.stop(); } catch { /* ignore */ } }
-    connection = null;
-  },
-
-  isConnected(): boolean {
-    return connection?.state === 'Connected';
+    await hub.disconnect();
   },
 
   /** Caller: ring `toUserId`. Audio is negotiated once they accept. */
   async startCall(toUserId: string, callType = 'audio'): Promise<string> {
-    const conn = connection;
-    if (!conn || conn.state !== 'Connected') throw new Error('Call hub not connected');
+    const conn = hub.connected();
+    if (!conn) throw new Error('Call hub not connected');
     getIceServers().catch(() => {}); // warm the TURN credentials while ringing
     await getMic(); // prompt for the mic up front so accept is instant
     const callId: string = await conn.invoke('InitiateCall', toUserId, callType);
@@ -291,7 +269,7 @@ export const callClient = {
     if (!c || c.role !== 'callee') return;
     clearRingTimer();
     try {
-      await connection?.invoke('AcceptCall', c.callId);
+      await hub.current()?.invoke('AcceptCall', c.callId);
       c.accepted = true;
     } catch (e) {
       teardown();
@@ -303,14 +281,14 @@ export const callClient = {
   /** Callee: reject the current incoming call. */
   async rejectCall() {
     if (!call) return;
-    try { await connection?.invoke('RejectCall', call.callId); } catch { /* ignore */ }
+    try { await hub.current()?.invoke('RejectCall', call.callId); } catch { /* ignore */ }
     teardown();
   },
 
   /** Either side: hang up an in-progress (or ringing) call. */
   async hangup() {
     if (!call) return;
-    try { await connection?.invoke('Hangup', call.callId); } catch { /* ignore */ }
+    try { await hub.current()?.invoke('Hangup', call.callId); } catch { /* ignore */ }
     teardown();
   },
 
@@ -319,7 +297,5 @@ export const callClient = {
     localStream?.getAudioTracks().forEach((t) => { t.enabled = !muted; });
   },
 
-  currentCall(): CallState | null {
-    return call;
-  },
+  currentCall: (): CallState | null => call,
 };

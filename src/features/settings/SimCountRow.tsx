@@ -2,8 +2,11 @@ import type { CSSProperties } from 'react';
 import { T } from '@/constants/theme';
 import { t } from '@/i18n';
 import { useSimCount } from '@/hooks/useSimCount';
+import { SIM_COUNT } from '@/services/simStore';
 
-/** Stepper + slider controlling how many nearby walkers to simulate (1..10). */
+const { min, max } = SIM_COUNT;
+
+/** Stepper + slider controlling how many nearby walkers to simulate. */
 export function SimCountRow() {
   const [n, setN] = useSimCount();
   const stepBtn: CSSProperties = {
@@ -22,17 +25,17 @@ export function SimCountRow() {
           <div style={{ fontSize: 11, color: T.muted }}>{t('settings.walkerSub')}</div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <button onClick={() => setN(Math.max(1, n - 1))} style={stepBtn}>−</button>
+          <button onClick={() => setN(Math.max(min, n - 1))} style={stepBtn}>−</button>
           <span style={{ fontSize: 17, fontWeight: 700, color: T.teal, minWidth: 20, textAlign: 'center' }}>{n}</span>
-          <button onClick={() => setN(Math.min(10, n + 1))} style={stepBtn}>+</button>
+          <button onClick={() => setN(Math.min(max, n + 1))} style={stepBtn}>+</button>
         </div>
       </div>
-      <input type="range" min="1" max="10" step="1" value={n}
+      <input type="range" min={min} max={max} step="1" value={n}
         onChange={(e) => setN(parseInt(e.target.value, 10))}
         style={{ width: '100%', marginTop: 14, accentColor: T.teal, cursor: 'pointer' }} />
       <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 2 }}>
-        <span style={{ fontSize: 9, color: T.muted }}>1</span>
-        <span style={{ fontSize: 9, color: T.muted }}>10</span>
+        <span style={{ fontSize: 9, color: T.muted }}>{min}</span>
+        <span style={{ fontSize: 9, color: T.muted }}>{max}</span>
       </div>
     </div>
   );

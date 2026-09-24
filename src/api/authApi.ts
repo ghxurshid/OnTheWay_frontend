@@ -4,25 +4,17 @@
    AuthenticationResponseDto: { accessToken, accessTokenExpiresAt,
    refreshToken, user }. */
 
-import { http } from './client';
+import { send } from './client';
 
 export const authApi = {
   /** POST /auth/telegram — exchange signed Telegram initData for a token pair. */
   telegram(initData: string) {
-    return http('/auth/telegram', {
-      method: 'POST',
-      auth: false,
-      body: JSON.stringify({ initData }),
-    });
+    return send('POST', '/auth/telegram', { initData }, { auth: false });
   },
 
   /** POST /auth/refresh — rotate the refresh token for a new pair. */
   refresh(refreshToken: string) {
-    return http('/auth/refresh', {
-      method: 'POST',
-      auth: false,
-      _retried: true, // a failed refresh must not trigger another refresh
-      body: JSON.stringify({ refreshToken }),
-    });
+    // _retried: a failed refresh must not trigger another refresh.
+    return send('POST', '/auth/refresh', { refreshToken }, { auth: false, _retried: true });
   },
 };

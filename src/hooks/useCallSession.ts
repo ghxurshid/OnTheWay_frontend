@@ -21,10 +21,10 @@ import { savedStore } from '@/services/savedStore';
 import { inviteToCallUser } from '@/utils/callUser';
 import type { CallUser } from '@/utils/callUser';
 import type { LatLng } from '@/utils/geo';
+import { isRealUserId } from '@/utils/ids';
 import type { MapHook } from './mapHook';
 
-const REAL_ID_RE = /^\d+$/;
-const isRealUser = (id: string | number): boolean => !USE_MOCKS && REAL_ID_RE.test(String(id ?? ''));
+const isRealUser = (id: string | number): boolean => !USE_MOCKS && isRealUserId(id);
 
 interface CallState { user: CallUser; phase: string; live?: boolean; role?: 'caller' | 'callee' }
 interface UseCallSessionArgs {

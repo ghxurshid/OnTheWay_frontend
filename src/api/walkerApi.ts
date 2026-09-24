@@ -2,7 +2,7 @@
    Live endpoints return WalkerDto in the frontend's shape; we only revive the
    `when` field back into a Date (the backend sends it as an ISO string). */
 
-import { USE_MOCKS, mockResponse, http } from './client';
+import { USE_MOCKS, mockResponse, http, send } from './client';
 import { WALKERS_DATA } from '@/mocks/walkers';
 import type { LatLng } from '@/utils/geo';
 
@@ -15,7 +15,6 @@ interface CreateTripForm {
   date?: string;
   tStart?: number;
   seats?: number | string;
-  pricePerSeat?: number;
   distanceKm?: number | null;
   etaMinutes?: number | null;
   note?: string | null;
@@ -40,21 +39,12 @@ export const walkerApi = {
     return http(`/walkers/online${qs}`).then((rows) => (rows || []).map((r: WalkerRow) => ({ ...r, id: String(r.id) })));
   },
 
-  /** Resolve one walker from the scheduled list (no dedicated backend route). */
-  getById(id: string) {
-    if (USE_MOCKS) return mockResponse(WALKERS_DATA.find((w) => w.id === id) || null);
-    return this.list().then((rows) => rows.find((w: WalkerRow) => w.id === id) || null);
-  },
-
   /** POST /trips — publish the current user's own trip. The form's role (driver/
       passenger) maps to a Driver or Passenger trip; the response (TripResponseDto)
       is mapped back to the walker shape the rest of the app uses. */
   create(form: CreateTripForm) {
     if (USE_MOCKS) return mockResponse({ id: 'me_' + Date.now(), ...form, when: new Date() });
-    return http('/trips', {
-      method: 'POST',
-      body: JSON.stringify(toCreateTripDto(form)),
-    }).then(tripToWalker);
+    return send('POST', '/trips', toCreateTripDto(form)).then(tripToWalker);
   },
 };
 
@@ -68,8 +58,6 @@ function toCreateTripDto(form: CreateTripForm) {
     origin: { latitude: fromLL[0], longitude: fromLL[1], address: form.from?.label || '' },
     destination: { latitude: toLL[0], longitude: toLL[1], address: form.to?.label || '' },
     departureTimeUtc: combineWhen(form.date, form.tStart),
-    totalSeats: Number(form.seats) || 1,
-    pricePerSeat: form.pricePerSeat ?? 0,
     distanceKm: form.distanceKm ?? null,
     estimatedMinutes: form.etaMinutes ?? null,
     notes: form.note || null,

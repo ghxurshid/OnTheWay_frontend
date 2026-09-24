@@ -122,7 +122,6 @@ export interface TripStatistics {
   averageTripDistanceKm: number;
   averageTripDurationMinutes: number;
   totalPassengersTransported: number;
-  averageVehicleOccupancy: number;
   estimated: { fuelSavedLiters: number; co2ReducedKg: number; costSaved: number };
 }
 

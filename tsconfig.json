@@ -10,11 +10,6 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
-
-    // Incremental migration: .js/.jsx are allowed but not yet type-checked, so
-    // `tsc --noEmit` only enforces types on files already migrated to .ts/.tsx.
-    "allowJs": true,
-    "checkJs": false,
     "noEmit": true,
 
     "skipLibCheck": true,

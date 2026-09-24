@@ -1,4 +1,4 @@
-import { T } from '@/constants/theme';
+import { T, TEAL_GRADIENT, partyColor } from '@/constants/theme';
 import { t } from '@/i18n';
 import { fmt12 } from '@/utils/datetime';
 import type { RouteData, Walker } from '@/models';
@@ -24,7 +24,7 @@ export function WalkerPreviewCard({ task, onBack, onCall, onChat }: WalkerPrevie
   const w = task.walker;
   const { loading, data, dist } = task;
   const isDriver = w.type === 'driver';
-  const color = isDriver ? T.amber : T.purple;
+  const color = partyColor(w.type);
   return (
     <div style={{ position: 'absolute', inset: 0, zIndex: 24, pointerEvents: 'none' }}>
       <button onClick={onBack} style={{ position: 'absolute', top: 64, left: 16, pointerEvents: 'auto',
@@ -92,7 +92,7 @@ export function WalkerPreviewCard({ task, onBack, onCall, onChat }: WalkerPrevie
 
         <div style={{ display: 'flex', gap: 10 }}>
           <button onClick={() => onCall(w)} style={{ flex: 1, padding: '12px', borderRadius: 13, border: 'none',
-            background: `linear-gradient(135deg,${T.teal},#0e9e97)`, color: 'white', fontSize: 14,
+            background: TEAL_GRADIENT, color: 'white', fontSize: 14,
             fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans,sans-serif',
             boxShadow: `0 4px 16px ${T.tealGlow}`, display: 'flex', alignItems: 'center',
             justifyContent: 'center', gap: 7 }}>📞 {t('common.call')}</button>

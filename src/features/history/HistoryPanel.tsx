@@ -4,6 +4,7 @@ import { t } from '@/i18n';
 import { useHistory } from '@/hooks/useHistory';
 import { historyTotals } from '@/services/historyService';
 import { Spinner } from '@/components/ui/Spinner';
+import { Segmented } from '@/components/ui/Segmented';
 import { Dashboard } from './Dashboard';
 
 /** Trip history list + dashboard tabs. */
@@ -21,21 +22,7 @@ export function HistoryPanel() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       {/* Sub-tabs */}
-      <div style={{ display: 'flex', gap: 0, margin: '12px 16px 0', background: T.bg,
-        borderRadius: 12, padding: 3, border: `1px solid ${T.border}`, flexShrink: 0 }}>
-        {TABS.map((tb) => (
-          <button key={tb.id} onClick={() => setTab(tb.id)} style={{
-            flex: 1, padding: '9px 0', borderRadius: 10, border: 'none', cursor: 'pointer',
-            background: tab === tb.id ? T.teal : 'transparent',
-            color: tab === tb.id ? 'white' : T.muted,
-            fontSize: 12, fontWeight: tab === tb.id ? 600 : 400,
-            transition: 'all .2s ease', fontFamily: 'DM Sans,sans-serif',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-          }}>
-            <span style={{ fontSize: 11 }}>{tb.icon}</span>{tb.label}
-          </button>
-        ))}
-      </div>
+      <Segmented options={TABS} value={tab} onChange={setTab} pad={9} style={{ margin: '12px 16px 0', flexShrink: 0 }} />
 
       {tab === 'dashboard' && (
         <div style={{ flex: 1, overflowY: 'auto' }}><Dashboard /></div>

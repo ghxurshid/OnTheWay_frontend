@@ -16,13 +16,16 @@ export default defineConfig({
       output: {
         // Split the heavy, rarely-changing vendors into their own long-cacheable
         // chunks so the app chunk stays small and app edits don't bust them.
+        // Matching by path (not entry name) also catches `react-dom/client` and
+        // `scheduler`, which an entry list would leave in the app chunk.
         // NOTE: leaflet + its UMD plugins (ant-path, rotate) must NOT be forced
         // into a manual chunk — the plugins reference the global `L` at eval
         // time, and reordering them ahead of leaflet breaks init ("L is not
         // defined"). Leave them in the import-graph order rollup picks.
-        manualChunks: {
-          signalr: ['@microsoft/signalr'],
-          react: ['react', 'react-dom'],
+        manualChunks(id) {
+          if (id.includes('/node_modules/@microsoft/signalr/')) return 'signalr';
+          if (/\/node_modules\/(react|react-dom|scheduler)\//.test(id)) return 'react';
+          return undefined;
         },
       },
     },

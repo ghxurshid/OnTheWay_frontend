@@ -4,7 +4,7 @@ import { t, i18nStore } from '@/i18n';
 import type { Lang } from '@/i18n';
 import { SettSection, SettToggleRow } from '@/components/ui/Settings';
 import { SimCountRow } from './SimCountRow';
-import { settingsApi } from '@/api/settingsApi';
+import { DEFAULT_SETTINGS, settingsApi } from '@/api/settingsApi';
 import type { UserSettings } from '@/models';
 
 // UI language code ⇄ backend AppLanguage name.
@@ -43,12 +43,7 @@ export function SettingsPanel() {
 
   // Persist the merged settings, preserving fields this panel does not show.
   function persist(next: PersistPatch) {
-    const base: UserSettings = server.current || {
-      searchMode: 'Drivers', searchResultLimit: 20,
-      theme: 'Light', language: 'Uzbek',
-      notifications: { matching: true, messages: true, agreementRequests: true,
-        agreementAccepted: true, tripUpdates: true, promotional: false },
-    };
+    const base = server.current || DEFAULT_SETTINGS;
     const merged: UserSettings = {
       searchMode: base.searchMode,
       searchResultLimit: base.searchResultLimit,
@@ -110,7 +105,7 @@ export function SettingsPanel() {
       </SettSection>
 
       <div style={{ textAlign: 'center', fontSize: 11, color: T.muted, marginTop: 4 }}>
-        OnTheWay v1.0.0 · © 2025
+        {t('common.version')}
       </div>
     </div>
   );

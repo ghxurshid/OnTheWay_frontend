@@ -1,4 +1,4 @@
-import { T } from '@/constants/theme';
+import { T, partyColor } from '@/constants/theme';
 import { t } from '@/i18n';
 import { fmt12 } from '@/utils/datetime';
 import type { Walker } from '@/models';
@@ -13,7 +13,7 @@ interface WalkerCardProps {
 /** Compact walker (driver/passenger) list card used by the schedule results. */
 export function WalkerCard({ walker: w, idx, dist, onSelect }: WalkerCardProps) {
   const isDriver = w.type === 'driver';
-  const color = isDriver ? T.amber : T.purple;
+  const color = partyColor(w.type);
   return (
     <button onClick={onSelect} style={{ width: '100%', textAlign: 'left', background: T.surface2,
       borderRadius: 16, border: `1px solid ${T.border}`, cursor: 'pointer', padding: '12px 14px',

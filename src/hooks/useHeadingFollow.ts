@@ -15,9 +15,8 @@
 
 import { useCallback, useEffect, useRef } from 'react';
 import type { MutableRefObject, Dispatch, SetStateAction } from 'react';
-import { haversineKm } from '@/utils/geo';
+import { bearing, haversineKm } from '@/utils/geo';
 import type { LatLng } from '@/utils/geo';
-import { bearing } from '@/services/simulationService';
 import type { MapHook } from './mapHook';
 
 // Bearing used before any real heading has been observed (north up).

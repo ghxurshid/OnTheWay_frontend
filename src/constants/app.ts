@@ -23,6 +23,7 @@ export const COMPLAINT_CATS = [
 // Quick-reply / auto-reply translation keys used by the chat screen.
 export const CHAT_QUICK_KEYS = ['chat.quick1', 'chat.quick2', 'chat.quick3', 'chat.quick4', 'chat.quick5', 'chat.quick6', 'chat.quick7', 'chat.quick8'];
 export const CHAT_REPLY_KEYS = ['chat.reply1', 'chat.reply2', 'chat.reply3', 'chat.reply4', 'chat.reply5', 'chat.reply6'];
+export const randomChatReplyKey = (): string => CHAT_REPLY_KEYS[Math.floor(Math.random() * CHAT_REPLY_KEYS.length)];
 
 // Privacy policy sections — body text resolved via t('privacy.sNTitle/Body').
 export const PRIVACY_SECTION_ICONS = ['📍', '🧭', '🤝', '👥', '🔒', '⚙️'];

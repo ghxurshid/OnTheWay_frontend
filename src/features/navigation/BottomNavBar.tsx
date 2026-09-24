@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import type { ReactNode } from 'react';
-import { T } from '@/constants/theme';
+import { T, TEAL_GRADIENT } from '@/constants/theme';
 import { t } from '@/i18n';
 import { SavedPanel } from '@/features/saved/SavedPanel';
 import { HistoryPanel } from '@/features/history/HistoryPanel';
@@ -10,6 +10,9 @@ import { ContactMinimized } from '@/features/contacts/ContactMinimized';
 import type { Contact, LatLng, MapTask, PartyType } from '@/models';
 
 type PanelState = 'idle' | 'opening' | 'open' | 'closing';
+/** Panel slide-in / slide-out durations (ms), matched to the CSS animations. */
+const OPEN_DUR = 380;
+const CLOSE_DUR = 280;
 interface TabDef { id: string; label: string; icon: ((c: string) => ReactNode) | null }
 
 interface BottomNavBarProps {
@@ -29,21 +32,18 @@ interface BottomNavBarProps {
 export function BottomNavBar({ onRouteSheet, mode, routeActive, userLoc, onMapTask, hidden, onContactCall, onContactSms, engaged, onTripCreated }: BottomNavBarProps) {
   const [panelState, setPanelState] = useState<PanelState>('idle');
   const [active, setActive] = useState<string | null>(null);
-  const [, setNextActive] = useState<string | null>(null);
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const clearContactFocus = () => {
     setSelectedContact(null);
-    onMapTask && onMapTask({ type: 'contactClear' });
+    onMapTask?.({ type: 'contactClear' });
   };
   const selectContact = (c: Contact) => {
     setSelectedContact(c);
-    onMapTask && onMapTask({ type: 'contactFocus', contact: c });
+    onMapTask?.({ type: 'contactFocus', contact: c });
   };
 
-  const OPEN_DUR = 380;
-  const CLOSE_DUR = 280;
 
   const openPanel = (id: string) => {
     clearTimeout(timerRef.current);
@@ -51,10 +51,8 @@ export function BottomNavBar({ onRouteSheet, mode, routeActive, userLoc, onMapTa
     if (panelState === 'open' || panelState === 'opening') {
       if (active === id) { closePanel(); return; }
       setPanelState('closing');
-      setNextActive(id);
       timerRef.current = setTimeout(() => {
         setActive(id);
-        setNextActive(null);
         setPanelState('opening');
         timerRef.current = setTimeout(() => setPanelState('open'), OPEN_DUR);
       }, CLOSE_DUR);
@@ -87,8 +85,7 @@ export function BottomNavBar({ onRouteSheet, mode, routeActive, userLoc, onMapTa
     onRouteSheet();
   };
 
-  const isVisible = panelState !== 'idle';
-  const navHidden = panelState !== 'idle';
+  const panelShown = panelState !== 'idle';
 
   const TABS: TabDef[] = [
     { id: 'saved', label: t('nav.saved'),
@@ -127,7 +124,7 @@ export function BottomNavBar({ onRouteSheet, mode, routeActive, userLoc, onMapTa
   const renderCenterButton = (size: number, fab: boolean) => (
     <button onClick={handleCenter} disabled={routeActive} style={{
       width: size, height: size, borderRadius: '50%',
-      background: routeActive ? T.glassMid : `linear-gradient(135deg,${T.teal},#0e9e97)`,
+      background: routeActive ? T.glassMid : TEAL_GRADIENT,
       border: `${fab ? 3 : 2.5}px solid ${fab ? T.glass : T.glassSolid}`,
       cursor: routeActive ? 'not-allowed' : 'pointer',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -184,10 +181,10 @@ export function BottomNavBar({ onRouteSheet, mode, routeActive, userLoc, onMapTa
       display: hidden ? 'none' : 'block',
     }}>
       {/* ── Full-width panel ── */}
-      {isVisible && (selectedContact ? (
+      {panelShown && (selectedContact ? (
         <ContactMinimized contact={selectedContact} onBack={clearContactFocus}
-          onCall={(c) => onContactCall && onContactCall(c)}
-          onSms={(c) => onContactSms && onContactSms(c)} />
+          onCall={(c) => onContactCall?.(c)}
+          onSms={(c) => onContactSms?.(c)} />
       ) : (
         <div className="otw-sheet" style={{
           position: 'absolute', bottom: 0, left: 0, right: 0,
@@ -259,7 +256,7 @@ export function BottomNavBar({ onRouteSheet, mode, routeActive, userLoc, onMapTa
             : 'none',
         opacity: (panelState === 'open') ? 0 : 1,
         visibility: (panelState === 'open') ? 'hidden' : 'visible',
-        pointerEvents: navHidden ? 'none' : 'auto',
+        pointerEvents: panelShown ? 'none' : 'auto',
       }}>
         <svg style={{ position: 'absolute', top: -1, left: 0, width: '100%',
           overflow: 'visible', pointerEvents: 'none', zIndex: 2 }}

@@ -1,13 +1,5 @@
-import { useState, useEffect } from 'react';
-import { savedStore } from '@/services/savedStore';
+import { SAVED_EVENT, savedStore } from '@/services/savedStore';
+import { useStoreEvent } from './useStoreEvent';
 
-/** Live list of saved items; re-reads on the 'ontheway:saved' event. */
-export function useSaved() {
-  const [list, setList] = useState(() => savedStore.list());
-  useEffect(() => {
-    const h = () => setList(savedStore.list());
-    window.addEventListener('ontheway:saved', h);
-    return () => window.removeEventListener('ontheway:saved', h);
-  }, []);
-  return list;
-}
+/** Live list of saved items. */
+export const useSaved = () => useStoreEvent(SAVED_EVENT, savedStore.list);

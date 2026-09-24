@@ -1,4 +1,4 @@
-import { T } from '@/constants/theme';
+import { T, TEAL_GRADIENT, partyColor } from '@/constants/theme';
 import { t } from '@/i18n';
 import type { Contact } from '@/models';
 
@@ -11,7 +11,7 @@ interface ContactMinimizedProps {
 
 /** Minimized contact sheet (shown when a contact is focused on the map). */
 export function ContactMinimized({ contact: c, onBack, onCall, onSms }: ContactMinimizedProps) {
-  const color = c.type === 'driver' ? T.amber : T.purple;
+  const color = partyColor(c.type);
   return (
     <div className="otw-sheet" style={{
       position: 'absolute', bottom: 0, left: 0, right: 0,
@@ -88,7 +88,7 @@ export function ContactMinimized({ contact: c, onBack, onCall, onSms }: ContactM
 
       <div style={{ display: 'flex', gap: 10 }}>
         <button onClick={() => onCall(c)} style={{ flex: 1, padding: '12px', borderRadius: 13, border: 'none',
-          background: `linear-gradient(135deg,${T.teal},#0e9e97)`, color: 'white', fontSize: 14,
+          background: TEAL_GRADIENT, color: 'white', fontSize: 14,
           fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans,sans-serif',
           boxShadow: `0 4px 16px ${T.tealGlow}`, display: 'flex', alignItems: 'center',
           justifyContent: 'center', gap: 7 }}>📞 {t('common.call')}</button>

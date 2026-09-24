@@ -9,34 +9,38 @@ import type { LatLng } from '@/utils/geo';
 
 const NOMINATIM = 'https://nominatim.openstreetmap.org';
 const OSRM = 'https://router.project-osrm.org';
+const LANGS = 'uz,ru,en';
+
+/** GET JSON, resolving to `fallback` on any network/parse failure. */
+async function getJson<T>(url: string, fallback: T, init?: RequestInit): Promise<T> {
+  try {
+    const r = await fetch(url, init);
+    return await r.json();
+  } catch {
+    return fallback;
+  }
+}
+
+const nominatim = <T>(path: string, fallback: T) =>
+  getJson<T>(`${NOMINATIM}${path}&accept-language=${LANGS}`, fallback, { headers: { 'Accept-Language': LANGS } });
 
 export const geoApi = {
   /** Forward geocode: free-text query → candidate places. */
-  async search(query: string): Promise<unknown[]> {
-    const url = `${NOMINATIM}/search?format=json&q=${encodeURIComponent(query)}&limit=5&accept-language=uz,ru,en`;
-    try {
-      const r = await fetch(url, { headers: { 'Accept-Language': 'uz,ru,en' } });
-      return await r.json();
-    } catch { return []; }
+  search(query: string): Promise<unknown[]> {
+    return nominatim(`/search?format=json&q=${encodeURIComponent(query)}&limit=5`, []);
   },
 
   /** Reverse geocode: [lat,lng] → raw Nominatim payload (or null on failure). */
-  async reverse(latlng: LatLng): Promise<unknown> {
-    const url = `${NOMINATIM}/reverse?format=json&lat=${latlng[0]}&lon=${latlng[1]}&accept-language=uz,ru,en`;
-    try {
-      const r = await fetch(url, { headers: { 'Accept-Language': 'uz,ru,en' } });
-      return await r.json();
-    } catch { return null; }
+  reverse([lat, lng]: LatLng): Promise<unknown> {
+    return nominatim(`/reverse?format=json&lat=${lat}&lon=${lng}`, null);
   },
 
-  /** OSRM driving route through an ordered list of [lat,lng] points. */
-  async route(coords: LatLng[]): Promise<unknown[]> {
-    const coordStr = coords.map((c) => `${c[1]},${c[0]}`).join(';');
-    const url = `${OSRM}/route/v1/driving/${coordStr}?overview=full&geometries=geojson&alternatives=2`;
-    try {
-      const r = await fetch(url);
-      const d = await r.json();
-      return d.routes || [];
-    } catch { return []; }
+  /** OSRM driving route(s) through an ordered list of [lat,lng] points. */
+  async route(coords: LatLng[], { alternatives = true } = {}): Promise<unknown[]> {
+    const path = coords.map(([lat, lng]) => `${lng},${lat}`).join(';');
+    const alt = alternatives ? '&alternatives=2' : '';
+    const d = await getJson<{ routes?: unknown[] }>(
+      `${OSRM}/route/v1/driving/${path}?overview=full&geometries=geojson${alt}`, {});
+    return d.routes || [];
   },
 };

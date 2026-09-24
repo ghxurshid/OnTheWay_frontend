@@ -15,13 +15,48 @@ import { useRef, useEffect, useCallback, useMemo } from 'react';
 import L from 'leaflet';
 import 'leaflet-ant-path';
 import 'leaflet-rotate'; // patches L.Map with bearing/rotation + two-finger touchRotate
-import { T } from '@/constants/theme';
+import { T, partyColor } from '@/constants/theme';
 import { TASHKENT, MAP_STYLES, themeFor } from '@/constants/map';
 import {
   makeMarkerIcon, makeUserDot, makeMatchedIcon, makeAntPath,
   makeWalkerIcon, makeStartIcon, makeDestIcon, makeMeIcon,
 } from '@/utils/leafletIcons';
 import { createHeadingSync, createVectorGestureSync } from '@/utils/mapRenderSync';
+import { osrmToLatLngs } from '@/utils/geo';
+
+// Opacity presets for the parts of a walker's layer entry: the animated route
+// (ant), its traveled part (trav), the marker, and the start/destination pins.
+const VISIBLE = { ant: 0.95, trav: 0.9, marker: 1, pins: 1 };
+const DIMMED = { ant: 0.15, trav: 0.1, marker: 0.28, pins: 0.28 };
+const FADED = { ant: 0.12, trav: 0.08, marker: 0.3, pins: 0.25 };
+const OFFLINE = { ant: 0.25, trav: 0.2, marker: 0.35, pins: 0.35 };
+const HIDDEN = { ant: 0, trav: 0, marker: 0, pins: 0 };
+
+function setWalkerOpacity(layer, o) {
+  if (layer.ant && layer.ant.setStyle) layer.ant.setStyle({ opacity: o.ant });
+  if (layer.trav && layer.trav.setStyle) layer.trav.setStyle({ opacity: o.trav });
+  if (layer.mk && layer.mk.setOpacity) layer.mk.setOpacity(o.marker);
+  if (layer.start && layer.start.setOpacity) layer.start.setOpacity(o.pins);
+  if (layer.dest && layer.dest.setOpacity) layer.dest.setOpacity(o.pins);
+}
+
+// The animated "crawling" route every walker/contact route is drawn with.
+const walkerAntPath = (coords, color, theme, renderer) => makeAntPath(coords, {
+  delay: 10400, dashArray: [10, 22], weight: 5,
+  color, pulseColor: theme.pulse, opacity: 0.95, lineCap: 'round', renderer,
+});
+
+// Start dot + destination pin at the two ends of a route.
+const addRoutePins = (group, coords, color, theme) => ({
+  start: L.marker(coords[0], { icon: makeStartIcon(color, theme) }).addTo(group),
+  dest: L.marker(coords[coords.length - 1], { icon: makeDestIcon(color, theme) }).addTo(group),
+});
+
+const walkerMarker = (pos, w, onSelect) => {
+  const mk = L.marker(pos, { icon: makeWalkerIcon(w.color, w.initials), zIndexOffset: 600 });
+  mk.on('click', () => onSelect && onSelect(w.id));
+  return mk;
+};
 
 export function useMap(containerRef, active) {
   const mapRef = useRef(null);
@@ -35,7 +70,7 @@ export function useMap(containerRef, active) {
   // would be projected against the live zoom while the container still carries
   // the frozen-baseline transform, so it is queued and flushed on settle.
   const isGesturing = () => !!gestureRef.current && gestureRef.current.isGesturing();
-  const layersRef = useRef({ routes: [], markers: L.layerGroup(), matched: L.layerGroup(), walkers: L.layerGroup(), userRoute: L.layerGroup(), preview: L.layerGroup() });
+  const layersRef = useRef({ routes: [], markers: L.layerGroup(), walkers: L.layerGroup(), userRoute: L.layerGroup(), preview: L.layerGroup() });
   const walkerLayersRef = useRef(new Map());
   const walkerBadgeRef = useRef({});
   const userMarkerRef = useRef(null);
@@ -69,11 +104,8 @@ export function useMap(containerRef, active) {
     tileRef.current = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
       subdomains: 'abcd', maxZoom: 19,
     }).addTo(map);
-    layersRef.current.walkers.addTo(map);
-    layersRef.current.userRoute.addTo(map);
-    layersRef.current.preview.addTo(map);
-    layersRef.current.markers.addTo(map);
-    layersRef.current.matched.addTo(map);
+    const { walkers, userRoute, preview, markers } = layersRef.current;
+    [walkers, userRoute, preview, markers].forEach((group) => group.addTo(map));
     mapRef.current = map;
 
     return () => {
@@ -98,11 +130,6 @@ export function useMap(containerRef, active) {
 
   const flyTo = useCallback((latlng, zoom = 16) => {
     mapRef.current?.flyTo(latlng, zoom, { duration: 0.8 });
-  }, []);
-
-  // Smoothly keep the current zoom and re-center on a point (used by follow mode).
-  const recenter = useCallback((latlng) => {
-    if (latlng) mapRef.current?.panTo(latlng, { animate: true, duration: 0.5 });
   }, []);
 
   // ── Map bearing (compass / heading-up rotation) ──
@@ -156,22 +183,16 @@ export function useMap(containerRef, active) {
   }, []);
 
   const setRouteLines = useCallback((routes, primaryIdx = 0) => {
-    if (!mapRef.current) return;
-    layersRef.current.routes.forEach((l) => mapRef.current.removeLayer(l));
-    layersRef.current.routes = [];
-    routes.forEach((rt, i) => {
-      const coords = rt.geometry.coordinates.map((c) => [c[1], c[0]]);
-      const line = L.polyline(coords, {
-        color: i === primaryIdx ? T.teal : 'rgba(255,255,255,0.3)',
-        weight: i === primaryIdx ? 5 : 3,
-        opacity: 1,
-        dashArray: i === primaryIdx ? null : '8 6',
-      }).addTo(mapRef.current);
-      layersRef.current.routes.push(line);
-    });
+    const map = mapRef.current; if (!map) return;
+    layersRef.current.routes.forEach((l) => map.removeLayer(l));
+    layersRef.current.routes = routes.map((rt, i) => L.polyline(osrmToLatLngs(rt.geometry.coordinates), {
+      color: i === primaryIdx ? T.teal : 'rgba(255,255,255,0.3)',
+      weight: i === primaryIdx ? 5 : 3,
+      opacity: 1,
+      dashArray: i === primaryIdx ? null : '8 6',
+    }).addTo(map));
     if (routes.length > 0) {
-      const coords = routes[0].geometry.coordinates.map((c) => [c[1], c[0]]);
-      mapRef.current.fitBounds(L.latLngBounds(coords), { padding: [60, 60] });
+      map.fitBounds(L.latLngBounds(osrmToLatLngs(routes[0].geometry.coordinates)), { padding: [60, 60] });
     }
   }, []);
 
@@ -184,20 +205,6 @@ export function useMap(containerRef, active) {
       L.marker(p.latlng, { icon }).addTo(layersRef.current.markers);
     });
     L.marker(TASHKENT, { icon: makeUserDot() }).addTo(layersRef.current.markers);
-  }, []);
-
-  const showMatchedUsers = useCallback((users, onSelect) => {
-    if (!mapRef.current) return;
-    layersRef.current.matched.clearLayers();
-    users.forEach((u) => {
-      const color = u.type === 'driver' ? T.amber : T.purple;
-      const icon = makeMatchedIcon(color, u.initials);
-      L.marker(u.latlng, { icon }).addTo(layersRef.current.matched).on('click', () => onSelect(u));
-    });
-  }, []);
-
-  const clearMatched = useCallback(() => {
-    layersRef.current.matched.clearLayers();
   }, []);
 
   // `heading` is a GEOGRAPHIC bearing in degrees (null/omitted = keep the last
@@ -225,9 +232,8 @@ export function useMap(containerRef, active) {
   }, []);
 
   const applyWalkerBadges = useCallback(() => {
-    const lm = walkerLayersRef.current; if (!lm) return;
     const counts = walkerBadgeRef.current || {};
-    lm.forEach((layer, id) => {
+    walkerLayersRef.current.forEach((layer, id) => {
       const iconEl = layer.mk && layer.mk._icon; if (!iconEl) return;
       const n = counts[id] || 0;
       let b = iconEl.querySelector('.msg-badge');
@@ -239,27 +245,19 @@ export function useMap(containerRef, active) {
   }, []);
 
   const renderWalkers = useCallback((walkers, mode, onSelect) => {
-    const map = mapRef.current; if (!map) return;
-    layersRef.current.walkers.clearLayers();
-    pendingRef.current.walkers = null; // fresh set — drop the old queue
-    const lm = new Map();
-    const theme = themeFor(mode);
+    if (!mapRef.current) return;
     const grp = layersRef.current.walkers;
+    grp.clearLayers();
+    pendingRef.current.walkers = null; // fresh set — drop the old queue
+    const theme = themeFor(mode);
+    const lm = new Map();
     walkers.forEach((w) => {
       const remaining = (w._remaining && w._remaining.length > 1) ? w._remaining : w.route;
-      const traveled = w._traveled || [];
-      const ant = makeAntPath(remaining, {
-        delay: 10400, dashArray: [10, 22], weight: 5,
-        color: w.color, pulseColor: theme.pulse, opacity: 0.95, lineCap: 'round',
-        renderer: rendererRef.current,
-      });
-      ant.addTo(grp);
-      const trav = L.polyline(traveled, { color: theme.traveled, weight: 5, opacity: 0.9, lineCap: 'round' }).addTo(grp);
-      const startMk = L.marker(w.route[0], { icon: makeStartIcon(w.color, theme) }).addTo(grp);
-      const destMk = L.marker(w.route[w.route.length - 1], { icon: makeDestIcon(w.color, theme) }).addTo(grp);
-      const mk = L.marker(w.position || w.route[0], { icon: makeWalkerIcon(w.color, w.initials), zIndexOffset: 600 }).addTo(grp);
-      mk.on('click', () => onSelect && onSelect(w.id));
-      lm.set(w.id, { ant, trav, mk, start: startMk, dest: destMk });
+      const ant = walkerAntPath(remaining, w.color, theme, rendererRef.current).addTo(grp);
+      const trav = L.polyline(w._traveled || [], { color: theme.traveled, weight: 5, opacity: 0.9, lineCap: 'round' }).addTo(grp);
+      const pins = addRoutePins(grp, w.route, w.color, theme);
+      const mk = walkerMarker(w.position || w.route[0], w, onSelect).addTo(grp);
+      lm.set(w.id, { ant, trav, mk, ...pins });
     });
     walkerLayersRef.current = lm;
     applyWalkerBadges();
@@ -271,7 +269,7 @@ export function useMap(containerRef, active) {
   }, [applyWalkerBadges]);
 
   const applyWalkerTick = useCallback((walkers) => {
-    const lm = walkerLayersRef.current; if (!lm) return;
+    const lm = walkerLayersRef.current;
     walkers.forEach((w) => {
       const layer = lm.get(w.id); if (!layer) return;
       if (w._remaining && w._remaining.length > 1 && layer.ant.setLatLngs) layer.ant.setLatLngs(w._remaining);
@@ -293,18 +291,13 @@ export function useMap(containerRef, active) {
   // Reuses the same walkers group + walkerLayersRef so badges/highlight/dim
   // keep working. Incremental: upsert on WalkerMoved, remove on WalkerGone.
   const upsertWalkerMarker = useCallback((w, onSelect) => {
-    const map = mapRef.current; if (!map) return;
+    if (!mapRef.current) return;
     const pos = w.position || (w.route && w.route[0]); if (!pos) return;
     const lm = walkerLayersRef.current;
     const layer = lm.get(w.id);
-    if (layer && layer.mk) {
-      layer.mk.setLatLng(pos);
-    } else {
-      const mk = L.marker(pos, { icon: makeWalkerIcon(w.color, w.initials), zIndexOffset: 600 })
-        .addTo(layersRef.current.walkers);
-      mk.on('click', () => onSelect && onSelect(w.id));
-      lm.set(w.id, { ...(layer || {}), mk }); // preserve a route drawn before the marker
-    }
+    if (layer && layer.mk) layer.mk.setLatLng(pos);
+    // Preserve a route drawn before the marker.
+    else lm.set(w.id, { ...(layer || {}), mk: walkerMarker(pos, w, onSelect).addTo(layersRef.current.walkers) });
     applyWalkerBadges();
   }, [applyWalkerBadges]);
 
@@ -319,22 +312,15 @@ export function useMap(containerRef, active) {
   // per-walker layer entry as the marker, so removeWalkerMarker / clearWalkers
   // also tear the route down. Keyed by the walker's (string) user id.
   const setWalkerRoute = useCallback((id, coords, color) => {
-    const map = mapRef.current; if (!map || !coords || coords.length < 2) return;
+    if (!mapRef.current || !coords || coords.length < 2) return;
     const lm = walkerLayersRef.current;
     const layer = lm.get(id) || {};
     const grp = layersRef.current.walkers;
     const theme = themeFor('dark');
     const c = color || T.teal;
     ['ant', 'start', 'dest'].forEach((k) => { if (layer[k]) grp.removeLayer(layer[k]); });
-    const ant = makeAntPath(coords, {
-      delay: 10400, dashArray: [10, 22], weight: 5,
-      color: c, pulseColor: theme.pulse, opacity: 0.95, lineCap: 'round',
-      renderer: rendererRef.current,
-    });
-    ant.addTo(grp);
-    const start = L.marker(coords[0], { icon: makeStartIcon(c, theme) }).addTo(grp);
-    const dest = L.marker(coords[coords.length - 1], { icon: makeDestIcon(c, theme) }).addTo(grp);
-    lm.set(id, { ...layer, ant, start, dest });
+    const ant = walkerAntPath(coords, c, theme, rendererRef.current).addTo(grp);
+    lm.set(id, { ...layer, ant, ...addRoutePins(grp, coords, c, theme) });
   }, []);
 
   const removeWalkerRoute = useCallback((id) => {
@@ -348,60 +334,38 @@ export function useMap(containerRef, active) {
   // any shared route stay on the map, just visibly inactive — they come back to
   // full strength if the walker reconnects, and are removed only on WalkerGone.
   const setWalkerOffline = useCallback((id, offline) => {
-    const layer = walkerLayersRef.current.get(id); if (!layer) return;
-    if (layer.mk && layer.mk.setOpacity) layer.mk.setOpacity(offline ? 0.35 : 1);
-    if (layer.ant && layer.ant.setStyle) layer.ant.setStyle({ opacity: offline ? 0.25 : 0.95 });
-    if (layer.trav && layer.trav.setStyle) layer.trav.setStyle({ opacity: offline ? 0.2 : 0.9 });
-    if (layer.start && layer.start.setOpacity) layer.start.setOpacity(offline ? 0.35 : 1);
-    if (layer.dest && layer.dest.setOpacity) layer.dest.setOpacity(offline ? 0.35 : 1);
+    const layer = walkerLayersRef.current.get(id);
+    if (layer) setWalkerOpacity(layer, offline ? OFFLINE : VISIBLE);
   }, []);
 
   const clearWalkers = useCallback(() => {
     layersRef.current.walkers.clearLayers();
     walkerLayersRef.current = new Map();
     pendingRef.current.walkers = null; // queued frames belong to the old set
-    if (mapRef.current) {
-      if (userMarkerRef.current) { mapRef.current.removeLayer(userMarkerRef.current); userMarkerRef.current = null; }
-      if (userCircleRef.current) { mapRef.current.removeLayer(userCircleRef.current); userCircleRef.current = null; }
-    }
+    const map = mapRef.current; if (!map) return;
+    if (userMarkerRef.current) { map.removeLayer(userMarkerRef.current); userMarkerRef.current = null; }
+    if (userCircleRef.current) { map.removeLayer(userCircleRef.current); userCircleRef.current = null; }
   }, []);
 
   const fitWalkers = useCallback((userLoc, walkers) => {
     const map = mapRef.current; if (!map) return;
-    const pts = [];
-    if (userLoc) pts.push(userLoc);
-    walkers.forEach((w) => { pts.push(w.route[0]); });
+    const pts = [...(userLoc ? [userLoc] : []), ...walkers.map((w) => w.route[0])];
     if (pts.length > 0) map.fitBounds(L.latLngBounds(pts), { padding: [72, 72], maxZoom: 15 });
   }, []);
 
   const setWalkersDimmed = useCallback((dim) => {
-    const lm = walkerLayersRef.current; if (!lm) return;
-    lm.forEach((layer) => {
-      if (layer.ant && layer.ant.setStyle) layer.ant.setStyle({ opacity: dim ? 0.15 : 0.95 });
-      if (layer.trav && layer.trav.setStyle) layer.trav.setStyle({ opacity: dim ? 0.1 : 0.9 });
-      if (layer.mk && layer.mk.setOpacity) layer.mk.setOpacity(dim ? 0.28 : 1);
-      if (layer.start && layer.start.setOpacity) layer.start.setOpacity(dim ? 0.28 : 1);
-      if (layer.dest && layer.dest.setOpacity) layer.dest.setOpacity(dim ? 0.28 : 1);
-    });
+    walkerLayersRef.current.forEach((layer) => setWalkerOpacity(layer, dim ? DIMMED : VISIBLE));
   }, []);
 
   const highlightWalker = useCallback((id) => {
-    const lm = walkerLayersRef.current; if (!lm) return;
+    const lm = walkerLayersRef.current;
     const has = id != null && lm.has(id);
-    lm.forEach((layer, wid) => {
-      const on = !has || wid === id;
-      if (layer.ant && layer.ant.setStyle) layer.ant.setStyle({ opacity: on ? 0.95 : 0.12 });
-      if (layer.trav && layer.trav.setStyle) layer.trav.setStyle({ opacity: on ? 0.9 : 0.08 });
-      if (layer.mk && layer.mk.setOpacity) layer.mk.setOpacity(on ? 1 : 0.3);
-      if (layer.start && layer.start.setOpacity) layer.start.setOpacity(on ? 1 : 0.25);
-      if (layer.dest && layer.dest.setOpacity) layer.dest.setOpacity(on ? 1 : 0.25);
-    });
-    if (has) {
-      const layer = lm.get(id);
-      if (layer.trav && layer.trav.bringToFront) layer.trav.bringToFront();
-      if (layer.ant && layer.ant.bringToFront) layer.ant.bringToFront();
-      if (layer.mk && layer.mk.setZIndexOffset) layer.mk.setZIndexOffset(1200);
-    }
+    lm.forEach((layer, wid) => setWalkerOpacity(layer, !has || wid === id ? VISIBLE : FADED));
+    if (!has) return;
+    const layer = lm.get(id);
+    if (layer.trav && layer.trav.bringToFront) layer.trav.bringToFront();
+    if (layer.ant && layer.ant.bringToFront) layer.ant.bringToFront();
+    if (layer.mk && layer.mk.setZIndexOffset) layer.mk.setZIndexOffset(1200);
   }, []);
 
   const getCenter = useCallback(() => {
@@ -418,27 +382,21 @@ export function useMap(containerRef, active) {
   }, []);
 
   // ── App-owner (user) route — SOLID, traveled part de-coloured ──
-  const userRouteRef = useRef({ trav: null, rem: null });
+  const userRouteRef = useRef({ trav: null, rem: null, glow: null });
   const renderUserRoute = useCallback((coords, mode) => {
-    const map = mapRef.current; if (!map || !coords || coords.length < 2) return;
-    layersRef.current.userRoute.clearLayers();
+    if (!mapRef.current || !coords || coords.length < 2) return;
+    const grp = layersRef.current.userRoute;
+    grp.clearLayers();
     pendingRef.current.userRoute = null; // fresh geometry — drop the old queue
-    const theme = themeFor(mode);
-    const glow = L.polyline(coords, {
-      color: T.teal, weight: 17, opacity: 0.20, lineCap: 'round', lineJoin: 'round',
-      className: 'owner-route-glow', interactive: false,
-    }).addTo(layersRef.current.userRoute);
-    const rem = L.polyline(coords, {
-      color: T.teal, weight: 9, opacity: 1, lineCap: 'round', lineJoin: 'round',
-      className: 'owner-route-main',
-    }).addTo(layersRef.current.userRoute);
-    const trav = L.polyline([], {
-      color: theme.traveled, weight: 9, opacity: 0.95, lineCap: 'round', lineJoin: 'round',
-    }).addTo(layersRef.current.userRoute);
-    userRouteRef.current = { trav, rem, glow };
+    const line = { lineCap: 'round', lineJoin: 'round' };
+    userRouteRef.current = {
+      glow: L.polyline(coords, { ...line, color: T.teal, weight: 17, opacity: 0.20, className: 'owner-route-glow', interactive: false }).addTo(grp),
+      rem: L.polyline(coords, { ...line, color: T.teal, weight: 9, opacity: 1, className: 'owner-route-main' }).addTo(grp),
+      trav: L.polyline([], { ...line, color: themeFor(mode).traveled, weight: 9, opacity: 0.95 }).addTo(grp),
+    };
   }, []);
   const applyUserRoute = useCallback((traveled, remaining) => {
-    const r = userRouteRef.current; if (!r) return;
+    const r = userRouteRef.current;
     if (r.trav && traveled) r.trav.setLatLngs(traveled);
     if (r.rem && remaining) r.rem.setLatLngs(remaining);
     if (r.glow && remaining) r.glow.setLatLngs(remaining);
@@ -448,9 +406,8 @@ export function useMap(containerRef, active) {
     applyUserRoute(traveled, remaining);
   }, [applyUserRoute]);
   const recolorUserRoute = useCallback((mode) => {
-    const r = userRouteRef.current; if (!r || !r.trav) return;
-    const theme = themeFor(mode);
-    if (r.trav.setStyle) r.trav.setStyle({ color: theme.traveled });
+    const r = userRouteRef.current;
+    if (r.trav && r.trav.setStyle) r.trav.setStyle({ color: themeFor(mode).traveled });
   }, []);
   const clearUserRoute = useCallback(() => {
     layersRef.current.userRoute.clearLayers();
@@ -461,8 +418,8 @@ export function useMap(containerRef, active) {
   // ── Walker route preview (server-provided ready route) ──
   const showPreviewRoute = useCallback((coords) => {
     const map = mapRef.current; if (!map || !coords || coords.length < 2) return;
-    layersRef.current.preview.clearLayers();
     const grp = layersRef.current.preview;
+    grp.clearLayers();
     L.polyline(coords, { color: T.teal, weight: 16, opacity: 0.18, lineCap: 'round', className: 'owner-route-glow', interactive: false }).addTo(grp);
     L.polyline(coords, { color: T.teal, weight: 7, opacity: 1, lineCap: 'round', lineJoin: 'round', className: 'owner-route-main' }).addTo(grp);
     L.marker(coords[0], { icon: makeMarkerIcon(T.green, 'A') }).addTo(grp);
@@ -484,30 +441,17 @@ export function useMap(containerRef, active) {
 
   // ── Contact focus: hide other walkers entirely ──
   const hideWalkers = useCallback((hide) => {
-    const lm = walkerLayersRef.current; if (!lm) return;
-    lm.forEach((layer) => {
-      if (layer.ant && layer.ant.setStyle) layer.ant.setStyle({ opacity: hide ? 0 : 0.95 });
-      if (layer.trav && layer.trav.setStyle) layer.trav.setStyle({ opacity: hide ? 0 : 0.9 });
-      if (layer.mk && layer.mk.setOpacity) layer.mk.setOpacity(hide ? 0 : 1);
-      if (layer.start && layer.start.setOpacity) layer.start.setOpacity(hide ? 0 : 1);
-      if (layer.dest && layer.dest.setOpacity) layer.dest.setOpacity(hide ? 0 : 1);
-    });
+    walkerLayersRef.current.forEach((layer) => setWalkerOpacity(layer, hide ? HIDDEN : VISIBLE));
   }, []);
   const showContactFocus = useCallback((contact) => {
-    const map = mapRef.current; if (!map) return;
-    layersRef.current.preview.clearLayers();
+    if (!mapRef.current) return;
     const grp = layersRef.current.preview;
+    grp.clearLayers();
     const theme = themeFor('dark');
-    const color = contact.color || (contact.type === 'driver' ? T.amber : T.purple);
+    const color = contact.color || partyColor(contact.type);
     if (contact.route && contact.route.length > 1) {
-      const ant = makeAntPath(contact.route, {
-        delay: 10400, dashArray: [10, 22], weight: 5,
-        color, pulseColor: theme.pulse, opacity: 0.95, lineCap: 'round',
-        renderer: rendererRef.current,
-      });
-      ant.addTo(grp);
-      L.marker(contact.route[0], { icon: makeStartIcon(color, theme) }).addTo(grp);
-      L.marker(contact.route[contact.route.length - 1], { icon: makeDestIcon(color, theme) }).addTo(grp);
+      walkerAntPath(contact.route, color, theme, rendererRef.current).addTo(grp);
+      addRoutePins(grp, contact.route, color, theme);
     }
     if (contact.latlng) {
       L.marker(contact.latlng, { icon: makeWalkerIcon(color, contact.initials), zIndexOffset: 800 }).addTo(grp);
@@ -518,43 +462,22 @@ export function useMap(containerRef, active) {
     map.fitBounds(L.latLngBounds(pts), { padding: [96, 110], maxZoom: 15 });
   }, []);
 
-  // tap-to-pick
-  const tapPickRef = useRef(null);
-  const enableTapPick = useCallback((onPick) => {
-    if (!mapRef.current) return;
-    mapRef.current.getContainer().style.cursor = 'crosshair';
-    const handler = (e) => {
-      onPick([e.latlng.lat, e.latlng.lng]);
-      mapRef.current.getContainer().style.cursor = '';
-      mapRef.current.off('click', handler);
-      tapPickRef.current = null;
-    };
-    tapPickRef.current = handler;
-    mapRef.current.on('click', handler);
-  }, []);
-  const disableTapPick = useCallback(() => {
-    if (!mapRef.current || !tapPickRef.current) return;
-    mapRef.current.off('click', tapPickRef.current);
-    mapRef.current.getContainer().style.cursor = '';
-    tapPickRef.current = null;
-  }, []);
-
-  // driver tracking simulation
+  // Demo-mode "the driver is coming" animation after a simulated call is accepted.
   const trackingRef = useRef(null);
   const startTracking = useCallback((startLatlng, endLatlng, onUpdate) => {
     if (trackingRef.current) clearInterval(trackingRef.current);
-    let tk = 0;
     const steps = 60;
-    const icon = makeMatchedIcon(T.amber, 'AK');
-    const marker = L.marker(startLatlng, { icon }).addTo(mapRef.current);
+    let tick = 0;
+    const marker = L.marker(startLatlng, { icon: makeMatchedIcon(T.amber, 'AK') }).addTo(mapRef.current);
     trackingRef.current = setInterval(() => {
-      tk++;
-      const frac = tk / steps;
-      const lat = startLatlng[0] + (endLatlng[0] - startLatlng[0]) * frac;
-      const lng = startLatlng[1] + (endLatlng[1] - startLatlng[1]) * frac;
-      marker.setLatLng([lat, lng]);
+      tick++;
+      const frac = tick / steps;
+      marker.setLatLng([
+        startLatlng[0] + (endLatlng[0] - startLatlng[0]) * frac,
+        startLatlng[1] + (endLatlng[1] - startLatlng[1]) * frac,
+      ]);
       onUpdate && onUpdate(frac);
-      if (tk >= steps) { clearInterval(trackingRef.current); trackingRef.current = null; }
+      if (tick >= steps) { clearInterval(trackingRef.current); trackingRef.current = null; }
     }, 400);
     return () => { clearInterval(trackingRef.current); marker.remove(); };
   }, []);
@@ -573,8 +496,8 @@ export function useMap(containerRef, active) {
   // facade never needs to change identity. Memoising it lets consumers (and
   // React.memo'd children that receive `mapHook`) skip re-renders.
   return useMemo(() => ({
-    mapRef, flyTo, recenter, setBearing, rotateTo, navFollow, onUserDrag, setRouteLines, setWaypointMarkers, showMatchedUsers, clearMatched,
-    enableTapPick, disableTapPick, startTracking, setMapStyle, setUserLocation, renderWalkers,
+    mapRef, flyTo, setBearing, rotateTo, navFollow, onUserDrag, setRouteLines, setWaypointMarkers,
+    startTracking, setMapStyle, setUserLocation, renderWalkers,
     tickWalkers, clearWalkers, fitWalkers, setWalkersDimmed, highlightWalker, setWalkerBadges,
     upsertWalkerMarker, removeWalkerMarker, setWalkerRoute, removeWalkerRoute, setWalkerOffline,
     getCenter, onMove, onMoveEnd, renderUserRoute, updateUserRoute, clearUserRoute, recolorUserRoute,

@@ -3,29 +3,29 @@
    ════════════════════════════════════════════════════════════════ */
 
 import type { CSSProperties } from 'react';
-import { t } from '@/i18n';
 import type { LatLng } from '@/utils/geo';
 
 export const TASHKENT: LatLng = [41.2995, 69.2401];
 
 export interface MapStyle {
   id: string;
-  label: string;
-  sub: string;
   url: string;
   subdomains: string;
 }
 
 export const MAP_STYLES: MapStyle[] = [
-  { id: 'dark', label: 'Tungi', sub: 'Default',
-    url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', subdomains: 'abcd' },
-  { id: 'streets', label: "Ko'cha", sub: 'Streets',
-    url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', subdomains: 'abc' },
-  { id: 'light', label: "Yorug'", sub: 'Light',
-    url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', subdomains: 'abcd' },
-  { id: 'satellite', label: "Sun'iy", sub: 'Satellite',
-    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', subdomains: '' },
+  { id: 'dark', url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', subdomains: 'abcd' },
+  { id: 'streets', url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', subdomains: 'abc' },
+  { id: 'light', url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', subdomains: 'abcd' },
+  { id: 'satellite', url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', subdomains: '' },
 ];
+
+/** Basemap modes offered by the picker; 'theme' follows the app's light/dark theme. */
+export const MAP_STYLE_MODES = ['theme', 'streets', 'satellite'] as const;
+
+/** Resolve a basemap mode to a concrete tile style id. */
+export const tileStyleFor = (mode: string, appTheme: string): string =>
+  mode === 'theme' ? (appTheme === 'light' ? 'light' : 'dark') : mode;
 
 export interface StyleTheme {
   traveled: string;
@@ -55,6 +55,3 @@ export function mapStylePreviewBg(id: string): CSSProperties {
   if (id === 'light') return { background: 'linear-gradient(135deg,#f6f4ef,#dde2e5)' };
   return { background: 'linear-gradient(135deg,#0d1018,#1a2030)' };
 }
-
-// Map-style metadata that needs i18n labels (call at render time).
-export const mapStyleLabel = (id: string): string => t('mapStyles.' + id);

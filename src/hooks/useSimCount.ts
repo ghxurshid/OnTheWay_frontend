@@ -1,13 +1,6 @@
-import { useState, useEffect } from 'react';
-import { simStore } from '@/services/simStore';
+import { SIM_COUNT_EVENT, simStore } from '@/services/simStore';
+import { useStoreEvent } from './useStoreEvent';
 
-/** [n, setN] for the simulated-walker count; syncs on 'ontheway:simcount'. */
-export function useSimCount(): [number, (n: number) => void] {
-  const [n, setN] = useState<number>(() => simStore.get());
-  useEffect(() => {
-    const h = () => setN(simStore.get());
-    window.addEventListener('ontheway:simcount', h);
-    return () => window.removeEventListener('ontheway:simcount', h);
-  }, []);
-  return [n, simStore.set];
-}
+/** [n, setN] for the simulated-walker count. */
+export const useSimCount = (): [number, (n: number) => void] =>
+  [useStoreEvent(SIM_COUNT_EVENT, simStore.get), simStore.set];

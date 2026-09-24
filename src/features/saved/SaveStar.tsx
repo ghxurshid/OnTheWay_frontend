@@ -1,4 +1,5 @@
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import { useSaved } from '@/hooks/useSaved';
 import { savedStore } from '@/services/savedStore';
 import type { SavedItem } from '@/models';
@@ -12,7 +13,7 @@ export function SaveStar({ place, size = 18 }: SaveStarProps) {
   return (
     <button
       onClick={(e) => { e.stopPropagation(); savedStore.toggle(place); }}
-      title={saved ? 'Saqlangandan olib tashlash' : 'Saqlash'}
+      title={saved ? t('saved.removeTip') : t('saved.saveTip')}
       style={{ width: size + 10, height: size + 10, borderRadius: 8, border: 'none',
         background: saved ? T.amberDim : 'transparent',
         cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',

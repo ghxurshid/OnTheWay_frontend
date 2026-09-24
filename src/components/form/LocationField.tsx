@@ -1,12 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
 import { T } from '@/constants/theme';
 import { t } from '@/i18n';
-import { geocode } from '@/services/geocodingService';
+import { geocode, placeLabel, suggestionToPlace } from '@/services/geocodingService';
+import type { PlaceSuggestion } from '@/services/geocodingService';
+import { InlineSpinner } from '@/components/ui/Spinner';
 import { FIELD_LABEL } from './fieldStyles';
-import type { LatLng } from '@/utils/geo';
-
-interface Place { latlng: LatLng; label: string }
-interface NominatimResult { lat: string; lon: string; display_name: string }
+import type { Place } from '@/models';
 
 interface LocationFieldProps {
   label: string;
@@ -20,7 +19,7 @@ interface LocationFieldProps {
 /** Address input with debounced geocode suggestions + "pick on map" button. */
 export function LocationField({ label, point, placeholder, accent = T.teal, onPick, onSelect }: LocationFieldProps) {
   const [query, setQuery] = useState(point ? point.label : '');
-  const [suggestions, setSuggestions] = useState<NominatimResult[]>([]);
+  const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([]);
   const [searching, setSearching] = useState(false);
   const [focused, setFocused] = useState(false);
   const debRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -34,17 +33,15 @@ export function LocationField({ label, point, placeholder, accent = T.teal, onPi
     if (val.trim().length < 2) { setSuggestions([]); setSearching(false); return; }
     setSearching(true);
     debRef.current = setTimeout(async () => {
-      const res = await geocode(val) as NominatimResult[];
-      setSuggestions(res.slice(0, 5));
+      setSuggestions(await geocode(val));
       setSearching(false);
     }, 400);
   };
 
-  const pickSuggest = (s: NominatimResult) => {
-    const latlng: LatLng = [parseFloat(s.lat), parseFloat(s.lon)];
-    const lbl = s.display_name.split(',').slice(0, 2).join(', ');
-    setQuery(lbl); setSuggestions([]); setSearching(false); setFocused(false);
-    onSelect({ latlng, label: lbl });
+  const pickSuggest = (s: PlaceSuggestion) => {
+    const place = suggestionToPlace(s);
+    setQuery(place.label); setSuggestions([]); setSearching(false); setFocused(false);
+    onSelect(place);
   };
 
   const clear = () => { setQuery(''); setSuggestions([]); setSearching(false); onSelect(null); };
@@ -82,13 +79,7 @@ export function LocationField({ label, point, placeholder, accent = T.teal, onPi
         </button>
       </div>
 
-      {focused && searching && (
-        <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8, padding: '2px 2px' }}>
-          <div style={{ width: 14, height: 14, borderRadius: 7, border: `2px solid ${T.tealDim}`,
-            borderTop: `2px solid ${T.teal}`, animation: 'spin .7s linear infinite' }} />
-          <span style={{ fontSize: 12, color: T.muted }}>{t('form.searching')}</span>
-        </div>
-      )}
+      {focused && searching && <InlineSpinner size={14} style={{ marginTop: 8, padding: '2px 2px' }} />}
       {focused && !searching && suggestions.length > 0 && (
         <div style={{ marginTop: 8, borderRadius: 12, overflow: 'hidden', border: `1px solid ${T.border}` }}>
           {suggestions.map((s, i) => (
@@ -103,7 +94,7 @@ export function LocationField({ label, point, placeholder, accent = T.teal, onPi
               </svg>
               <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, color: T.text,
                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {s.display_name.split(',').slice(0, 3).join(', ')}
+                {placeLabel(s.display_name, 3)}
               </span>
             </button>
           ))}

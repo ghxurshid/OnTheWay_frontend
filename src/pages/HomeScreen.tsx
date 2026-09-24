@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import type { ReactNode } from 'react';
 import { T } from '@/constants/theme';
 import { t } from '@/i18n';
+import { AppLogo } from '@/components/ui/AppLogo';
 
 type Role = 'passenger' | 'driver';
 
@@ -20,15 +21,7 @@ export function HomeScreen({ onSelect }: { onSelect: (role: Role) => void }) {
         opacity: in_ ? 1 : 0, transform: in_ ? 'none' : 'translateY(20px)',
         transition: 'all .6s cubic-bezier(.34,1.56,.64,1)' }}>
         <div style={{ position: 'relative', marginBottom: 8 }}>
-          <div style={{ width: 72, height: 72, borderRadius: 20,
-            background: `linear-gradient(135deg,${T.teal},#0e9e97)`,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            boxShadow: `0 0 40px ${T.tealGlow}` }}>
-            <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
-              <path d="M7 28 L18 8 L29 28 L18 22 Z" stroke="white" strokeWidth="2" strokeLinejoin="round" fill="rgba(255,255,255,0.15)" />
-              <circle cx="18" cy="22" r="3" fill="white" />
-            </svg>
-          </div>
+          <AppLogo />
           <div style={{ position: 'absolute', inset: -3, borderRadius: 23,
             border: `1.5px solid ${T.tealGlow}`, animation: 'pulse 2s ease infinite' }} />
         </div>

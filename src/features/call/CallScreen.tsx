@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import type { ReactNode } from 'react';
-import { T } from '@/constants/theme';
+import { T, partyColor } from '@/constants/theme';
 import { t } from '@/i18n';
 import { ME } from '@/constants/app';
 import type { PartyType } from '@/models';
@@ -26,7 +26,7 @@ interface CallScreenProps {
   role?: 'caller' | 'callee';
 }
 
-const partyColor = (p: CallParty) => (p.accent ? p.accent : (p.type === 'driver' ? T.amber : T.purple));
+const accentOf = (p: CallParty): string => p.accent || partyColor(p.type);
 
 /** Call screen (ringing/active) with a "ride together" offer.
     Real calls (`live`): always shows the REMOTE party (`callee` prop — the
@@ -58,7 +58,7 @@ export function CallScreen({ callee, phase, onAccept, onDecline, onEnd, onAgree,
   // the person on screen is always the remote party. Demo mode alternates views.
   const onCaller = live ? role === 'caller' : view === 'caller';
   const shown = live ? callee : (onCaller ? callee : caller);
-  const color = partyColor(shown);
+  const color = accentOf(shown);
   const flip = () => setView((v) => (v === 'caller' ? 'callee' : 'caller'));
 
   const status = phase === 'active' ? fmt(secs) : onCaller ? t('call.calling') : t('call.incoming');
