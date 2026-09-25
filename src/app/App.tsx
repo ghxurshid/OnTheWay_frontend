@@ -360,6 +360,8 @@ export function App() {
     return chatClient.on('ReceiveMessage', (m: ChatMessageDto) => {
       const from = idOf(m.senderId);
       if (from === myId) return;
+      // The sender's ✓✓: this device has it, whether or not that chat is open.
+      chatClient.markDelivered(from, idOf(m.id)).catch(() => { /* the next connect sweep settles it */ });
       if (chatUserRef.current && idOf(chatUserRef.current.id) === from) return; // that chat is open
       unreadStore.add(from, 1);
       const user = chatPeerFor(from, m.senderName);

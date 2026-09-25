@@ -54,6 +54,10 @@ export const T: Theme = { ...THEMES.dark };
 /** The brand call-to-action gradient (accents are identical across themes). */
 export const TEAL_GRADIENT = `linear-gradient(135deg,${ACCENTS.teal},#0e9e97)`;
 
+/** Read ✓✓ on my (TEAL_GRADIENT) chat bubble: a deep blue that stays apart from
+    the white delivered ✓✓ and keeps ≥ 3:1 contrast on the gradient's dark end. */
+export const RECEIPT_READ = '#0b3a82';
+
 /** A person's accent by role: drivers amber, passengers purple. */
 export const partyColor = (type?: string | null): string => (type === 'driver' ? ACCENTS.amber : ACCENTS.purple);
 

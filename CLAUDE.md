@@ -61,6 +61,8 @@ pages / features  →  components (ui, form)
 | "Are you sure?" before a destructive action | `services/confirm` (`await confirmAction({...})`, rendered once by `ConfirmHost`) |
 | Close a layer on Escape / Telegram BackButton (top-most layer only) | `hooks/useBackHandler` (over `services/backStack`) |
 | Realtime connection state for UI (connected / reconnecting / offline) | `hooks/useRealtimeStatus` |
+| Chat receipts: status of my message (🕓 / ✓ / ✓✓ delivered / ✓✓ read), receipt watermarks | `services/messageStatus` (`statusFromServer`, `raiseWatermark`, `displayStatus`) · `components/ui/MessageTicks` |
+| "Is the user actually looking?" (page visible, Mini App not minimized) | `services/telegram` (`isAppInForeground`, `onAppForeground`) |
 
 **Ids are always strings on the frontend** (REST sends numeric longs, SignalR sends
 strings) — normalise with `String(id)` / `idOf` before comparing or keying maps.
@@ -115,3 +117,7 @@ Use it instead of `../../..` chains.
   `EmptyState`. A submit is guarded by a **ref**, not only by `busy` state — taps in the
   same frame all see the stale state.
 - Every literal `t('a.b')` key must exist in uz/ru/en — `src/i18n/keys.test.ts` enforces it.
+- Chat receipts follow the watermark model: any device that receives a message acks it
+  (`chatClient.markDelivered`, done once in `App.tsx`); a read receipt (`chatApi.markRead`)
+  is sent only while the chat is on screen and the app is in the foreground. A status
+  never moves backwards; after a reconnect the open chat resyncs from history.

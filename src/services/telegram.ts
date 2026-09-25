@@ -26,6 +26,10 @@ interface TelegramWebApp {
   enableClosingConfirmation?: () => void;
   disableClosingConfirmation?: () => void;
   HapticFeedback?: { notificationOccurred?: (type: 'error' | 'success' | 'warning') => void };
+  /** Bot API 8.0+: false while the Mini App is minimized. */
+  isActive?: boolean;
+  onEvent?: (event: string, handler: () => void) => void;
+  offEvent?: (event: string, handler: () => void) => void;
 }
 
 function tg(): { WebApp?: TelegramWebApp } | undefined {
@@ -62,6 +66,26 @@ export function setClosingConfirmation(enabled: boolean): void {
 /** A short vibration pattern for important events (incoming call, error). */
 export function haptic(type: 'error' | 'success' | 'warning'): void {
   safe(() => webApp()?.HapticFeedback?.notificationOccurred?.(type));
+}
+
+/** True while the user can actually see the app: the page is visible and the
+    Mini App is not minimized (clients before Bot API 8.0 lack `isActive`). */
+export function isAppInForeground(): boolean {
+  if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return false;
+  return webApp()?.isActive !== false;
+}
+
+/** Calls `fn` each time the app comes back into view (tab shown, Mini App
+    restored). Returns an unsubscribe. */
+export function onAppForeground(fn: () => void): () => void {
+  const handler = () => { if (isAppInForeground()) fn(); };
+  const wa = webApp();
+  document.addEventListener('visibilitychange', handler);
+  safe(() => wa?.onEvent?.('activated', handler));
+  return () => {
+    document.removeEventListener('visibilitychange', handler);
+    safe(() => wa?.offEvent?.('activated', handler));
+  };
 }
 
 /** Close the Mini App (Telegram only). Returns false outside Telegram. */

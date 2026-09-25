@@ -1,24 +1,28 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { T, TEAL_GRADIENT, partyColor } from '@/constants/theme';
+import { T, TEAL_GRADIENT, RECEIPT_READ, partyColor } from '@/constants/theme';
 import { t } from '@/i18n';
 import { CHAT_QUICK_KEYS, randomChatReplyKey } from '@/constants/app';
 import { authStore } from '@/services/authStore';
 import { chatClient } from '@/services/realtime/chatClient';
 import { presenceClient } from '@/services/realtime/presenceClient';
 import { unreadStore } from '@/services/unreadStore';
+import { isAppInForeground, onAppForeground } from '@/services/telegram';
+import { NO_WATERMARKS, displayStatus, furtherStatus, raiseWatermark, statusFromServer } from '@/services/messageStatus';
+import type { MessageStatus, Watermarks } from '@/services/messageStatus';
 import { chatApi } from '@/api/chatApi';
-import type { ChatMessageDto } from '@/api/chatApi';
+import type { ChatMessageDto, MessageReceipt } from '@/api/chatApi';
 import { useBackHandler } from '@/hooks/useBackHandler';
 import { ErrorState } from '@/components/ui/StatusStates';
+import { MessageTicks } from '@/components/ui/MessageTicks';
 import { fmt12 } from '@/utils/datetime';
 import { idOf, isRealUserId } from '@/utils/ids';
 import type { PartyType } from '@/models';
 
 interface ChatUser { id: string | number; type: PartyType; name: string; initials: string }
 
-/** pending → sent over the socket/REST and confirmed; failed → tap to resend. */
-type MsgStatus = 'sent' | 'pending' | 'failed';
-interface Msg { id: string; from: 'me' | 'them'; text: string; at: Date; status: MsgStatus }
+/** pending → confirmed by the socket echo / REST (sent) → receipts lift it to
+    delivered / read; failed → tap to resend. */
+interface Msg { id: string; from: 'me' | 'them'; text: string; at: Date; status: MessageStatus }
 
 interface ChatScreenProps {
   user: ChatUser;
@@ -32,15 +36,18 @@ const PAGE_SIZE = 30;
 
 // Ids arrive as numbers over REST and as strings over the hub, so they are
 // always compared as strings (idOf) to avoid number-vs-string mismatches.
-const toMsg = (m: ChatMessageDto, myId: string | null): Msg => ({
-  id: idOf(m.id), from: idOf(m.senderId) === myId ? 'me' : 'them', text: m.content, at: new Date(m.sentAtUtc), status: 'sent',
-});
+const toMsg = (m: ChatMessageDto, myId: string | null): Msg => {
+  const mine = idOf(m.senderId) === myId;
+  return { id: idOf(m.id), from: mine ? 'me' : 'them', text: m.content, at: new Date(m.sentAtUtc),
+    status: mine ? statusFromServer(m) : 'sent' };
+};
 const byTime = (a: Msg, b: Msg) => a.at.getTime() - b.at.getTime();
+const inFlight = (m: Msg) => m.status === 'pending' || m.status === 'failed';
 
-/** 1:1 chat screen. Real users: ChatHub delivery + REST history (paged),
-    read receipts, and a REST fallback when the socket is down; every sent
-    message shows whether it went through. Simulated walkers get a local
-    auto-responder. */
+/** 1:1 chat screen. Real users: ChatHub delivery + REST history (paged), a
+    REST fallback when the socket is down, and messenger-style receipts — each
+    of my messages shows 🕓 / ✓ / ✓✓ delivered / ✓✓ read. Simulated walkers get
+    a local auto-responder. */
 export function ChatScreen({ user, onBack, onCall }: ChatScreenProps) {
   const isDriver = user.type === 'driver';
   const color = partyColor(user.type);
@@ -54,8 +61,10 @@ export function ChatScreen({ user, onBack, onCall }: ChatScreenProps) {
     { id: 'd1', from: 'them', status: 'sent',
       text: isDriver ? t('chat.greetDriverThem') : t('chat.greetPassengerThem'),
       at: new Date(Date.now() - 2 * 60000) },
-    { id: 'd2', from: 'me', status: 'sent', text: t('chat.greetMe'), at: new Date(Date.now() - 60000) },
+    { id: 'd2', from: 'me', status: 'read', text: t('chat.greetMe'), at: new Date(Date.now() - 60000) },
   ]);
+  // How far the other side has received / read my messages (their receipts).
+  const [outbox, setOutbox] = useState<Watermarks>(NO_WATERMARKS);
   const [page, setPage] = useState(1);
   const [hasOlder, setHasOlder] = useState(false);
   const [loading, setLoading] = useState(live);
@@ -73,14 +82,20 @@ export function ChatScreen({ user, onBack, onCall }: ChatScreenProps) {
     if (el && stickToBottom.current) el.scrollTop = el.scrollHeight;
   }, [msgs, typing]);
 
-  // Merge server messages into the list: dedupe by id and settle the matching
-  // pending bubble (same text from me) instead of showing it twice.
+  // Merge server messages into the list: dedupe by id (keeping the further
+  // receipt state — a resync carries what the socket missed) and settle the
+  // matching in-flight bubble (same text from me) instead of showing it twice.
   const merge = useCallback((incoming: Msg[]) => {
     setMsgs((cur) => {
       let next = cur;
       for (const m of incoming) {
-        if (next.some((x) => x.id === m.id)) continue;
-        const pending = m.from === 'me' ? next.findIndex((x) => x.status !== 'sent' && x.from === 'me' && x.text === m.text) : -1;
+        const known = next.findIndex((x) => x.id === m.id);
+        if (known >= 0) {
+          const status = furtherStatus(next[known].status, m.status);
+          if (status !== next[known].status) next = next.map((x, i) => (i === known ? { ...x, status } : x));
+          continue;
+        }
+        const pending = m.from === 'me' ? next.findIndex((x) => inFlight(x) && x.from === 'me' && x.text === m.text) : -1;
         next = pending >= 0 ? next.map((x, i) => (i === pending ? m : x)) : [...next, m];
       }
       return [...next].sort(byTime);
@@ -103,33 +118,57 @@ export function ChatScreen({ user, onBack, onCall }: ChatScreenProps) {
     }
   }, [uid, myId, merge]);
 
-  // Live mode: history, read receipts, realtime delivery/typing, presence.
+  // Quiet refresh of the newest page after a reconnect: messages and receipts
+  // the socket missed (the history carries each message's receipt times).
+  const resync = useCallback(() => {
+    chatApi.withUser(uid, 1, PAGE_SIZE)
+      .then(({ items }) => merge(items.map((m) => toMsg(m, myId))))
+      .catch(() => { /* the next reconnect retries */ });
+  }, [uid, myId, merge]);
+
+  // Live mode: history, realtime delivery/typing/receipts, presence.
   useEffect(() => {
     if (!live) return undefined;
     loadPage(1);
-    unreadStore.clear(uid);
-    chatApi.markRead(uid).catch(() => {});
+
+    // A read receipt means the user saw it, so only while the app is in view
+    // (not minimized / in a background tab): on open, on arrival, on return.
+    const markSeen = (upToMessageId?: string) => {
+      if (!isAppInForeground()) return;
+      unreadStore.clear(uid);
+      chatApi.markRead(uid, upToMessageId).catch(() => {});
+    };
+    markSeen();
 
     const offMsg = chatClient.on('ReceiveMessage', (m: ChatMessageDto) => {
       const from = idOf(m.senderId);
       if (from !== uid && from !== myId) return; // other conversation
       if (from === uid) {
         setTyping(false);
-        chatApi.markRead(uid).catch(() => {});
+        markSeen(idOf(m.id));
       }
       stickToBottom.current = true;
       merge([toMsg(m, myId)]);
     });
+    const onReceipt = (kind: keyof Watermarks) => (r: MessageReceipt) => {
+      if (idOf(r.byUserId) === uid) setOutbox((w) => raiseWatermark(w, kind, idOf(r.upToMessageId)));
+    };
+    const offDelivered = chatClient.on('MessagesDelivered', onReceipt('delivered'));
+    const offRead = chatClient.on('MessagesRead', onReceipt('read'));
     const offTyping = chatClient.on('TypingIndicator', (fromUserId, isTyping) => {
       if (idOf(fromUserId) === uid) setTyping(isTyping);
     });
+    const offReconnected = chatClient.onReconnected(() => { resync(); markSeen(); });
+    const offForeground = onAppForeground(() => markSeen());
     const offOnline = presenceClient.on('UserOnline', (id) => { if (idOf(id) === uid) setOnline(true); });
     const offOffline = presenceClient.on('UserOffline', (id) => { if (idOf(id) === uid) setOnline(false); });
 
-    return () => { offMsg(); offTyping(); offOnline(); offOffline(); };
-  }, [live, uid, myId, loadPage, merge]);
+    return () => {
+      offMsg(); offDelivered(); offRead(); offTyping(); offReconnected(); offForeground(); offOnline(); offOffline();
+    };
+  }, [live, uid, myId, loadPage, merge, resync]);
 
-  const setStatus = (id: string, status: MsgStatus) =>
+  const setStatus = (id: string, status: MessageStatus) =>
     setMsgs((cur) => cur.map((m) => (m.id === id ? { ...m, status } : m)));
 
   // Deliver one message: the socket first (its echo confirms it), REST if the
@@ -159,8 +198,9 @@ export function ChatScreen({ user, onBack, onCall }: ChatScreenProps) {
 
     if (live) { deliver(localId, txt); return; }
 
-    // Demo fallback: simulated auto-reply.
-    setTimeout(() => setTyping(true), 600);
+    // Demo fallback: the simulated walker receives and reads it, then replies.
+    setTimeout(() => setStatus(localId, 'delivered'), 350);
+    setTimeout(() => { setStatus(localId, 'read'); setTyping(true); }, 600);
     setTimeout(() => {
       setTyping(false);
       setMsgs((m) => [...m, { id: `demo-${++seqRef.current}`, from: 'them', status: 'sent', text: t(randomChatReplyKey()), at: new Date() }]);
@@ -240,7 +280,8 @@ export function ChatScreen({ user, onBack, onCall }: ChatScreenProps) {
         )}
         {msgs.map((m) => {
           const me = m.from === 'me';
-          const failed = m.status === 'failed';
+          const status = me ? displayStatus(m.id, m.status, outbox) : m.status;
+          const failed = status === 'failed';
           return (
             <div key={m.id} style={{ display: 'flex', flexDirection: 'column', alignItems: me ? 'flex-end' : 'flex-start',
               animation: 'fadeUp .25s ease both' }}>
@@ -249,12 +290,13 @@ export function ChatScreen({ user, onBack, onCall }: ChatScreenProps) {
                 background: me ? (failed ? T.surface2 : TEAL_GRADIENT) : T.surface2,
                 color: me && !failed ? 'white' : T.text,
                 border: me && !failed ? 'none' : `1px solid ${failed ? T.red + '66' : T.border}`,
-                opacity: m.status === 'pending' ? 0.7 : 1,
+                opacity: status === 'pending' ? 0.7 : 1,
                 boxShadow: me && !failed ? `0 2px 10px ${T.tealGlow}` : 'none' }}>
                 <div style={{ fontSize: 13, lineHeight: 1.4, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{m.text}</div>
-                <div style={{ fontSize: 9, opacity: .7, marginTop: 3,
-                  textAlign: 'right', color: me && !failed ? 'white' : T.muted }}>
-                  {m.status === 'pending' ? t('chat.pending') : failed ? t('chat.failed') : fmt12(m.at)}
+                <div style={{ fontSize: 9, marginTop: 3, display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
+                  gap: 3, color: me && !failed ? 'rgba(255,255,255,0.75)' : T.muted }}>
+                  {failed ? t('chat.failed') : fmt12(m.at)}
+                  {me && !failed && <MessageTicks status={status} color="rgba(255,255,255,0.75)" readColor={RECEIPT_READ} />}
                 </div>
               </div>
               {failed && (

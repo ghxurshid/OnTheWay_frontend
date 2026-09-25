@@ -322,6 +322,9 @@ export const STRINGS = {
     chat: {
       offline: { uz: "oflayn", ru: "не в сети", en: "offline" },
       pending: { uz: "Yuborilmoqda…", ru: "Отправка…", en: "Sending…" },
+      statusSent: { uz: "Yuborildi", ru: "Отправлено", en: "Sent" },
+      statusDelivered: { uz: "Yetkazildi", ru: "Доставлено", en: "Delivered" },
+      statusRead: { uz: "Oʻqildi", ru: "Прочитано", en: "Read" },
       failed: { uz: "Yuborilmadi", ru: "Не отправлено", en: "Not sent" },
       resend: { uz: "Qayta yuborish", ru: "Отправить снова", en: "Send again" },
       loadOlder: { uz: "Oldingi xabarlar", ru: "Предыдущие сообщения", en: "Earlier messages" },

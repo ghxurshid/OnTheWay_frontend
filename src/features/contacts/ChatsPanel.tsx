@@ -1,13 +1,17 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { T, partyColor } from '@/constants/theme';
 import { t } from '@/i18n';
 import { chatApi } from '@/api/chatApi';
-import type { ConversationRow } from '@/api/chatApi';
+import type { ConversationRow, MessageReceipt } from '@/api/chatApi';
 import { authStore } from '@/services/authStore';
+import { chatClient } from '@/services/realtime/chatClient';
+import { NO_WATERMARKS, displayStatus, raiseWatermark, statusFromServer } from '@/services/messageStatus';
+import type { Watermarks } from '@/services/messageStatus';
 import { useAsync } from '@/hooks/useAsync';
 import { useUnread } from '@/hooks/useUnread';
 import { Spinner } from '@/components/ui/Spinner';
 import { EmptyState, ErrorState } from '@/components/ui/StatusStates';
+import { MessageTicks } from '@/components/ui/MessageTicks';
 import { initialsOf } from '@/utils/avatar';
 import { fmtLastSeen } from '@/utils/datetime';
 import { idOf } from '@/utils/ids';
@@ -28,11 +32,29 @@ const peerOf = (row: ConversationRow): ChatPeer => {
   };
 };
 
-/** The inbox: everyone the user has talked to, latest first, with unread counts. */
+/** Receipts that arrive while the inbox is open, per conversation — they lift
+    the ✓ / ✓✓ of rows whose last message is mine. */
+function useLiveReceipts(): Record<string, Watermarks> {
+  const [byConversation, setByConversation] = useState<Record<string, Watermarks>>({});
+  useEffect(() => {
+    const raise = (kind: keyof Watermarks) => (r: MessageReceipt) => setByConversation((cur) => {
+      const id = idOf(r.conversationId);
+      return { ...cur, [id]: raiseWatermark(cur[id] ?? NO_WATERMARKS, kind, idOf(r.upToMessageId)) };
+    });
+    const offDelivered = chatClient.on('MessagesDelivered', raise('delivered'));
+    const offRead = chatClient.on('MessagesRead', raise('read'));
+    return () => { offDelivered(); offRead(); };
+  }, []);
+  return byConversation;
+}
+
+/** The inbox: everyone the user has talked to, latest first, with unread counts
+    and — when the last message is mine — its receipt mark, as in Telegram. */
 export function ChatsPanel({ onOpenChat }: ChatsPanelProps) {
   const loader = useCallback(() => chatApi.conversations(), []);
   const { data, loading, error, reload } = useAsync<ConversationRow[]>(loader, [], []);
   const unread = useUnread();
+  const receipts = useLiveReceipts();
   const myId = idOf((authStore.getUser() as { id?: string } | null)?.id ?? '');
 
   if (loading) return <Spinner label={null} />;
@@ -49,6 +71,11 @@ export function ChatsPanel({ onOpenChat }: ChatsPanelProps) {
         const color = partyColor(peer.type);
         const count = unread[peer.id] ?? row.unreadCount ?? 0;
         const mine = row.lastMessageSenderId != null && idOf(row.lastMessageSenderId) === myId;
+        const lastStatus = mine && row.lastMessageId
+          ? displayStatus(idOf(row.lastMessageId),
+            statusFromServer({ deliveredAtUtc: row.lastMessageDeliveredAtUtc, readAtUtc: row.lastMessageReadAtUtc }),
+            receipts[idOf(row.id)] ?? NO_WATERMARKS)
+          : null;
         return (
           <button key={row.id} onClick={() => onOpenChat(peer)} style={{ display: 'flex', alignItems: 'center', gap: 12,
             padding: '11px 12px', borderRadius: 14, border: `1px solid ${T.border}`, background: T.surface2,
@@ -60,7 +87,10 @@ export function ChatsPanel({ onOpenChat }: ChatsPanelProps) {
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
                 <span style={{ fontSize: 14, fontWeight: count ? 700 : 600, color: T.text,
                   overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{peer.name}</span>
-                <span style={{ fontSize: 10.5, color: T.muted, flexShrink: 0 }}>{fmtLastSeen(row.lastMessageAtUtc)}</span>
+                <span style={{ fontSize: 10.5, color: T.muted, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  {lastStatus && lastStatus !== 'failed' && <MessageTicks status={lastStatus} color={T.muted} readColor={T.teal} />}
+                  {fmtLastSeen(row.lastMessageAtUtc)}
+                </span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 2 }}>
                 <span style={{ flex: 1, fontSize: 12, color: count ? T.text : T.muted,
