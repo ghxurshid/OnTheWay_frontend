@@ -43,10 +43,12 @@ import { addContact } from '@/services/contactService';
 import { authStore } from '@/services/authStore';
 import { confirmAction } from '@/services/confirm';
 import { setClosingConfirmation } from '@/services/telegram';
+import { takeDeepLink } from '@/services/deepLink';
 import { startLocationReporting, stopLocationReporting, callClient, chatClient, presenceClient } from '@/services/realtime';
 import { walkerStateStore } from '@/services/walkerStateStore';
 import { chatApi } from '@/api/chatApi';
 import type { ChatMessageDto } from '@/api/chatApi';
+import { walkerApi } from '@/api/walkerApi';
 import { SESSION_LOST_EVENT, USE_MOCKS } from '@/api/client';
 import type { ActiveRoute, LatLng, MapTask, PartyType, Place, RouteData, Walker } from '@/models';
 
@@ -522,6 +524,24 @@ export function App() {
   };
 
   const openChat = (peer: ChatPeer | CallUser) => setChatUser(peer);
+
+  // A bot "open in the app" button lands on its screen once the app is ready:
+  // a chat (named from the walker's public profile) or My trips.
+  useEffect(() => {
+    if (screen === 'loading') return;
+    const link = takeDeepLink();
+    if (!link) return;
+    if (link.kind === 'trips') {
+      setOverlayPanel('myTrips');
+      return;
+    }
+    walkerApi.profile(link.userId)
+      .then((p): CallUser => (p
+        ? { id: p.id, type: p.kind === 'driver' ? 'driver' : 'passenger', name: p.name, initials: initialsOf(p.name), sub: '' }
+        : chatPeerFor(link.userId)))
+      .catch(() => chatPeerFor(link.userId))
+      .then(setChatUser);
+  }, [screen, chatPeerFor]);
 
   const saveContact = async (user: { id: string; name: string }) => {
     try {

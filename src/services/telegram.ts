@@ -18,7 +18,7 @@ interface TelegramBackButton {
 
 interface TelegramWebApp {
   initData?: string;
-  initDataUnsafe?: { user?: unknown };
+  initDataUnsafe?: { user?: unknown; start_param?: string };
   ready?: () => void;
   expand?: () => void;
   close?: () => void;
@@ -66,6 +66,27 @@ export function setClosingConfirmation(enabled: boolean): void {
 /** A short vibration pattern for important events (incoming call, error). */
 export function haptic(type: 'error' | 'success' | 'warning'): void {
   safe(() => webApp()?.HapticFeedback?.notificationOccurred?.(type));
+}
+
+/** URL parameters that carry a start parameter (see getStartParam). */
+export const START_PARAM_KEYS = ['tgWebAppStartParam', 'startapp'] as const;
+
+/**
+ * The launch's start parameter, if any. Telegram passes it for direct t.me links
+ * (initDataUnsafe.start_param, or tgWebAppStartParam in the URL); keyboard/inline
+ * web_app buttons get none, so the bot adds `?startapp=…` to the Mini App URL.
+ */
+export function getStartParam(): string | null {
+  const fromTelegram = webApp()?.initDataUnsafe?.start_param;
+  if (fromTelegram) return fromTelegram;
+  if (typeof window === 'undefined') return null;
+  const query = new URLSearchParams(window.location.search);
+  const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+  for (const key of START_PARAM_KEYS) {
+    const value = query.get(key) || hash.get(key);
+    if (value) return value;
+  }
+  return null;
 }
 
 /** True while the user can actually see the app: the page is visible and the

@@ -63,6 +63,7 @@ pages / features  →  components (ui, form)
 | Realtime connection state for UI (connected / reconnecting / offline) | `hooks/useRealtimeStatus` |
 | Chat receipts: status of my message (🕓 / ✓ / ✓✓ delivered / ✓✓ read), receipt watermarks | `services/messageStatus` (`statusFromServer`, `raiseWatermark`, `displayStatus`) · `components/ui/MessageTicks` |
 | "Is the user actually looking?" (page visible, Mini App not minimized) | `services/telegram` (`isAppInForeground`, `onAppForeground`) |
+| Open a screen from a link (bot "open in the app": `chat_<userId>`, `trips`) | `services/deepLink` (`takeDeepLink`, `parseDeepLink`) over `services/telegram` `getStartParam` |
 
 **Ids are always strings on the frontend** (REST sends numeric longs, SignalR sends
 strings) — normalise with `String(id)` / `idOf` before comparing or keying maps.

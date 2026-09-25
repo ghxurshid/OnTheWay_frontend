@@ -38,6 +38,13 @@ export const walkerApi = {
     return http(`/walkers/online${qs}`).then((rows) => (rows || []).map((r: WalkerRow) => ({ ...r, id: String(r.id) })));
   },
 
+  /** GET /walkers/:id — one walker's public profile (name, kind, rating), for a
+      chat opened by id only (e.g. from a bot link); null when unknown. */
+  profile(userId: string): Promise<{ id: string; name: string; kind?: string } | null> {
+    if (USE_MOCKS) return mockResponse(null);
+    return http(`/walkers/${encodeURIComponent(userId)}`).then((p) => (p ? { ...p, id: String(p.id) } : null));
+  },
+
   /** POST /trips — publish the current user's own trip. The form's role (driver/
       passenger) maps to a Driver or Passenger trip; the response (TripResponseDto)
       is mapped back to the walker shape the rest of the app uses. */
