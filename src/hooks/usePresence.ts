@@ -38,11 +38,21 @@ interface UsePresenceArgs {
   notify: (n: { title: string; body: string }) => void;
   restoreLiveRoute: (trip: Any) => void;
   pendingRestoreRef: MutableRefObject<Any>;
+  /** The device location could not be read (the map is not centred on the user). */
+  onLocationUnknown: () => void;
+  /** The device location is known (the "you" marker is placed). */
+  onLocated: (loc: LatLng) => void;
+  /** Number of opposite-role walkers currently on the map (after each refresh). */
+  onWalkerCount: (n: number) => void;
 }
+
+/** Walkers farther than this are still drawn, but neither zoom the map out on
+    entry nor raise "joined" toasts — they are not practically "nearby". */
+const NEARBY_KM = 20;
 
 export function usePresence({
   screen, mode, mapHook, liveWalkersRef, userLocRef, openWalker, notify,
-  restoreLiveRoute, pendingRestoreRef,
+  restoreLiveRoute, pendingRestoreRef, onLocationUnknown, onLocated, onWalkerCount,
 }: UsePresenceArgs) {
   useEffect(() => {
     if (USE_MOCKS || screen !== 'map' || !mode) return undefined;
@@ -71,7 +81,9 @@ export function usePresence({
       [...liveWalkersRef.current.keys()].forEach((id) => {
         if (!seen.has(id)) { liveWalkersRef.current.delete(id); mapHook.removeWalkerMarker(id); }
       });
+      reportCount();
     };
+    const reportCount = () => { if (alive) onWalkerCount(liveWalkersRef.current.size); };
 
     const refresh = async () => {
       try {
@@ -93,14 +105,17 @@ export function usePresence({
       if (!alive) return;
       if (!profiles.has(pos.userId)) { scheduleRefresh(); return; }
       const w = enrichLiveWalker(profiles.get(pos.userId), pos);
+      const isNew = !liveWalkersRef.current.has(w.id);
       liveWalkersRef.current.set(w.id, w);
       mapHook.upsertWalkerMarker(w, openWalker);
+      if (isNew) reportCount();
     };
     const onGone = (id: Any) => {
       if (!alive) return;
       liveWalkersRef.current.delete(id);
       mapHook.removeWalkerRoute(id);
       mapHook.removeWalkerMarker(id);
+      reportCount();
     };
 
     // Offline grace: a disconnected walker STAYS on the map — marker and route
@@ -136,9 +151,9 @@ export function usePresence({
         ? enrichLiveWalker(profile, pos).name
         : (pos.role === 'driver' ? t('common.driver') : t('common.passenger'));
       const loc = userLocRef.current;
-      const body = loc && pos.lat != null
-        ? `${name} • ${haversineKm(loc, [pos.lat, pos.lng]).toFixed(1)} km`
-        : name;
+      const km = loc && pos.lat != null ? haversineKm(loc, [pos.lat, pos.lng]) : null;
+      if (km != null && km > NEARBY_KM) return; // far away: on the map, but no toast
+      const body = km != null ? `${name} • ${t('common.km', { n: km.toFixed(1) })}` : name;
       notify({ title: t('push.walkerJoinedTitle'), body });
     };
 
@@ -160,15 +175,25 @@ export function usePresence({
     (async () => {
       mapHook.clearWalkers();
       liveWalkersRef.current = new Map();
-      const userLoc = userLocRef.current || await getCurrentLatLng() || TASHKENT;
+      const userLoc = userLocRef.current || await getCurrentLatLng();
       if (!alive) return;
-      userLocRef.current = userLoc;
-      mapHook.setUserLocation(userLoc);
-      mapHook.flyTo(userLoc, 15); // focus the map on the current location on entry
+      if (userLoc) {
+        userLocRef.current = userLoc;
+        mapHook.setUserLocation(userLoc);
+        mapHook.flyTo(userLoc, 15); // focus the map on the current location on entry
+        onLocated(userLoc);
+      } else {
+        // Never pretend: without a fix there is no "you" marker — show the city
+        // and let the map chrome ask for location access.
+        onLocationUnknown();
+        mapHook.flyTo(TASHKENT, 12);
+      }
       await refresh();
-      if (!alive) return;
-      const pts = [userLoc, ...[...liveWalkersRef.current.values()].map((w) => w.position).filter(Boolean)];
-      if (pts.length > 1) mapHook.fitPoints(pts);
+      if (!alive || !userLoc) return;
+      const nearby = [...liveWalkersRef.current.values()]
+        .map((w) => w.position)
+        .filter((p) => p && haversineKm(userLoc, p) <= NEARBY_KM);
+      if (nearby.length) mapHook.fitPoints([userLoc, ...nearby]);
       // Auto-resume: redraw the retained session's live route once per boot.
       const restoreTrip = pendingRestoreRef.current;
       if (restoreTrip) {

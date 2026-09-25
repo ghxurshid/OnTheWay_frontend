@@ -31,7 +31,3 @@ export const PRIVACY_SECTION_ICONS = ['📍', '🧭', '🤝', '👥', '🔒', '�
 // "Me" — the app owner's profile shown on the call screen.
 export const ME = { initials: 'AK', name: 'Alisher Karimov', sub: '@alisher_k · Toshkent' };
 
-// Uzbek month / weekday labels for the custom calendar in WhenField.
-export const UZ_MON = ['Yanvar', 'Fevral', 'Mart', 'Aprel', 'May', 'Iyun', 'Iyul', 'Avgust', 'Sentabr', 'Oktabr', 'Noyabr', 'Dekabr'];
-export const UZ_MON_S = ['yan', 'fev', 'mar', 'apr', 'may', 'iyun', 'iyul', 'avg', 'sen', 'okt', 'noy', 'dek'];
-export const UZ_DOW = ['Du', 'Se', 'Ch', 'Pa', 'Ju', 'Sh', 'Ya'];

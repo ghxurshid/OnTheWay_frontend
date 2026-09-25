@@ -1,10 +1,14 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { T, TEAL_GRADIENT } from '@/constants/theme';
 import { t } from '@/i18n';
 import { COMPLAINT_CATS } from '@/constants/app';
 import { FullScreenPanel } from '@/components/ui/FullScreenPanel';
 import { feedbackApi } from '@/api/feedbackApi';
+import { confirmAction } from '@/services/confirm';
+import { errorMessage } from '@/utils/errors';
+
+const MAX_DETAIL = 600;
 
 // Map the screen's topic to a backend FeedbackCategory (Suggestion/Complaint/BugReport).
 const BACKEND_CATEGORY: Record<string, string> = { app: 'BugReport', other: 'Suggestion' };
@@ -18,30 +22,46 @@ interface ComplaintScreenProps {
 const catLabel = (id: string): string => t('complaint.cat' + id.charAt(0).toUpperCase() + id.slice(1));
 
 /** Complaint / feedback form with category, subject, detail and a sent state. */
-export function ComplaintScreen({ onClose }: ComplaintScreenProps) {
+export function ComplaintScreen({ onClose: close }: ComplaintScreenProps) {
   const [cat, setCat] = useState<string | null>(null);
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
   const [sent, setSent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [ticket, setTicket] = useState<string | null>(null);
+
+  // Leaving with unsent text asks first — the draft would be lost.
+  const onClose = async () => {
+    if (!sent && (subject.trim() || body.trim())) {
+      const ok = await confirmAction({ title: t('complaint.discardTitle'), body: t('complaint.discardBody'),
+        confirmLabel: t('complaint.discardBtn'), danger: true });
+      if (!ok) return;
+    }
+    close();
+  };
   const valid = cat && subject.trim().length >= 3 && body.trim().length >= 10;
 
+  // A ref, not `busy`: taps in the same frame all see the stale state.
+  const inflightRef = useRef(false);
   async function submit() {
-    if (!valid || busy || !cat) return;
+    if (!valid || inflightRef.current || !cat) return;
+    inflightRef.current = true;
     setBusy(true);
     setError(null);
     try {
-      await feedbackApi.submit({
+      const saved = await feedbackApi.submit({
         category: BACKEND_CATEGORY[cat] || 'Complaint',
         title: subject.trim(),
         description: `[${catLabel(cat)}] ${body.trim()}`,
         appVersion: APP_VERSION,
       });
+      setTicket(saved?.id != null ? String(saved.id) : null);
       setSent(true);
     } catch (e) {
-      setError((e as Error)?.message || t('common.error'));
+      setError(errorMessage(e, 'errors.sendFailed'));
     } finally {
+      inflightRef.current = false;
       setBusy(false);
     }
   }
@@ -62,11 +82,13 @@ export function ComplaintScreen({ onClose }: ComplaintScreenProps) {
           <div style={{ fontSize: 13.5, color: T.muted, lineHeight: 1.5, maxWidth: 280 }}>
             {t('complaint.sentBody')}
           </div>
-          <div style={{ marginTop: 6, fontSize: 12, color: T.muted, padding: '7px 16px',
-            borderRadius: 20, border: `1px solid ${T.border}`, background: T.surface2,
-            fontVariantNumeric: 'tabular-nums' }}>
-            {t('complaint.ticketNo', { id: Math.floor(100000 + Math.random() * 900000) })}
-          </div>
+          {ticket && (
+            <div style={{ marginTop: 6, fontSize: 12, color: T.muted, padding: '7px 16px',
+              borderRadius: 20, border: `1px solid ${T.border}`, background: T.surface2,
+              fontVariantNumeric: 'tabular-nums' }}>
+              {t('complaint.ticketNo', { id: ticket })}
+            </div>
+          )}
           <button onClick={onClose} style={{ marginTop: 20, padding: '13px 28px', borderRadius: 13, border: 'none',
             background: TEAL_GRADIENT, color: 'white', fontSize: 14.5,
             fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans,sans-serif',
@@ -89,12 +111,12 @@ export function ComplaintScreen({ onClose }: ComplaintScreenProps) {
           {t('complaint.intro')}
         </div>
 
-        <label style={labelStyle}>{t('complaint.catType')}</label>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 20 }}>
+        <div id="complaint-cat" style={labelStyle}>{t('complaint.catType')}</div>
+        <div role="group" aria-labelledby="complaint-cat" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 20 }}>
           {COMPLAINT_CATS.map((c) => {
             const act = cat === c.id;
             return (
-              <button key={c.id} onClick={() => setCat(c.id)} style={{ display: 'flex', alignItems: 'center', gap: 9,
+              <button key={c.id} onClick={() => setCat(c.id)} aria-pressed={act} style={{ display: 'flex', alignItems: 'center', gap: 9,
                 padding: '11px 12px', borderRadius: 12, cursor: 'pointer', fontFamily: 'DM Sans,sans-serif',
                 border: `1.5px solid ${act ? T.amber + '70' : T.border}`,
                 background: act ? T.amberDim : T.surface2, textAlign: 'left', transition: 'all .15s ease' }}>
@@ -105,31 +127,22 @@ export function ComplaintScreen({ onClose }: ComplaintScreenProps) {
           })}
         </div>
 
-        <label style={labelStyle}>{t('complaint.subject')}</label>
-        <input value={subject} onChange={(e) => setSubject(e.target.value)}
+        <label htmlFor="complaint-subject" style={labelStyle}>{t('complaint.subject')}</label>
+        <input id="complaint-subject" value={subject} onChange={(e) => setSubject(e.target.value)}
           placeholder={t('complaint.subjectPlaceholder')} maxLength={80}
           style={{ ...inputStyle, marginBottom: 20 }} />
 
-        <label style={labelStyle}>{t('complaint.detail')}</label>
-        <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={6}
+        <label htmlFor="complaint-detail" style={labelStyle}>{t('complaint.detail')}</label>
+        <textarea id="complaint-detail" aria-describedby="complaint-req" value={body} onChange={(e) => setBody(e.target.value)} rows={6} maxLength={MAX_DETAIL}
           placeholder={t('complaint.detailPlaceholder')}
           style={{ ...inputStyle, minHeight: 130, lineHeight: 1.5 }} />
-        <div style={{ textAlign: 'right', fontSize: 11, color: T.muted, marginTop: 6, marginBottom: 18 }}>
-          {body.length}/600
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, fontSize: 11, color: T.muted, marginTop: 6, marginBottom: 18 }}>
+          <span id="complaint-req">{t('complaint.requirements')}</span>
+          <span style={{ flexShrink: 0 }}>{body.length}/{MAX_DETAIL}</span>
         </div>
 
-        <button disabled className="att-btn" style={{ width: '100%', padding: '12px', borderRadius: 12,
-          border: `1px dashed ${T.border}`, background: 'transparent', color: T.muted, fontSize: 13,
-          cursor: 'pointer', fontFamily: 'DM Sans,sans-serif', marginBottom: 20,
-          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <path d="M8 3v10M3 8h10" stroke={T.muted} strokeWidth="1.6" strokeLinecap="round" />
-          </svg>
-          {t('complaint.attach')}
-        </button>
-
         {error && (
-          <div style={{ fontSize: 12.5, color: T.amber, marginBottom: 12, textAlign: 'center' }}>
+          <div role="alert" style={{ fontSize: 12.5, color: T.amber, marginBottom: 12, textAlign: 'center' }}>
             {error}
           </div>
         )}

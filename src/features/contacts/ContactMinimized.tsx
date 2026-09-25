@@ -1,5 +1,6 @@
 import { T, TEAL_GRADIENT, partyColor } from '@/constants/theme';
 import { t } from '@/i18n';
+import { fmtLastSeen } from '@/utils/datetime';
 import type { Contact } from '@/models';
 
 interface ContactMinimizedProps {
@@ -21,7 +22,7 @@ export function ContactMinimized({ contact: c, onBack, onCall, onSms }: ContactM
       animation: 'nb-panel-in 360ms cubic-bezier(.22,1,.36,1) forwards',
     }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-        <button onClick={onBack} style={{ height: 34, padding: '0 12px 0 8px', borderRadius: 10,
+        <button onClick={onBack} aria-label={t('common.back')} style={{ height: 34, padding: '0 12px 0 8px', borderRadius: 10,
           background: T.hover, border: `1px solid ${T.border}`, color: T.text,
           fontSize: 12.5, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5,
           fontFamily: 'DM Sans,sans-serif' }}>
@@ -33,7 +34,7 @@ export function ContactMinimized({ contact: c, onBack, onCall, onSms }: ContactM
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5,
           color: c.online ? T.green : T.muted, fontWeight: 600 }}>
           <span style={{ width: 7, height: 7, borderRadius: 4, background: c.online ? T.green : T.muted }} />
-          {c.online ? t('common.online') : (c.lastSeen || t('common.offline'))}
+          {c.online ? t('common.online') : (fmtLastSeen(c.lastSeen) ? t('contacts.lastSeen', { time: fmtLastSeen(c.lastSeen) }) : t('common.offline'))}
         </div>
       </div>
 
@@ -43,7 +44,7 @@ export function ContactMinimized({ contact: c, onBack, onCall, onSms }: ContactM
             border: `1.5px solid ${color}45`, display: 'flex', alignItems: 'center',
             justifyContent: 'center', fontSize: 18, fontWeight: 700, color }}>{c.initials}</div>
           <div style={{ position: 'absolute', bottom: -1, right: -1, width: 14, height: 14, borderRadius: 7,
-            background: c.online ? T.green : T.muted, border: '2.5px solid #0f1117' }} />
+            background: c.online ? T.green : T.muted, border: `2.5px solid ${T.surface}` }} />
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
@@ -52,8 +53,8 @@ export function ContactMinimized({ contact: c, onBack, onCall, onSms }: ContactM
               color, fontWeight: 600 }}>{c.type === 'driver' ? t('common.driver') : t('common.passenger')}</span>
           </div>
           <div style={{ display: 'flex', gap: 10, fontSize: 11.5, color: T.muted, marginTop: 3 }}>
-            <span>{c.phone}</span>
-            <span style={{ color: T.amber }}>★ {c.rating}</span>
+            {c.phone && <span>{c.phone}</span>}
+            {c.rating != null && <span style={{ color: T.amber }}>★ {c.rating}</span>}
           </div>
         </div>
       </div>
@@ -66,10 +67,9 @@ export function ContactMinimized({ contact: c, onBack, onCall, onSms }: ContactM
               stroke={color} strokeWidth="1.3" />
             <circle cx="7" cy="5.5" r="1.6" fill={color} />
           </svg>
-          <span style={{ fontSize: 12, color: T.text, fontVariantNumeric: 'tabular-nums' }}>
-            {c.latlng[0].toFixed(4)}, {c.latlng[1].toFixed(4)}
-          </span>
-          <span style={{ marginLeft: 'auto', fontSize: 10.5, color: T.teal }}>● {t('contacts.coordOnMap')}</span>
+          {c.latlng
+            ? <span style={{ fontSize: 12, color: T.teal }}>● {t('contacts.coordOnMap')}</span>
+            : <span style={{ fontSize: 12, color: T.muted }}>{t('contacts.noLocation')}</span>}
         </div>
         {c.hasRoute ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 9, paddingTop: 9,
@@ -95,7 +95,7 @@ export function ContactMinimized({ contact: c, onBack, onCall, onSms }: ContactM
         <button onClick={() => onSms(c)} style={{ flex: 1, padding: '12px', borderRadius: 13,
           border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 14,
           fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans,sans-serif',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7 }}>💬 SMS</button>
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7 }}>💬 {t('common.chat')}</button>
       </div>
     </div>
   );

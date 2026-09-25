@@ -12,6 +12,10 @@ import { TASHKENT } from '@/constants/map';
 import { randomChatReplyKey } from '@/constants/app';
 import { haversineKm, splitRoute } from '@/utils/geo';
 import { walkerToCallUser, contactToUser } from '@/utils/callUser';
+import type { CallUser } from '@/utils/callUser';
+import { initialsOf } from '@/utils/avatar';
+import { idOf, isRealUserId } from '@/utils/ids';
+import { errorMessage } from '@/utils/errors';
 import { useMap } from '@/hooks/useMap';
 import type { MapHook } from '@/hooks/mapHook';
 import { useMapStyle } from '@/hooks/useMapStyle';
@@ -22,6 +26,7 @@ import { usePresence } from '@/hooks/usePresence';
 import { useTripNavigation } from '@/hooks/useTripNavigation';
 import type { NavRoute } from '@/hooks/useTripNavigation';
 import { useToastQueue } from '@/hooks/useToastQueue';
+import { useRealtimeStatus } from '@/hooks/useRealtimeStatus';
 import {
   createSimulation, generateWalkers, generateWalkersForRoute, randomUserLocation,
 } from '@/services/simulationService';
@@ -30,25 +35,35 @@ import { SIM_COUNT_EVENT, simStore } from '@/services/simStore';
 import { UNREAD_EVENT, unreadStore } from '@/services/unreadStore';
 import { RouteServer, getRoute, routeCoords, toRoutePublishDto } from '@/services/routeService';
 import type { OsrmRoute } from '@/services/routeService';
+import { reverseGeocode } from '@/services/geocodingService';
 import { closeLiveTrip, createLiveTrip, publishBanded } from '@/services/liveTripService';
 import type { RouteWaypoint } from '@/services/liveTripService';
 import { getCurrentLatLng } from '@/services/geolocation';
-import { startLocationReporting, stopLocationReporting, callClient, presenceClient } from '@/services/realtime';
+import { addContact } from '@/services/contactService';
+import { authStore } from '@/services/authStore';
+import { confirmAction } from '@/services/confirm';
+import { setClosingConfirmation } from '@/services/telegram';
+import { startLocationReporting, stopLocationReporting, callClient, chatClient, presenceClient } from '@/services/realtime';
 import { walkerStateStore } from '@/services/walkerStateStore';
-import { USE_MOCKS } from '@/api/client';
+import { chatApi } from '@/api/chatApi';
+import type { ChatMessageDto } from '@/api/chatApi';
+import { SESSION_LOST_EVENT, USE_MOCKS } from '@/api/client';
 import type { ActiveRoute, LatLng, MapTask, PartyType, Place, RouteData, Walker } from '@/models';
 
 import { LoadingScreen } from '@/pages/LoadingScreen';
 import { AuthErrorScreen } from '@/pages/AuthErrorScreen';
 import { HomeScreen } from '@/pages/HomeScreen';
 import { MapUI } from '@/features/matching/MapUI';
+import type { Visibility } from '@/features/matching/MapUI';
 import { UserPopup } from '@/features/matching/UserPopup';
 import { WalkerPreviewCard } from '@/features/matching/WalkerPreviewCard';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { ConfirmHost } from '@/components/ui/ConfirmHost';
 import { SideDrawer } from '@/features/navigation/SideDrawer';
 import { PushToast } from '@/features/navigation/PushToast';
 import { RouteSheet } from '@/features/route/RouteSheet';
 import { MapPickOverlay } from '@/features/route/MapPickOverlay';
+import type { ChatPeer } from '@/features/contacts/ChatsPanel';
 // Overlay screens are opened on demand — lazy-load them so they leave the
 // initial bundle. Named exports are adapted to the default export lazy() wants.
 const CallScreen = lazy(() => import('@/features/call/CallScreen').then((m) => ({ default: m.CallScreen })));
@@ -56,6 +71,7 @@ const ChatScreen = lazy(() => import('@/features/chat/ChatScreen').then((m) => (
 const SettingsScreen = lazy(() => import('@/features/settings/SettingsScreen').then((m) => ({ default: m.SettingsScreen })));
 const ComplaintScreen = lazy(() => import('@/features/complaint/ComplaintScreen').then((m) => ({ default: m.ComplaintScreen })));
 const PrivacyScreen = lazy(() => import('@/features/privacy/PrivacyScreen').then((m) => ({ default: m.PrivacyScreen })));
+const MyTripsScreen = lazy(() => import('@/features/trips/MyTripsScreen').then((m) => ({ default: m.MyTripsScreen })));
 
 type Screen = 'loading' | 'home' | 'map';
 
@@ -81,8 +97,10 @@ export function App() {
   // are referentially stable, so they are safe effect/callback dependencies.
   const { current: toast, exiting: toastExiting, push: notify, dismiss: dismissToast, clear: clearToasts } = useToastQueue();
   const { mapStyle, mapStyleMode, changeMapStyleMode } = useMapStyle();
+  const realtime = useRealtimeStatus();
   const [activeRoute, setActiveRoute] = useState<ActiveRoute | null>(null);
   const [navProgress, setNavProgress] = useState(0);
+  const [gpsIssue, setGpsIssue] = useState(false);
   const [navTask, setNavTask] = useState<NavTask | null>(null);
   const [followMe, setFollowMe] = useState(false); // compass: keep the map on the live location
   const [freeMode, setFreeMode] = useState(false); // share live location without a trip (asks permission on enable)
@@ -92,10 +110,15 @@ export function App() {
   // live map; the separate Planned Trips board is hidden for them (spec §17).
   const engaged = hasCreatedTrip || (mode === 'driver' && freeMode);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [overlayPanel, setOverlayPanel] = useState<string | null>(null); // 'settings' | 'complaint' | 'privacy'
+  const [overlayPanel, setOverlayPanel] = useState<string | null>(null); // 'settings' | 'complaint' | 'privacy' | 'myTrips'
   const [loaderDone, setLoaderDone] = useState(false);
+  const [sessionLost, setSessionLost] = useState(false);
+  const [locationOff, setLocationOff] = useState(false);
+  const [areaName, setAreaName] = useState<string | null>(null);
+  const [walkerCount, setWalkerCount] = useState<number | null>(null);
   const pendingRestoreRef = useRef<any>(null);            // active trip to redraw once the map is up
   const liveTripIdRef = useRef<string | null>(null);      // persisted Live trip backing the on-map route
+  const sharedRouteRef = useRef<{ route: OsrmRoute; coords: LatLng[] } | null>(null); // republished after a reconnect
   const mapContainerRef = useRef<HTMLDivElement>(null);
 
   const userLocRef = useRef<LatLng | null>(null);
@@ -104,6 +127,8 @@ export function App() {
   const mapStyleRef = useRef(mapStyle);
   const activeRouteRef = useRef<NavRoute | null>(null);   // shared: current trip route (nav + free-mode + exit)
   const liveWalkersRef = useRef<Map<string, any>>(new Map()); // userId → enriched live walker
+  const bandedRef = useRef(banded);
+  useEffect(() => { bandedRef.current = banded; }, [banded]);
 
   const mapHook: MapHook = useMap(mapContainerRef, screen === 'map');
 
@@ -130,20 +155,30 @@ export function App() {
     }
   }, [screen, loaderDone, authReady, sessionReady, authError]); // eslint-disable-line react-hooks/exhaustive-deps -- restoredSessionRef is a stable ref
 
+  // A session that could not be renewed: stop and ask the user to sign in
+  // again, instead of every screen quietly showing empty data.
+  useEffect(() => {
+    const onLost = () => setSessionLost(true);
+    window.addEventListener(SESSION_LOST_EVENT, onLost);
+    return () => window.removeEventListener(SESSION_LOST_EVENT, onLost);
+  }, []);
+
   useEffect(() => { mapHook.setMapStyle(mapStyle); }, [mapStyle, screen]); // eslint-disable-line react-hooks/exhaustive-deps -- mapHook is stable
 
+  // Ask before Telegram closes the app while a journey is under way.
+  useEffect(() => { setClosingConfirmation(!!activeRoute); }, [activeRoute]);
+
   const formatForPopup = useCallback((w: any) => {
-    const km = w.position ? haversineKm(userLocRef.current || TASHKENT, w.position) : 0;
-    const etaMin = Math.max(1, Math.round(km / 0.4));
-    const driverSub = w.vehicle
-      ? (w.seats ? `${w.vehicle} · ${w.seats} ${t('common.seats')}` : w.vehicle)
-      : t('common.driver');
+    const here = userLocRef.current;
+    const km = here && w.position ? haversineKm(here, w.position) : null;
+    const driverSub = w.vehicle || t('common.driver');
     return {
       id: w.id, type: w.type, initials: w.initials, name: w.name, color: w.color,
       sub: w.type === 'driver' ? driverSub : t('userPopup.sub'),
-      dist: km.toFixed(1) + ' km', eta: etaMin + ' min',
+      dist: km != null ? t('common.km', { n: km.toFixed(1) }) : '—',
+      eta: km != null ? t('common.minutes', { n: Math.max(1, Math.round(km / 0.4)) }) : '—',
       rating: (typeof w.rating === 'number' ? w.rating.toFixed(1) : (w.rating ?? '—')),
-      trips: w.trips ?? 0, latlng: w.position,
+      trips: w.trips ?? 0, latlng: w.position, match: w.match, offline: !!w.offline,
     };
   }, []);
 
@@ -155,6 +190,24 @@ export function App() {
   useEffect(() => {
     if (screen === 'map') mapHook.highlightWalker(selectedUser ? selectedUser.id : null);
   }, [selectedUser, screen]); // eslint-disable-line react-hooks/exhaustive-deps -- mapHook is stable
+
+  // The device location is known: label the area in the status bar.
+  const located = useCallback((loc: LatLng) => {
+    setLocationOff(false);
+    reverseGeocode(loc).then((label) => setAreaName(label.split(',').slice(0, 2).join(','))).catch(() => {});
+  }, []);
+
+  const retryLocation = async () => {
+    const loc = await getCurrentLatLng();
+    if (!loc) {
+      notify({ title: t('mapui.locationOffTitle'), body: t('mapui.locationOffBody') });
+      return;
+    }
+    userLocRef.current = loc;
+    mapHook.setUserLocation(loc);
+    mapHook.flyTo(loc, 15);
+    located(loc);
+  };
 
   // ── Mock-mode walker simulation ──
   const stopSim = () => { simRef.current?.stop(); simRef.current = null; };
@@ -173,6 +226,7 @@ export function App() {
     simRef.current = sim;
     const enriched = sim.enriched();
     simWalkersRef.current = enriched;
+    setWalkerCount(enriched.length);
     mapHook.renderWalkers(enriched, mapStyleRef.current, openWalker);
     mapHook.fitWalkers(userLoc, enriched);
     sim.start();
@@ -189,9 +243,13 @@ export function App() {
     // user actually is; only fall back to a random point if it's unavailable.
     const userLoc = userLocRef.current || await getCurrentLatLng() || randomUserLocation();
     userLocRef.current = userLoc;
+    located(userLoc);
+    // Place the user first, then fly: the first vector layer must not be added
+    // while the fly animation is running (see useMap / mapRenderSync).
+    const run = runSimulation(userLoc, () => generateWalkers(userLoc, opposite(mode), simStore.get()), 'push.matchTitle');
     mapHook.flyTo(userLoc, 15);
-    await runSimulation(userLoc, () => generateWalkers(userLoc, opposite(mode), simStore.get()), 'push.matchTitle');
-  }, [screen, mode, mapHook, runSimulation]);
+    await run;
+  }, [screen, mode, mapHook, runSimulation, located]);
 
   useEffect(() => {
     if (USE_MOCKS && screen === 'map' && mode) buildSim();
@@ -212,6 +270,9 @@ export function App() {
   usePresence({
     screen, mode, mapHook, liveWalkersRef, userLocRef, openWalker, notify, pendingRestoreRef,
     restoreLiveRoute: (trip) => restoreLiveRouteRef.current?.(trip),
+    onLocationUnknown: () => setLocationOff(true),
+    onLocated: located,
+    onWalkerCount: setWalkerCount,
   });
 
   useEffect(() => {
@@ -230,12 +291,12 @@ export function App() {
   // navProgress state stays here, read by the map chrome and useHeadingFollow).
   const { startUserNav, stopNav, endRoute } = useTripNavigation({
     mapHook, userLocRef, applyFollow, followMeRef, lastHeadingRef,
-    activeRouteRef, liveTripIdRef, setActiveRoute, setNavProgress,
+    activeRouteRef, liveTripIdRef, setActiveRoute, setNavProgress, onGpsIssue: setGpsIssue,
   });
 
   // 1:1 voice-call lifecycle (owns callState + CallHub events).
   const {
-    callState, callStateRef, clearCall, handleCall, endCall, declineCall, handleAcceptCall, handleAgreeRide,
+    callState, callStateRef, clearCall, handleCall, endCall, declineCall, handleAcceptCall, offerRide, respondRide,
   } = useCallSession({
     authReady, notify, mapHook, userLocRef, liveWalkersRef, contactsRef,
     dismissSelected: () => setSelectedUser(null),
@@ -260,6 +321,81 @@ export function App() {
     if (freeMode) startLocationReporting();
     else { stopLocationReporting(); presenceClient.stopSharing().catch(() => {}); }
   }, [freeMode]);
+
+  // After the realtime link comes back the server may have lost what we told it
+  // while offline: re-send the session state, the shared route and "busy".
+  useEffect(() => {
+    if (USE_MOCKS) return undefined;
+    return presenceClient.on('Reconnected', () => {
+      walkerStateStore.resync();
+      const shared = sharedRouteRef.current;
+      if (shared) presenceClient.publishRoute(toRoutePublishDto(shared.coords, shared.route)).catch(() => {});
+      if (bandedRef.current) presenceClient.markEngaged().catch(() => {});
+    });
+  }, []);
+
+  // ── Chat notifications: every incoming message is surfaced, not only the
+  // ones for a chat that happens to be open. Unread counts start from the
+  // server inbox so they survive reloads and other devices.
+  const chatUserRef = useRef<any>(null);
+  useEffect(() => { chatUserRef.current = chatUser; }, [chatUser]);
+
+  const chatPeerFor = useCallback((userId: string, fallbackName?: string | null): CallUser => {
+    const walker = liveWalkersRef.current.get(userId);
+    if (walker) return walkerToCallUser(walker);
+    const contact = contactsRef.current.find((c) => idOf(c.id) === userId);
+    if (contact) return contactToUser(contact);
+    const name = fallbackName || t('common.user');
+    return { id: userId, type: 'passenger', name, initials: initialsOf(name), sub: '' };
+  }, [contactsRef]);
+
+  useEffect(() => {
+    if (USE_MOCKS || !authReady) return undefined;
+    chatApi.conversations().then((rows) => {
+      unreadStore.replace(Object.fromEntries(rows.filter((r) => r.unreadCount > 0)
+        .map((r) => [idOf(r.otherParticipantId), r.unreadCount])));
+    }).catch(() => { /* keep the local counts */ });
+
+    const myId = idOf((authStore.getUser() as { id?: string } | null)?.id ?? '');
+    return chatClient.on('ReceiveMessage', (m: ChatMessageDto) => {
+      const from = idOf(m.senderId);
+      if (from === myId) return;
+      if (chatUserRef.current && idOf(chatUserRef.current.id) === from) return; // that chat is open
+      unreadStore.add(from, 1);
+      const user = chatPeerFor(from, m.senderName);
+      notify({ title: t('chat.newFrom', { name: user.name.split(' ')[0] }), body: m.content, user, chat: true, action: t('chat.reply') });
+    });
+  }, [authReady, chatPeerFor, notify]);
+
+  useEffect(() => { if (chatUser) unreadStore.clear(idOf(chatUser.id)); }, [chatUser]);
+
+  useEffect(() => {
+    const sync = () => mapHook.setWalkerBadges(unreadStore.map());
+    sync();
+    window.addEventListener(UNREAD_EVENT, sync);
+    return () => window.removeEventListener(UNREAD_EVENT, sync);
+  }, [mapHook, screen]);
+
+  // Demo-only: a random walker/contact "writes" every 8–17 s while the user is
+  // neither chatting nor on a call.
+  useEffect(() => {
+    if (!USE_MOCKS || screen !== 'map' || !mode) return undefined;
+    let timer: ReturnType<typeof setTimeout>;
+    const fire = () => {
+      const senders = [
+        ...simWalkersRef.current.map((w) => () => formatForPopup(w)),
+        ...contactsRef.current.map((c) => () => contactToUser(c)),
+      ];
+      if (!chatUserRef.current && !callStateRef.current && senders.length) {
+        const target = senders[Math.floor(Math.random() * senders.length)]();
+        unreadStore.add(target.id, 1);
+        notify({ title: target.name, body: t(randomChatReplyKey()), user: target, chat: true, action: t('chat.reply') });
+      }
+      timer = setTimeout(fire, 8000 + Math.random() * 9000);
+    };
+    timer = setTimeout(fire, 6000 + Math.random() * 6000);
+    return () => clearTimeout(timer);
+  }, [screen, mode, formatForPopup]); // eslint-disable-line react-hooks/exhaustive-deps -- contactsRef is a stable ref
 
   const openRouteSheet = () => {
     if (activeRouteRef.current) {
@@ -288,6 +424,7 @@ export function App() {
   // Live mode: share the route over presence so watching walkers see it, and
   // turn on live-location sharing (the Free Mode switch reflects it).
   const shareRoute = (route: OsrmRoute, coords: LatLng[]) => {
+    sharedRouteRef.current = { route, coords };
     presenceClient.publishRoute(toRoutePublishDto(coords, route)).catch(() => {});
     setFreeMode(true);
   };
@@ -334,6 +471,11 @@ export function App() {
     driveRoute(route, coords);
   };
 
+  const finishRoute = () => {
+    sharedRouteRef.current = null;
+    endRoute();
+  };
+
   const handleMapTask = async (task: MapTask) => {
     if (task.type === 'pick') {
       mapHook.setWalkersDimmed(true);
@@ -351,13 +493,14 @@ export function App() {
       mapHook.hideWalkers(true);
       mapHook.clearPreviewRoute();
       let route: LatLng[] | null = null;
-      let pos: LatLng = c.latlng;
-      if (c.hasRoute) {
-        route = (await RouteServer.fetch(c as Parameters<typeof RouteServer.fetch>[0])).coords;
+      let pos: LatLng | null = c.latlng;
+      if (c.hasRoute && c.fromLatlng && c.toLatlng) {
+        route = (await RouteServer.fetch({ id: c.id, fromLatlng: c.fromLatlng, toLatlng: c.toLatlng })).coords;
         if (route.length > 1) pos = splitRoute(route, 0.42).position || pos;
       }
       mapHook.showContactFocus({ ...c, latlng: pos, route, color: partyColor(c.type) });
-      mapHook.fitPoints([userLocRef.current || TASHKENT, pos, ...(route || [])]);
+      const pts = [userLocRef.current, pos, ...(route || [])].filter((p): p is LatLng => !!p);
+      if (pts.length) mapHook.fitPoints(pts);
     } else if (task.type === 'contactClear') {
       mapHook.clearPreviewRoute();
       mapHook.hideWalkers(false);
@@ -365,39 +508,6 @@ export function App() {
       mapHook.fitWalkers(userLocRef.current, simWalkersRef.current);
     }
   };
-
-  useEffect(() => { if (chatUser) unreadStore.clear(chatUser.id); }, [chatUser]);
-
-  const chatUserRef = useRef<any>(null);
-  useEffect(() => { chatUserRef.current = chatUser; }, [chatUser]);
-
-  useEffect(() => {
-    const sync = () => mapHook.setWalkerBadges(unreadStore.map());
-    sync();
-    window.addEventListener(UNREAD_EVENT, sync);
-    return () => window.removeEventListener(UNREAD_EVENT, sync);
-  }, [mapHook, screen]);
-
-  // Demo-only: a random walker/contact "writes" every 8–17 s while the user is
-  // neither chatting nor on a call.
-  useEffect(() => {
-    if (!USE_MOCKS || screen !== 'map' || !mode) return undefined;
-    let timer: ReturnType<typeof setTimeout>;
-    const fire = () => {
-      const senders = [
-        ...simWalkersRef.current.map((w) => () => formatForPopup(w)),
-        ...contactsRef.current.map((c) => () => contactToUser(c)),
-      ];
-      if (!chatUserRef.current && !callStateRef.current && senders.length) {
-        const target = senders[Math.floor(Math.random() * senders.length)]();
-        unreadStore.add(target.id, 1);
-        notify({ title: target.name, body: t(randomChatReplyKey()), user: target, chat: true, action: t('common.chat') });
-      }
-      timer = setTimeout(fire, 8000 + Math.random() * 9000);
-    };
-    timer = setTimeout(fire, 6000 + Math.random() * 6000);
-    return () => clearTimeout(timer);
-  }, [screen, mode, formatForPopup]); // eslint-disable-line react-hooks/exhaustive-deps -- contactsRef is a stable ref
 
   const finishPick = (point: Place) => {
     setNavTask((task) => { if (task?.type === 'pick') task.onDone(point); return null; });
@@ -407,6 +517,17 @@ export function App() {
     mapHook.clearPreviewRoute();
     mapHook.setWalkersDimmed(false);
     setNavTask(null);
+  };
+
+  const openChat = (peer: ChatPeer | CallUser) => setChatUser(peer);
+
+  const saveContact = async (user: { id: string; name: string }) => {
+    try {
+      const result = await addContact(String(user.id));
+      notify({ title: result === 'added' ? t('contacts.added') : t('contacts.already'), body: user.name });
+    } catch (e) {
+      notify({ title: t('contacts.addFailed'), body: errorMessage(e) });
+    }
   };
 
   // "Bandman" — mark yourself full so you drop out of discovery, and back again.
@@ -427,6 +548,7 @@ export function App() {
     // route and call off the backing Live trip (it is simply closed).
     closeLiveTrip(liveTripIdRef.current, 'cancel');
     liveTripIdRef.current = null;
+    sharedRouteRef.current = null;
     setFreeMode(false); // stop sharing our live location when leaving the map
     setHasCreatedTrip(false); // reset engagement when leaving the map
     if (banded) { setBanded(false); publishBanded(false, null); }
@@ -434,14 +556,33 @@ export function App() {
     mapHook.clearUserRoute(); mapHook.clearPlanning();
     stopSim();
     mapHook.clearWalkers(); userLocRef.current = null;
+    setWalkerCount(null); setAreaName(null); setLocationOff(false);
   };
+
+  // Switching role ends an active journey — say so and ask first.
+  const requestExit = async () => {
+    setDrawerOpen(false);
+    if (activeRouteRef.current || liveTripIdRef.current) {
+      const ok = await confirmAction({
+        title: t('drawer.exitConfirmTitle'), body: t('drawer.exitConfirmBody'),
+        confirmLabel: t('drawer.exitConfirmBtn'), danger: true,
+      });
+      if (!ok) return;
+    }
+    exitToHome();
+  };
+
+  const visibility: Visibility = USE_MOCKS ? 'visible'
+    : banded ? 'busy'
+      : freeMode ? 'visible'
+        : mode === 'driver' ? 'hidden-driver' : 'hidden-passenger';
 
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden',
       background: T.bg, fontFamily: 'DM Sans,sans-serif' }}>
 
       {/* OSM Map — always mounted when screen=map */}
-      <div ref={mapContainerRef}
+      <div ref={mapContainerRef} aria-hidden={screen !== 'map'}
         style={{ position: 'absolute', inset: 0, zIndex: 0,
           display: screen === 'map' ? 'block' : 'none' }} />
 
@@ -453,7 +594,9 @@ export function App() {
         <HomeScreen onSelect={(m) => { setMode(m); walkerStateStore.patch({ role: m }); setScreen('map'); }} />
       )}
 
-      {screen === 'map' && !callState && (
+      {/* The map chrome stays mounted during a call (the call screen covers it),
+          so an open form or panel is exactly as the user left it afterwards. */}
+      {screen === 'map' && (
         <>
           <MapUI
             mode={mode as PartyType}
@@ -461,14 +604,17 @@ export function App() {
             routeActive={!!activeRoute}
             activeRoute={activeRoute}
             navProgress={navProgress}
-            onEndRoute={endRoute}
+            onEndRoute={finishRoute}
+            gpsIssue={gpsIssue}
             onRouteSheet={openRouteSheet}
             userLoc={userLocRef.current}
             onMapTask={handleMapTask}
             navHidden={!!navTask}
             onMenu={() => setDrawerOpen(true)}
             onContactCall={(c) => handleCall(contactToUser(c))}
-            onContactSms={(c) => setChatUser(contactToUser(c))}
+            onContactSms={(c) => openChat(contactToUser(c))}
+            onOpenChat={openChat}
+            onOpenMyTrips={() => setOverlayPanel('myTrips')}
             mapStyleMode={mapStyleMode}
             appTheme={themeStore.mode}
             onMapStyleChange={changeMapStyleMode}
@@ -477,8 +623,14 @@ export function App() {
             engaged={engaged}
             onTripCreated={(tripId) => {
               setHasCreatedTrip(true);
-              if (tripId) walkerStateStore.patch({ activeTripId: String(tripId) });
+              if (tripId && tripId !== true) walkerStateStore.patch({ activeTripId: String(tripId) });
             }}
+            areaName={areaName}
+            locationOff={locationOff}
+            onRetryLocation={retryLocation}
+            realtime={realtime}
+            visibility={visibility}
+            walkerCount={walkerCount}
           />
           <SideDrawer
             open={drawerOpen}
@@ -494,7 +646,7 @@ export function App() {
             banded={banded}
             canBand={hasCreatedTrip}
             onToggleBanded={toggleBanded}
-            onExit={() => { setDrawerOpen(false); exitToHome(); }}
+            onExit={requestExit}
             onOpenPanel={(key) => { setDrawerOpen(false); setOverlayPanel(key); }}
           />
           {showSheet && (
@@ -512,7 +664,8 @@ export function App() {
               user={selectedUser}
               onClose={() => setSelectedUser(null)}
               onCall={() => handleCall(selectedUser)}
-              onChat={() => { setChatUser(selectedUser); setSelectedUser(null); }}
+              onChat={() => { openChat(selectedUser); setSelectedUser(null); }}
+              onAddContact={!USE_MOCKS && isRealUserId(selectedUser.id) ? () => saveContact(selectedUser) : undefined}
             />
           )}
           <PushToast
@@ -521,7 +674,7 @@ export function App() {
             onDismiss={dismissToast}
             onView={(n) => {
               dismissToast();
-              if (n?.chat && n.user) setChatUser(n.user);
+              if (n?.chat && n.user) openChat(n.user as CallUser);
               else if (n?.user) setSelectedUser(n.user);
             }}
           />
@@ -540,7 +693,7 @@ export function App() {
               task={navTask}
               onBack={cancelTask}
               onCall={(w) => { cancelTask(); handleCall(walkerToCallUser(w)); }}
-              onChat={(w) => { cancelTask(); setChatUser(walkerToCallUser(w)); }}
+              onChat={(w) => { cancelTask(); openChat(walkerToCallUser(w)); }}
             />
           )}
         </>
@@ -551,27 +704,40 @@ export function App() {
           so they stay out of the initial bundle. */}
       <ErrorBoundary onReset={closeOverlays}>
         <Suspense fallback={null}>
+          {chatUser && (
+            <ChatScreen user={chatUser} onBack={() => setChatUser(null)}
+              onCall={(u) => { setChatUser(null); handleCall(u as CallUser); }} />
+          )}
+
           {callState && (
             <CallScreen
               callee={callState.user}
               phase={callState.phase}
               live={!!callState.live}
               role={callState.role || 'caller'}
+              offer={callState.offer}
+              onOffer={offerRide}
+              onRespondOffer={respondRide}
               onAccept={handleAcceptCall}
-              onAgree={handleAgreeRide}
               onMuteToggle={(m) => callState.live && callClient.setMuted(m)}
               onDecline={declineCall}
               onEnd={endCall}
             />
           )}
 
-          {chatUser && <ChatScreen user={chatUser} onBack={() => setChatUser(null)} />}
-
           {overlayPanel === 'settings' && <SettingsScreen onClose={() => setOverlayPanel(null)} />}
           {overlayPanel === 'complaint' && <ComplaintScreen onClose={() => setOverlayPanel(null)} />}
           {overlayPanel === 'privacy' && <PrivacyScreen onClose={() => setOverlayPanel(null)} />}
+          {overlayPanel === 'myTrips' && (
+            <MyTripsScreen onClose={() => setOverlayPanel(null)}
+              onChanged={(open) => setHasCreatedTrip(open > 0 || !!activeRouteRef.current)} />
+          )}
         </Suspense>
       </ErrorBoundary>
+
+      <ConfirmHost />
+
+      {sessionLost && <AuthErrorScreen variant="session" onRetry={() => window.location.reload()} />}
     </div>
   );
 }

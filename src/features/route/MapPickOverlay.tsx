@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { T, TEAL_GRADIENT } from '@/constants/theme';
 import { t } from '@/i18n';
 import { reverseGeocode } from '@/services/geocodingService';
+import { useBackHandler } from '@/hooks/useBackHandler';
 import type { LatLng, Place } from '@/models';
 import type { MapHook } from '@/hooks/mapHook';
 
@@ -17,6 +18,7 @@ interface MapPickOverlayProps {
 
 /** Drag-the-map center-pin picker (route planner waypoints, schedule fields). */
 export function MapPickOverlay({ mapHook, label, caption = label, initial, onConfirm, onCancel }: MapPickOverlayProps) {
+  useBackHandler(onCancel);
   const [addr, setAddr] = useState('');
   const [loading, setLoading] = useState(true);
   const centerRef = useRef<LatLng | null>(null);

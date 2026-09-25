@@ -7,6 +7,8 @@ import type { PlaceSuggestion } from '@/services/geocodingService';
 import { getRoute } from '@/services/routeService';
 import type { OsrmRoute } from '@/services/routeService';
 import { InlineSpinner } from '@/components/ui/Spinner';
+import { useBackHandler } from '@/hooks/useBackHandler';
+import { errorMessage } from '@/utils/errors';
 import { MapPickOverlay } from './MapPickOverlay';
 import type { LatLng, Place } from '@/models';
 import type { MapHook } from '@/hooks/mapHook';
@@ -31,7 +33,9 @@ export function RouteSheet({ onClose, onShowRoute, mapHook, userLoc }: RouteShee
   const [activeIdx, setActiveIdx] = useState(1);
   const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([]);
   const [searching, setSearching] = useState(false);
-  const [step, setStep] = useState<'input' | 'calculating' | 'routes'>('input');
+  const [step, setStep] = useState<'input' | 'calculating' | 'routes' | 'error'>('input');
+  const [routeError, setRouteError] = useState<unknown>(null);
+  const [searchState, setSearchState] = useState<'idle' | 'empty' | 'failed'>('idle');
   const [routeOptions, setRouteOptions] = useState<OsrmRoute[]>([]);
   const [selectedRouteIdx, setSelectedRouteIdx] = useState(0);
   const [pickingIdx, setPickingIdx] = useState<number | null>(null);
@@ -70,12 +74,21 @@ export function RouteSheet({ onClose, onShowRoute, mapHook, userLoc }: RouteShee
   const handleInput = (idx: number, val: string) => {
     setWaypoints((wp) => wp.map((w, i) => (i === idx ? { ...w, value: val, latlng: null } : w)));
     clearTimeout(debounceRef.current);
-    if (val.length < 2) { setSuggestions([]); return; }
+    setSearchState('idle');
+    if (val.trim().length < 3) { setSuggestions([]); setSearching(false); return; }
     setSearching(true);
     debounceRef.current = setTimeout(async () => {
-      setSuggestions(await geocode(val));
-      setSearching(false);
-    }, 400);
+      try {
+        const found = await geocode(val);
+        setSuggestions(found);
+        setSearchState(found.length ? 'idle' : 'empty');
+      } catch {
+        setSuggestions([]);
+        setSearchState('failed');
+      } finally {
+        setSearching(false);
+      }
+    }, 600);
   };
 
   const handleSuggest = (s: PlaceSuggestion) => {
@@ -92,16 +105,31 @@ export function RouteSheet({ onClose, onShowRoute, mapHook, userLoc }: RouteShee
   const calcRoute = async () => {
     setStep('calculating');
     setSuggestions([]);
+    setRouteError(null);
     const pts = waypoints.filter((w) => w.latlng);
-    if (pts.length >= 2) {
-      const routes = await getRoute(pts.map((w) => w.latlng as LatLng));
+    try {
+      const routes = pts.length >= 2 ? await getRoute(pts.map((w) => w.latlng as LatLng)) : [];
       setRouteOptions(routes);
       setSelectedRouteIdx(0);
       mapHook.setWaypointMarkers(pts);
-      if (routes.length > 0) mapHook.setRouteLines(routes, 0);
+      mapHook.setRouteLines(routes, 0);
+      setStep('routes');
+    } catch (e) {
+      // The routing service failed — not "no route": keep the addresses and offer a retry.
+      setRouteError(e);
+      setStep('error');
     }
-    setStep('routes');
   };
+
+  // Back from the results/error to the address form (nothing is lost).
+  const backToInput = () => {
+    setStep('input');
+    setRouteOptions([]);
+    setRouteError(null);
+    mapHook.setRouteLines([]);
+  };
+  const goBack = step === 'input' ? onClose : backToInput;
+  useBackHandler(goBack, pickingIdx === null && step !== 'calculating');
 
   const pickRouteOption = (idx: number) => {
     setSelectedRouteIdx(idx);
@@ -151,7 +179,7 @@ export function RouteSheet({ onClose, onShowRoute, mapHook, userLoc }: RouteShee
 
           <div style={{ padding: '14px 20px 12px', display: 'flex', alignItems: 'center', gap: 12,
             borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
-            <button onClick={onClose} style={{ width: 32, height: 32, borderRadius: 10,
+            <button onClick={goBack} aria-label={t('common.back')} style={{ width: 32, height: 32, borderRadius: 10,
               border: `1px solid ${T.border}`, background: 'transparent',
               display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
               <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
@@ -230,6 +258,11 @@ export function RouteSheet({ onClose, onShowRoute, mapHook, userLoc }: RouteShee
               </button>
 
               {searching && <InlineSpinner style={{ marginTop: 10, padding: '8px 0' }} />}
+              {!searching && searchState !== 'idle' && (
+                <div role="status" style={{ marginTop: 10, fontSize: 12.5, color: searchState === 'failed' ? T.amber : T.muted }}>
+                  {searchState === 'failed' ? t('form.searchFailed') : t('form.noMatches')}
+                </div>
+              )}
               {suggestions.length > 0 && (
                 <div style={{ marginTop: 10, borderRadius: 14, overflow: 'hidden', border: `1px solid ${T.border}` }}>
                   {suggestions.map((s, i) => (
@@ -278,14 +311,40 @@ export function RouteSheet({ onClose, onShowRoute, mapHook, userLoc }: RouteShee
               </div>
             )}
 
+            {step === 'error' && (
+              <div role="alert" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10,
+                textAlign: 'center', padding: '24px 8px' }}>
+                <div aria-hidden="true" style={{ fontSize: 28 }}>🛰️</div>
+                <div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>{t('route.serviceDown')}</div>
+                <div style={{ fontSize: 12.5, color: T.muted, lineHeight: 1.5, maxWidth: 300 }}>
+                  {errorMessage(routeError, 'errors.serviceDown')} {t('route.serviceDownBody')}
+                </div>
+                <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+                  <button onClick={backToInput} style={{ padding: '10px 16px', borderRadius: 12, border: `1px solid ${T.border}`,
+                    background: 'transparent', color: T.text, fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                    fontFamily: 'DM Sans,sans-serif' }}>{t('route.editAddresses')}</button>
+                  <button onClick={calcRoute} style={{ padding: '10px 18px', borderRadius: 12, border: 'none',
+                    background: TEAL_GRADIENT, color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer',
+                    fontFamily: 'DM Sans,sans-serif' }}>{t('common.retry')}</button>
+                </div>
+              </div>
+            )}
+
             {step === 'routes' && (
               <>
-                <div style={{ fontSize: 13, color: T.muted, marginBottom: 12 }}>
-                  {t('route.foundCount', { n: routeOptions.length })}
-                </div>
-                {routeOptions.length === 0 && (
-                  <div style={{ padding: '20px', textAlign: 'center', color: T.muted, fontSize: 13 }}>
-                    {t('route.none')}
+                {routeOptions.length === 0 ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, textAlign: 'center', padding: '20px 8px' }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: T.text }}>{t('route.none')}</div>
+                    <div style={{ fontSize: 12.5, color: T.muted }}>{t('route.noneBody')}</div>
+                    <button onClick={backToInput} style={{ marginTop: 4, padding: '10px 18px', borderRadius: 12, border: `1px solid ${T.teal}55`,
+                      background: T.tealDim, color: T.teal, fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                      fontFamily: 'DM Sans,sans-serif' }}>{t('route.editAddresses')}</button>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                    <span style={{ fontSize: 13, color: T.muted }}>{t('route.foundCount', { n: routeOptions.length })}</span>
+                    <button onClick={backToInput} style={{ border: 'none', background: 'transparent', color: T.teal,
+                      fontSize: 12.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans,sans-serif' }}>{t('route.editAddresses')}</button>
                   </div>
                 )}
                 {routeOptions.map((rt, i) => {

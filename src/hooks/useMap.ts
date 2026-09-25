@@ -106,6 +106,9 @@ export function useMap(containerRef, active) {
     }).addTo(map);
     const { walkers, userRoute, preview, markers } = layersRef.current;
     [walkers, userRoute, preview, markers].forEach((group) => group.addTo(map));
+    // Initialise the vector renderer now, while the map is idle — Leaflet would
+    // otherwise add it lazily with the first vector layer, possibly mid-flyTo.
+    map.addLayer(renderer);
     mapRef.current = map;
 
     return () => {

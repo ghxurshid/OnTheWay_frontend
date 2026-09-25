@@ -12,7 +12,7 @@ export function Spinner({ label, padding = '40px 0' }: SpinnerProps) {
       <div style={{ width: 40, height: 40, borderRadius: 20,
         border: `3px solid ${T.tealDim}`, borderTop: `3px solid ${T.teal}`,
         animation: 'spin .8s linear infinite' }} />
-      {label !== null && <div style={{ fontSize: 13, color: T.muted }}>{label || t('form.searching')}</div>}
+      {label !== null && <div style={{ fontSize: 13, color: T.muted }}>{label || t('common.loading')}</div>}
     </div>
   );
 }

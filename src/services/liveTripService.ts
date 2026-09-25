@@ -12,6 +12,24 @@ import { presenceClient } from '@/services/realtime';
 import { walkerStateStore } from '@/services/walkerStateStore';
 import type { OsrmRoute } from '@/services/routeService';
 import type { LatLng, PartyType } from '@/models';
+import { readJson, writeJson } from '@/utils/storage';
+
+// People the walker agreed to ride with during this journey ("ride together"
+// accepted by both in a call). Recorded as the trip's companions when it is
+// completed — the source of the partner's history, ratings and statistics.
+const COMPANIONS_KEY = 'ontheway_ride_companions_v1';
+
+/** Remember an agreed companion for the current journey. */
+export function recordCompanion(userId: string): void {
+  const ids = readJson<string[]>(COMPANIONS_KEY, []);
+  if (!ids.includes(userId)) writeJson(COMPANIONS_KEY, [...ids, userId]);
+}
+
+const takeCompanions = (): string[] => {
+  const ids = readJson<string[]>(COMPANIONS_KEY, []);
+  writeJson(COMPANIONS_KEY, null);
+  return ids;
+};
 
 /** A picked route endpoint (label + coordinate), as the route sheet emits it. */
 export interface RouteWaypoint { value?: string; latlng?: LatLng | null }
@@ -49,10 +67,11 @@ export async function createLiveTrip(route: OsrmRoute, coords: LatLng[], waypoin
 /** Withdraws the shared route and closes the Live trip behind it — completed
     when the route ends, cancelled when the walker abandons the map. */
 export function closeLiveTrip(tripId: string | null, outcome: 'complete' | 'cancel'): void {
+  const companions = takeCompanions();
   if (USE_MOCKS) return;
   presenceClient.clearRoute().catch(() => {});
   if (!tripId) return;
-  (outcome === 'complete' ? tripApi.complete(tripId) : tripApi.cancel(tripId)).catch(() => {});
+  (outcome === 'complete' ? tripApi.complete(tripId, companions) : tripApi.cancel(tripId)).catch(() => {});
   if (walkerStateStore.get().activeTripId === tripId) walkerStateStore.patch({ clearActiveTrip: true });
 }
 

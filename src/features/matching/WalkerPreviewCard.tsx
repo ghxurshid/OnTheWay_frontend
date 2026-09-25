@@ -1,6 +1,8 @@
 import { T, TEAL_GRADIENT, partyColor } from '@/constants/theme';
 import { t } from '@/i18n';
-import { fmt12 } from '@/utils/datetime';
+import { fmtDayTime } from '@/utils/datetime';
+import { useBackHandler } from '@/hooks/useBackHandler';
+import { SaveStar } from '@/features/saved/SaveStar';
 import type { RouteData, Walker } from '@/models';
 
 /** The 'preview' navTask: a walker with their server-loaded route. */
@@ -21,6 +23,7 @@ interface WalkerPreviewCardProps {
 /** Minimized card showing a walker's server-loaded route preview + actions.
  *  Arrangements are made over chat/call (there is no booking request). */
 export function WalkerPreviewCard({ task, onBack, onCall, onChat }: WalkerPreviewCardProps) {
+  useBackHandler(onBack);
   const w = task.walker;
   const { loading, data, dist } = task;
   const isDriver = w.type === 'driver';
@@ -62,12 +65,12 @@ export function WalkerPreviewCard({ task, onBack, onCall, onChat }: WalkerPrevie
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
               <span style={{ fontSize: 15, fontWeight: 700, color: T.text }}>{w.name}</span>
               <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 5, background: `${color}20`,
-                color, fontWeight: 600 }}>{isDriver ? '🚗' : '🧑‍✈️'} {isDriver ? w.vehicle : t('walkerCard.passengerTag')}</span>
+                color, fontWeight: 600 }}>{isDriver ? '🚗' : '🧑‍✈️'} {isDriver ? (w.vehicle || t('common.driver')) : t('walkerCard.passengerTag')}</span>
             </div>
             <div style={{ display: 'flex', gap: 10, fontSize: 11, color: T.muted }}>
-              <span>🕐 {fmt12(w.when)}</span>
-              <span style={{ color: T.amber }}>★ {w.rating}</span>
-              {dist != null && isFinite(dist) && <span>📍 {dist.toFixed(1)} km</span>}
+              <span>🕐 {fmtDayTime(w.when)}</span>
+              {w.rating != null && <span style={{ color: T.amber }}>★ {w.rating}</span>}
+              {dist != null && isFinite(dist) && <span>📍 {t('common.km', { n: dist.toFixed(1) })}</span>}
             </div>
           </div>
         </div>
@@ -83,8 +86,8 @@ export function WalkerPreviewCard({ task, onBack, onCall, onChat }: WalkerPrevie
           </div>
           {data && (
             <div style={{ display: 'flex', gap: 12, marginTop: 8, paddingTop: 8, borderTop: `1px solid ${T.border}` }}>
-              <span style={{ fontSize: 11, color: T.muted }}>📏 <b style={{ color: T.text }}>{data.distanceKm.toFixed(1)} km</b></span>
-              <span style={{ fontSize: 11, color: T.muted }}>⏱ <b style={{ color: T.text }}>{Math.round(data.durationMin)} min</b></span>
+              <span style={{ fontSize: 11, color: T.muted }}>📏 <b style={{ color: T.text }}>{t('common.km', { n: data.distanceKm.toFixed(1) })}</b></span>
+              <span style={{ fontSize: 11, color: T.muted }}>⏱ <b style={{ color: T.text }}>{t('common.minutes', { n: Math.round(data.durationMin) })}</b></span>
               <span style={{ fontSize: 11, color: T.teal, marginLeft: 'auto' }}>● {t('preview.fromServer')}</span>
             </div>
           )}
@@ -96,7 +99,9 @@ export function WalkerPreviewCard({ task, onBack, onCall, onChat }: WalkerPrevie
             fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans,sans-serif',
             boxShadow: `0 4px 16px ${T.tealGlow}`, display: 'flex', alignItems: 'center',
             justifyContent: 'center', gap: 7 }}>📞 {t('common.call')}</button>
-          <button onClick={() => onChat(w)} style={{ padding: '0 18px', borderRadius: 13,
+          <SaveStar place={{ id: 'partner-' + w.id, type: 'partner', label: w.name, initials: w.initials,
+            sub: `${w.from} → ${w.to}`, userId: String(w.id), partyType: w.type }} />
+          <button onClick={() => onChat(w)} aria-label={t('common.chat')} style={{ padding: '0 18px', borderRadius: 13,
             border: `1px solid ${T.border}`, background: 'transparent', color: T.text, fontSize: 14,
             fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans,sans-serif' }}>💬</button>
         </div>

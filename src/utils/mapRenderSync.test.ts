@@ -133,15 +133,19 @@ describe('createHeadingSync', () => {
 
 /* The renderer only needs the members the sync touches: the `_update` that
    leaflet-rotate wires to 'rotate' (and which used to clobber the projection
-   baseline mid-pinch) and the transform/reset pair Leaflet drives. */
-function fakeRenderer() {
+   baseline mid-pinch) and the transform/reset pair Leaflet drives. By default
+   it has completed its first update (_bounds/_center set), like a renderer
+   that joined the map while it was idle. */
+function fakeRenderer({ initialised = true } = {}) {
   return {
     _map: null as unknown,
     _container: {} as unknown,
+    _bounds: (initialised ? {} : undefined) as unknown,
+    _center: (initialised ? 'C' : undefined) as unknown,
     baselineResets: 0,
     transforms: [] as Array<[unknown, number]>,
     resets: 0,
-    _update() { this.baselineResets++; },
+    _update() { this.baselineResets++; this._bounds = {}; this._center = 'C'; },
     _updateTransform(center: unknown, zoom: number) { this.transforms.push([center, zoom]); },
     _onZoom() { this._updateTransform((this._map as any).getCenter(), (this._map as any).getZoom()); },
     _reset() { this.resets++; },
@@ -173,6 +177,25 @@ describe('createVectorGestureSync', () => {
     map.fire('zoomstart');
     map.fire('rotate');                        // goes through the stored ref
     expect(r.baselineResets).toBe(0);          // the patch really is in the path
+    sync.dispose();
+  });
+
+  // Regression: a renderer that joins the map DURING an animation (its first
+  // vector layer added mid-flyTo) must still run its first full update —
+  // skipping it left _bounds/_center undefined and every later draw threw.
+  it('runs the first full update even when the renderer joins mid-gesture', () => {
+    const map = fakeMap();
+    const r = fakeRenderer({ initialised: false });
+    const sync = createVectorGestureSync(r);
+    addRenderer(map, r);
+    sync.attach(map);
+
+    map.fire('zoomstart');
+    map.fire('rotate');
+    expect(r.baselineResets).toBe(1);          // the full update ran…
+    expect(r._bounds).toBeDefined();           // …and initialised the renderer
+    map.fire('rotate');
+    expect(r.baselineResets).toBe(1);          // from then on the pinch freeze applies
     sync.dispose();
   });
 

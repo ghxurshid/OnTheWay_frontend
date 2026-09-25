@@ -9,6 +9,7 @@
 import type { HubConnection } from '@microsoft/signalr';
 import { createEmitter, createHubClient } from './hubConnection';
 import { callApi } from '@/api/callApi';
+import { appError } from '@/utils/errors';
 
 const FALLBACK_ICE_SERVERS: RTCIceServer[] = [{ urls: 'stun:stun.l.google.com:19302' }];
 
@@ -119,6 +120,14 @@ function wireHandlers(conn: HubConnection) {
     };
     if (pc && pc.remoteDescription) await pc.addIceCandidate(candidate).catch(() => {});
     else pendingIce.push(candidate);
+  });
+
+  // "Ride together" offer during the call, and the answer to ours.
+  conn.on('RideOffer', (callId: string, fromUserId: string) => {
+    if (isCurrent(callId)) emit('rideOffer', { callId, fromUserId });
+  });
+  conn.on('RideOfferAnswered', (callId: string, byUserId: string, accepted: boolean) => {
+    if (isCurrent(callId)) emit('rideOfferAnswered', { callId, byUserId, accepted });
   });
 
   conn.onclose(() => {
@@ -254,7 +263,7 @@ export const callClient = {
   /** Caller: ring `toUserId`. Audio is negotiated once they accept. */
   async startCall(toUserId: string, callType = 'audio'): Promise<string> {
     const conn = hub.connected();
-    if (!conn) throw new Error('Call hub not connected');
+    if (!conn) throw appError('REALTIME_OFFLINE');
     getIceServers().catch(() => {}); // warm the TURN credentials while ringing
     await getMic(); // prompt for the mic up front so accept is instant
     const callId: string = await conn.invoke('InitiateCall', toUserId, callType);
@@ -290,6 +299,22 @@ export const callClient = {
     if (!call) return;
     try { await hub.current()?.invoke('Hangup', call.callId); } catch { /* ignore */ }
     teardown();
+  },
+
+  /** Offer the peer to ride together (answered via 'rideOfferAnswered'). */
+  sendRideOffer(): Promise<void> {
+    const c = call;
+    const conn = hub.connected();
+    if (!c || !conn) return Promise.reject(appError('REALTIME_OFFLINE'));
+    return conn.invoke('SendRideOffer', c.peerId, c.callId);
+  },
+
+  /** Answer the peer's ride offer. */
+  respondRideOffer(accepted: boolean): Promise<void> {
+    const c = call;
+    const conn = hub.connected();
+    if (!c || !conn) return Promise.reject(appError('REALTIME_OFFLINE'));
+    return conn.invoke('RespondRideOffer', c.peerId, c.callId, accepted);
   },
 
   /** Mute/unmute the local mic without renegotiating. */

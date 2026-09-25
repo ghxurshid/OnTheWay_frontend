@@ -2,6 +2,9 @@ import type { ReactNode } from 'react';
 import { T, TEAL_GRADIENT } from '@/constants/theme';
 import { t } from '@/i18n';
 import { ToggleRow } from '@/components/ui/ToggleRow';
+import { useBackHandler } from '@/hooks/useBackHandler';
+import { currentUserName } from '@/services/authService';
+import { initialsOf } from '@/utils/avatar';
 import type { PartyType } from '@/models';
 
 interface SideDrawerProps {
@@ -25,6 +28,8 @@ interface SideDrawerProps {
  *  ambiguities, so a user who wants another mode re-opens the app and picks it. */
 export function SideDrawer({ open, onClose, mode, freeMode, onToggleFreeMode,
   banded, canBand, onToggleBanded, onExit, onOpenPanel }: SideDrawerProps) {
+  useBackHandler(onClose, open);
+  const name = currentUserName() || t('common.user');
   // Free Mode = sharing a live location with no destination. That only makes sense
   // for drivers (taxi-like: available, will go wherever asked). A passenger has no
   // destination to share, so they can't enable it — they become visible to drivers
@@ -32,6 +37,10 @@ export function SideDrawer({ open, onClose, mode, freeMode, onToggleFreeMode,
   const canFreeMode = mode === 'driver';
   const freeModeActive = canFreeMode && freeMode;
   const navItems = [
+    { key: 'myTrips', label: t('drawer.myTrips'), sub: t('drawer.myTripsSub'),
+      color: T.teal, icon: (c: string) => (<svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+        <rect x="3" y="4" width="14" height="13" rx="2" stroke={c} strokeWidth="1.6" />
+        <path d="M7 2v3M13 2v3M3 9h14M7 12.5h6" stroke={c} strokeWidth="1.6" strokeLinecap="round" /></svg>) },
     { key: 'complaint', label: t('drawer.complaint'), sub: t('drawer.complaintSub'),
       color: T.amber, icon: (c: string) => (<svg width="20" height="20" viewBox="0 0 20 20" fill="none">
         <path d="M4 4h12v9H8l-4 3V4z" stroke={c} strokeWidth="1.6" strokeLinejoin="round" />
@@ -48,7 +57,8 @@ export function SideDrawer({ open, onClose, mode, freeMode, onToggleFreeMode,
   );
 
   return (
-    <div style={{ position: 'absolute', inset: 0, zIndex: 28, pointerEvents: open ? 'auto' : 'none' }}>
+    <div inert={!open} aria-hidden={!open} role="dialog" aria-modal={open} aria-label={t('drawer.menu')}
+      style={{ position: 'absolute', inset: 0, zIndex: 28, pointerEvents: open ? 'auto' : 'none' }}>
       <div onClick={onClose} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,.5)',
         opacity: open ? 1 : 0, transition: 'opacity .3s ease' }} />
       <div className="otw-drawer" style={{ position: 'absolute', top: 0, left: 0, bottom: 0, width: 322,
@@ -64,7 +74,7 @@ export function SideDrawer({ open, onClose, mode, freeMode, onToggleFreeMode,
             <div style={{ width: 4, height: 20, borderRadius: 2, background: T.teal }} />
             <span style={{ fontSize: 16, fontWeight: 600, color: T.text }}>{t('drawer.menu')}</span>
           </div>
-          <button onClick={onClose} style={{ width: 32, height: 32, borderRadius: 10,
+          <button onClick={onClose} aria-label={t('drawer.close')} style={{ width: 32, height: 32, borderRadius: 10,
             border: `1px solid ${T.border}`, background: T.hover, color: T.muted,
             cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
@@ -81,14 +91,10 @@ export function SideDrawer({ open, onClose, mode, freeMode, onToggleFreeMode,
             <div style={{ width: 50, height: 50, borderRadius: 15,
               background: TEAL_GRADIENT,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 19, fontWeight: 700, color: 'white', flexShrink: 0 }}>AK</div>
+              fontSize: 19, fontWeight: 700, color: 'white', flexShrink: 0 }}>{initialsOf(name)}</div>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>{t('drawer.profileName')}</div>
-              <div style={{ fontSize: 12, color: T.muted }}>{t('drawer.profileMeta')}</div>
-              <div style={{ display: 'flex', gap: 8, marginTop: 5 }}>
-                <span style={{ fontSize: 11, color: T.teal }}>⭐ 4.9</span>
-                <span style={{ fontSize: 11, color: T.muted }}>{t('drawer.tripsCount', { n: 312 })}</span>
-              </div>
+              <div style={{ fontSize: 15, fontWeight: 600, color: T.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</div>
+              <div style={{ fontSize: 12, color: T.muted }}>{mode === 'driver' ? t('home.driverLabel') : t('home.passengerLabel')}</div>
             </div>
           </div>
 

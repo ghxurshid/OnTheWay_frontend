@@ -7,6 +7,10 @@ import { HistoryPanel } from '@/features/history/HistoryPanel';
 import { SchedulePanel } from '@/features/schedule/SchedulePanel';
 import { ContactsPanel } from '@/features/contacts/ContactsPanel';
 import { ContactMinimized } from '@/features/contacts/ContactMinimized';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { useBackHandler } from '@/hooks/useBackHandler';
+import { useUnread } from '@/hooks/useUnread';
+import type { ChatPeer } from '@/features/contacts/ChatsPanel';
 import type { Contact, LatLng, MapTask, PartyType } from '@/models';
 
 type PanelState = 'idle' | 'opening' | 'open' | 'closing';
@@ -26,10 +30,16 @@ interface BottomNavBarProps {
   onContactSms?: (c: Contact) => void;
   engaged?: boolean;
   onTripCreated?: (trip: unknown) => void;
+  /** Open the chat with someone from the inbox. */
+  onOpenChat: (peer: ChatPeer) => void;
+  /** Open "My trips" (own published trips). */
+  onOpenMyTrips: () => void;
+  /** A bottom panel opened/closed (the map chrome steps aside while open). */
+  onPanelChange?: (open: boolean) => void;
 }
 
 /** Bottom navigation bar + expanding panel host (saved/history/schedule/contacts). */
-export function BottomNavBar({ onRouteSheet, mode, routeActive, userLoc, onMapTask, hidden, onContactCall, onContactSms, engaged, onTripCreated }: BottomNavBarProps) {
+export function BottomNavBar({ onRouteSheet, mode, routeActive, userLoc, onMapTask, hidden, onContactCall, onContactSms, engaged, onTripCreated, onOpenChat, onOpenMyTrips, onPanelChange }: BottomNavBarProps) {
   const [panelState, setPanelState] = useState<PanelState>('idle');
   const [active, setActive] = useState<string | null>(null);
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
@@ -86,6 +96,11 @@ export function BottomNavBar({ onRouteSheet, mode, routeActive, userLoc, onMapTa
   };
 
   const panelShown = panelState !== 'idle';
+  useEffect(() => { onPanelChange?.(panelShown); }, [panelShown]); // eslint-disable-line react-hooks/exhaustive-deps -- notify on change only
+  useBackHandler(closePanel, panelShown && !hidden);
+  useBackHandler(clearContactFocus, !!selectedContact);
+  const unread = useUnread();
+  const unreadTotal = Object.values(unread).reduce((a, b) => a + b, 0);
 
   const TABS: TabDef[] = [
     { id: 'saved', label: t('nav.saved'),
@@ -116,13 +131,14 @@ export function BottomNavBar({ onRouteSheet, mode, routeActive, userLoc, onMapTa
     schedule: t('nav.titleSchedule'), contacts: t('nav.titleContacts'),
   };
   const panelMap: Record<string, ReactNode> = {
-    saved: <SavedPanel />, history: <HistoryPanel />,
-    schedule: <SchedulePanel mode={mode} userLoc={userLoc} onMapTask={onMapTask ?? (() => {})} onTripCreated={onTripCreated} />,
-    contacts: <ContactsPanel onSelect={selectContact} />,
+    saved: <SavedPanel onOpenChat={(peer) => { closePanel(); onOpenChat(peer); }} />, history: <HistoryPanel />,
+    schedule: <SchedulePanel mode={mode} userLoc={userLoc} onMapTask={onMapTask ?? (() => {})} onTripCreated={onTripCreated}
+      onClose={closePanel} onOpenMyTrips={() => { closePanel(); onOpenMyTrips(); }} />,
+    contacts: <ContactsPanel onSelect={selectContact} onOpenChat={onOpenChat} />,
   };
 
   const renderCenterButton = (size: number, fab: boolean) => (
-    <button onClick={handleCenter} disabled={routeActive} style={{
+    <button onClick={handleCenter} disabled={routeActive} aria-label={routeActive ? t('push.routeActiveTitle') : t('route.title')} style={{
       width: size, height: size, borderRadius: '50%',
       background: routeActive ? T.glassMid : TEAL_GRADIENT,
       border: `${fab ? 3 : 2.5}px solid ${fab ? T.glass : T.glassSolid}`,
@@ -164,7 +180,14 @@ export function BottomNavBar({ onRouteSheet, mode, routeActive, userLoc, onMapTa
         color,
         transition: 'color .2s ease, opacity .2s ease',
       }}>
-        {tab.icon?.(color)}
+        <span style={{ position: 'relative', display: 'flex' }}>
+          {tab.icon?.(color)}
+          {tab.id === 'contacts' && unreadTotal > 0 && (
+            <span aria-label={t('push.newMessage')} style={{ position: 'absolute', top: -5, right: -9, minWidth: 16, height: 16,
+              borderRadius: 8, padding: '0 4px', background: T.red, color: '#fff', fontSize: 9.5, fontWeight: 700,
+              display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{unreadTotal > 9 ? '9+' : unreadTotal}</span>
+          )}
+        </span>
         <span style={{ fontSize: 9, fontWeight: isAct ? 600 : 400, letterSpacing: .3 }}>
           {tab.label}
         </span>
@@ -211,7 +234,7 @@ export function BottomNavBar({ onRouteSheet, mode, routeActive, userLoc, onMapTa
                 {active ? panelTitles[active] : ''}
               </span>
             </div>
-            <button onClick={closePanel} style={{
+            <button onClick={closePanel} aria-label={t('common.close')} style={{
               width: 32, height: 32, borderRadius: 10,
               border: `1px solid ${T.border}`, background: T.hover,
               color: T.muted, cursor: 'pointer',
@@ -224,7 +247,8 @@ export function BottomNavBar({ onRouteSheet, mode, routeActive, userLoc, onMapTa
             </button>
           </div>
           <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
-            {active && panelMap[active]}
+            {/* A failing panel closes itself instead of taking the whole app down. */}
+            <ErrorBoundary onReset={closePanel}>{active && panelMap[active]}</ErrorBoundary>
           </div>
           <div style={{
             display: 'flex', alignItems: 'center',

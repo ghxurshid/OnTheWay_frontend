@@ -21,7 +21,7 @@ import { initTelegramUi } from '@/services/telegram';
 export function useBootstrap() {
   const [authReady, setAuthReady] = useState(USE_MOCKS);     // mock mode needs no auth
   const [sessionReady, setSessionReady] = useState(USE_MOCKS); // server snapshot fetched (or failed)
-  const [authError, setAuthError] = useState<string | null>(null);
+  const [authError, setAuthError] = useState<unknown>(null); // kept as thrown, so the screen can localize it
   const [bootNonce, setBootNonce] = useState(0);
   const bootRef = useRef(false);
   const restoredSessionRef = useRef<any>(null); // server session snapshot fetched on boot
@@ -42,7 +42,7 @@ export function useBootstrap() {
         restoredSessionRef.current = await walkerStateStore.restoreFromServer();
         setSessionReady(true); // splash may proceed (and possibly auto-resume)
       } catch (e) {
-        setAuthError((e as Error)?.message || String(e));
+        setAuthError(e ?? new Error('Boot failed'));
       }
     })();
   }, [bootNonce]);

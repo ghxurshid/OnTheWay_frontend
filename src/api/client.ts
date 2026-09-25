@@ -31,20 +31,34 @@ export function mockResponse<T>(data: T, latency = MOCK_LATENCY): Promise<T> {
   });
 }
 
+/** Failures that never reached the server (no status): lost connectivity, a
+    request that took too long, or a session that could not be renewed. */
+export type ApiErrorCode = 'network' | 'timeout' | 'session';
+
 export class ApiError extends Error {
   status: number;
-  errors: unknown[];
-  constructor(status: number, message: string, errors: unknown[] = []) {
+  errors: string[];
+  code?: ApiErrorCode;
+  constructor(status: number, message: string, errors: string[] = [], code?: ApiErrorCode) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
     this.errors = errors;
+    this.code = code;
   }
 }
+
+/** Window event fired when the session is gone and could not be renewed — the
+    app shows its "sign in again" screen instead of failing silently. */
+export const SESSION_LOST_EVENT = 'ontheway:session-lost';
+
+const DEFAULT_TIMEOUT_MS = 15_000;
 
 export interface HttpOptions extends RequestInit {
   /** Attach the Bearer token (default true). */
   auth?: boolean;
+  /** Abort (ApiError code "timeout") after this many ms. Default 15 s. */
+  timeoutMs?: number;
   /** Internal guard so a refresh only retries once. */
   _retried?: boolean;
 }
@@ -53,7 +67,7 @@ export interface HttpOptions extends RequestInit {
     not statically modelled, so the default payload type is `any` at this
     boundary; callers may pass an explicit type via `http<Dto>(…)`. */
 export async function http<T = any>(path: string, options: HttpOptions = {}): Promise<T> {
-  const { auth = true, _retried = false, headers, ...rest } = options;
+  const { auth = true, _retried = false, timeoutMs = DEFAULT_TIMEOUT_MS, headers, ...rest } = options;
   const url = path.startsWith('http') ? path : `${BASE_URL}${path}`;
 
   const finalHeaders: Record<string, string> = { 'Content-Type': 'application/json', ...(headers as Record<string, string> || {}) };
@@ -62,44 +76,76 @@ export async function http<T = any>(path: string, options: HttpOptions = {}): Pr
     if (token) finalHeaders.Authorization = `Bearer ${token}`;
   }
 
-  const res = await fetch(url, { headers: finalHeaders, ...rest });
+  const res = await fetchWithTimeout(url, { headers: finalHeaders, ...rest }, timeoutMs);
 
-  // Token expired → refresh once and replay the original request.
-  if (res.status === 401 && auth && !_retried && authStore.getRefreshToken()) {
+  // Session expired → renew it once (refresh token, else a fresh Telegram
+  // login — see authService) and replay the original request.
+  if (res.status === 401 && auth && !_retried) {
     try {
       await authStore.refresh();
-      return http<T>(path, { ...options, _retried: true });
     } catch {
       authStore.clear();
-      throw new ApiError(401, 'Session expired. Please sign in again.');
+      if (typeof window !== 'undefined') window.dispatchEvent(new Event(SESSION_LOST_EVENT));
+      throw new ApiError(401, 'Session expired.', [], 'session');
     }
+    return http<T>(path, { ...options, _retried: true });
   }
 
-  return parse<T>(res, options.method || 'GET', url);
+  return parse<T>(res);
 }
 
-/** Parse the envelope, returning `data` or throwing a rich ApiError. */
+/** fetch() that gives up after `timeoutMs` and turns transport failures into
+    ApiErrors with a code, so callers can tell "offline" from "server said no". */
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController();
+  const outer = init.signal;
+  outer?.addEventListener('abort', () => controller.abort(), { once: true });
+  let timedOut = false;
+  const timer = setTimeout(() => { timedOut = true; controller.abort(); }, timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (e) {
+    if (outer?.aborted) throw e;
+    throw timedOut
+      ? new ApiError(0, 'Request timed out.', [], 'timeout')
+      : new ApiError(0, (e as Error)?.message || 'Network request failed.', [], 'network');
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** A JSON write request: `send('POST', '/trips', dto)`. The body is optional. */
 export function send<T = any>(method: string, path: string, body?: unknown, options: HttpOptions = {}): Promise<T> {
   return http<T>(path, { ...options, method, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
 }
 
-async function parse<T>(res: Response, method: string, url: string): Promise<T> {
+/** Parse the envelope, returning `data` or throwing a rich ApiError. */
+async function parse<T>(res: Response): Promise<T> {
   if (res.status === 204) return null as T;
 
-  let body: { success?: boolean; data?: unknown; message?: string; errors?: unknown[] } | null = null;
+  let body: { success?: boolean; data?: unknown; message?: string; title?: string; errors?: unknown } | null = null;
   const text = await res.text();
   if (text) {
     try { body = JSON.parse(text); } catch { /* non-JSON error body */ }
   }
 
   if (!res.ok || (body && body.success === false)) {
-    const message = body?.message || `${method} ${url} → ${res.status}`;
-    throw new ApiError(res.status, message, body?.errors || []);
+    const message = body?.message || body?.title || `HTTP ${res.status}`;
+    throw new ApiError(res.status, message, flattenErrors(body?.errors));
   }
 
   // Standard envelope → unwrap; tolerate a bare payload just in case.
   return (body && typeof body === 'object' && 'data' in body ? body.data : body) as T;
+}
+
+/** Envelope errors are a string list; ProblemDetails uses { field: [msgs] }. */
+function flattenErrors(errors: unknown): string[] {
+  if (Array.isArray(errors)) return errors.map(String);
+  if (errors && typeof errors === 'object') {
+    return Object.entries(errors as Record<string, unknown>)
+      .flatMap(([field, msgs]) => (Array.isArray(msgs) ? msgs : [msgs]).map((m) => `${field}: ${m}`));
+  }
+  return [];
 }
 
 // structuredClone with a fallback that preserves Date instances used in mocks.

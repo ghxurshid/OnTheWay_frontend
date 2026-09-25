@@ -14,7 +14,6 @@ interface CreateTripForm {
   to?: { latlng?: LatLng; label?: string };
   date?: string;
   tStart?: number;
-  seats?: number | string;
   distanceKm?: number | null;
   etaMinutes?: number | null;
   note?: string | null;

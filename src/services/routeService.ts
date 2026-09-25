@@ -17,7 +17,8 @@ export interface OsrmRoute {
   duration: number;
 }
 
-/** OSRM driving routes through ordered [lat,lng] coords (best first). */
+/** OSRM driving routes through ordered [lat,lng] coords (best first); empty
+    when no road connects them. Throws (ApiError) when the service fails. */
 export function getRoute(coords: LatLng[], options?: { alternatives?: boolean }): Promise<OsrmRoute[]> {
   return geoApi.route(coords, options) as Promise<OsrmRoute[]>;
 }
@@ -40,9 +41,9 @@ export function toRoutePublishDto(coords: LatLng[], route: Partial<OsrmRoute> | 
 }
 
 // Build a single normalized route between two points, falling back to a
-// straight line when OSRM is unavailable.
+// straight line when the routing service is unavailable.
 async function build(from: LatLng, to: LatLng): Promise<RouteData> {
-  const [r] = await getRoute([from, to]);
+  const [r] = await getRoute([from, to]).catch((): OsrmRoute[] => []);
   if (r?.geometry) {
     return { coords: routeCoords(r), distanceKm: r.distance / 1000, durationMin: r.duration / 60 };
   }

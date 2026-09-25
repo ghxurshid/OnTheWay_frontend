@@ -56,6 +56,11 @@ pages / features  →  components (ui, form)
 | Live trip behind an on-map route, "band" toggle | `services/liveTripService` (`createLiveTrip`, `closeLiveTrip`, `publishBanded`) |
 | One-shot device location | `services/geolocation` (`getCurrentLatLng`) |
 | Drag-the-map point picker | `features/route/MapPickOverlay` |
+| Any error shown to a user (localized, actionable — never raw `Failed to fetch` / `HTTP 401`) | `utils/errors` (`errorMessage`, `isConflict`, `isUserOffline`, `fieldErrors`, `appError`) |
+| Load failed / nothing yet | `components/ui/StatusStates` (`ErrorState` with retry, `EmptyState`) |
+| "Are you sure?" before a destructive action | `services/confirm` (`await confirmAction({...})`, rendered once by `ConfirmHost`) |
+| Close a layer on Escape / Telegram BackButton (top-most layer only) | `hooks/useBackHandler` (over `services/backStack`) |
+| Realtime connection state for UI (connected / reconnecting / offline) | `hooks/useRealtimeStatus` |
 
 **Ids are always strings on the frontend** (REST sends numeric longs, SignalR sends
 strings) — normalise with `String(id)` / `idOf` before comparing or keying maps.
@@ -104,3 +109,9 @@ Use it instead of `../../..` chains.
 - Backend contract details (envelope, pagination, auth) are in the API-conventions
   section of [../docs/texnik-spetsifikatsiya.md](../docs/texnik-spetsifikatsiya.md).
 - `legacy/` holds pre-React code — don't extend it; port into `src/` instead.
+- Geocoding and routing go through the backend proxy (`/geo/search`, `/geo/reverse`,
+  `/geo/route` in `api/geoApi`); only mock mode talks to Nominatim/OSRM directly.
+- Every async screen has three states: loading, `ErrorState` (with retry), content or
+  `EmptyState`. A submit is guarded by a **ref**, not only by `busy` state — taps in the
+  same frame all see the stale state.
+- Every literal `t('a.b')` key must exist in uz/ru/en — `src/i18n/keys.test.ts` enforces it.

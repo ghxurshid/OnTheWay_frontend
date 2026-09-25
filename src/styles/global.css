@@ -111,7 +111,7 @@ html[data-theme="light"] .user-dot { border-color: #ffffff; }
    zoom / basemap buttons; --sat keeps it clear of the notch and status bar. */
 .otw-edge-top { top: calc(88px + var(--sat)) !important; }
 /* The toast reserves the control column on its right (see PushToast). */
-.otw-toast { right: calc(62px + var(--sar)) !important; left: calc(16px + var(--sal)) !important; }
+.otw-toast { top: calc(62px + var(--sat)) !important; right: calc(62px + var(--sar)) !important; left: calc(16px + var(--sal)) !important; }
 .otw-navbar { margin-bottom: calc(20px + var(--sab)) !important; }
 .otw-drawer {
   width: min(322px, 86vw) !important;
@@ -155,3 +155,19 @@ html[data-theme="light"] .otw-sheet { border-color: rgba(18,22,30,.10) !importan
 @keyframes nb-bar-in    { 0% { opacity: 0; transform: translateY(20px) scale(0.96); } 100% { opacity: 1; transform: translateY(0) scale(1); } }
 @keyframes nb-fab-sink  { 0% { transform: translateY(-14px) scale(1); } 100% { transform: translateY(0) scale(0.88); } }
 @keyframes nb-fab-rise  { 0% { transform: translateY(0) scale(0.88); } 100% { transform: translateY(-14px) scale(1); } }
+
+/* ── Accessibility ── */
+/* Keyboard focus is always visible, even where an inline style reset the outline. */
+button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible,
+select:focus-visible, [role="button"]:focus-visible, [tabindex]:focus-visible {
+  outline: 2px solid #1fc8c0 !important;
+  outline-offset: 2px !important;
+}
+/* Respect the OS "reduce motion" setting. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}

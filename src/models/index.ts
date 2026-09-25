@@ -21,8 +21,8 @@ export interface Walker {
   fromLatlng: LatLng;
   toLatlng: LatLng;
   when: Date;
-  seats: number;
-  rating: number;
+  seats?: number;
+  rating: number | null;
   vehicle: string | null;
 }
 
@@ -32,11 +32,12 @@ export interface Contact {
   name: string;
   initials: string;
   type: PartyType;
-  rating: number;
-  phone: string;
+  rating: number | null;
+  phone: string | null;
   online: boolean;
   lastSeen: string | null;
-  latlng: LatLng;
+  /** Live position — null while the contact is not sharing their location. */
+  latlng: LatLng | null;
   hasRoute: boolean;
   fromLatlng?: LatLng;
   toLatlng?: LatLng;
@@ -52,9 +53,13 @@ export interface Trip {
   duration: string;
   km: string;
   role: PartyType;
-  partner: string;
-  rating: number;
+  /** Who the caller travelled with, when recorded. */
+  partner: string | null;
+  /** Stars the caller gave (null when not rated). */
+  rating: number | null;
   status: 'completed' | 'cancelled';
+  durationMinutes?: number;
+  distanceKm?: number;
 }
 
 /** A normalized route returned by the route service / RouteServer. */
@@ -152,4 +157,7 @@ export interface SavedItem {
   sub?: string;
   initials?: string;
   savedAt?: number;
+  /** For a saved partner: their user id, so the item can open a chat. */
+  userId?: string;
+  partyType?: PartyType;
 }

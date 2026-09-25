@@ -1,4 +1,5 @@
 import { T } from '@/constants/theme';
+import { t } from '@/i18n';
 import type { PushNotif } from '@/models';
 
 interface PushToastProps {
@@ -18,7 +19,7 @@ export function PushToast({ notif, exiting = false, onDismiss, onView }: PushToa
   if (!notif) return null;
   const color = notif.user?.type === 'driver' ? T.amber : T.teal;
   return (
-    <div className="otw-toast" style={{ position: 'absolute', top: 14, left: 16, right: 62, zIndex: 35,
+    <div className="otw-toast" role="status" aria-live="polite" style={{ position: 'absolute', top: 62, left: 16, right: 62, zIndex: 35,
       pointerEvents: 'auto', willChange: 'transform, opacity',
       animation: exiting
         ? 'pushSlideOut .28s ease-in both'
@@ -60,7 +61,7 @@ export function PushToast({ notif, exiting = false, onDismiss, onView }: PushToa
             {notif.action}
           </button>
         )}
-        <button onClick={onDismiss}
+        <button onClick={onDismiss} aria-label={t('common.close')}
           style={{ width: 24, height: 24, borderRadius: 6, border: 'none',
             background: 'transparent', color: T.muted, cursor: 'pointer', fontSize: 12,
             display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>

@@ -76,7 +76,7 @@ export interface SimWalker {
 
 /** OSRM driving route (fallback: a gently bent interpolated line). */
 export async function fetchRoute(start: LatLng, end: LatLng): Promise<LatLng[]> {
-  const [route] = await getRoute([start, end], { alternatives: false });
+  const [route] = await getRoute([start, end], { alternatives: false }).catch(() => []);
   if (route?.geometry) return routeCoords(route);
   const n = 24;
   const bend = rand(-0.004, 0.004);

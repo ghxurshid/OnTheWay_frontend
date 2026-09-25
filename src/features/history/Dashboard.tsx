@@ -5,21 +5,24 @@ import { useHistory } from '@/hooks/useHistory';
 import { weeklyMetrics } from '@/services/dashboardService';
 import { roleSplit } from '@/services/historyService';
 import { Spinner } from '@/components/ui/Spinner';
+import { ErrorState } from '@/components/ui/StatusStates';
+import { calendarNames } from '@/utils/datetime';
 import { StatisticsCard } from './StatisticsCard';
-
-const DAYS = ['Du', 'Se', 'Cho', 'Pa', 'Ju', 'Sha', 'Yak'];
 
 /** Analytics dashboard: weekly chart, top destinations, role split. */
 export function Dashboard() {
-  const { summary, loading } = useDashboard();
+  const { summary, loading, error, reload } = useDashboard();
   const { history } = useHistory();
 
-  if (loading || !summary) return <Spinner />;
+  if (loading) return <Spinner label={null} />;
+  if (error || !summary) return <ErrorState error={error} onRetry={reload} fallbackKey="dashboard.loadFailed" />;
 
+  const DAYS = calendarNames().weekdays;
   const weekly = summary.weekly;
   const destinations = summary.destinations;
-  const max = Math.max(...weekly);
-  const maxCount = destinations[0].count;
+  // A new user has no km and no destinations yet: keep the divisors non-zero.
+  const max = Math.max(1, ...weekly);
+  const maxCount = Math.max(1, ...destinations.map((d) => d.count));
   const { totalWeek, activeDays, co2Saved, moneySaved } = weeklyMetrics(weekly);
   const { driverTrips, passTrips, driverPct } = roleSplit(history);
   const todayIdx = (new Date().getDay() + 6) % 7;
@@ -96,6 +99,9 @@ export function Dashboard() {
           {t('dashboard.topDest')}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+          {destinations.length === 0 && (
+            <div style={{ fontSize: 12, color: T.muted }}>{t('dashboard.noData')}</div>
+          )}
           {destinations.map((d, i) => (
             <div key={d.label} style={{ animation: `fadeUp .3s ${i * .06}s ease both` }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4, gap: 8 }}>

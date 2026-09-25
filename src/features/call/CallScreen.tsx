@@ -2,7 +2,9 @@ import { useState, useEffect } from 'react';
 import type { ReactNode } from 'react';
 import { T, partyColor } from '@/constants/theme';
 import { t } from '@/i18n';
-import { ME } from '@/constants/app';
+import { currentUserName } from '@/services/authService';
+import { initialsOf } from '@/utils/avatar';
+import type { RideOfferState } from '@/hooks/useCallSession';
 import type { PartyType } from '@/models';
 
 interface CallParty {
@@ -20,7 +22,10 @@ interface CallScreenProps {
   onAccept?: () => void;
   onDecline?: () => void;
   onEnd?: () => void;
-  onAgree?: () => void;
+  /** Where the "ride together" agreement stands. */
+  offer: RideOfferState;
+  onOffer: () => void;
+  onRespondOffer: (accepted: boolean) => void;
   onMuteToggle?: (muted: boolean) => void;
   live?: boolean;
   role?: 'caller' | 'callee';
@@ -28,18 +33,18 @@ interface CallScreenProps {
 
 const accentOf = (p: CallParty): string => p.accent || partyColor(p.type);
 
-/** Call screen (ringing/active) with a "ride together" offer.
+/** Call screen (ringing/active) with a two-sided "ride together" offer.
     Real calls (`live`): always shows the REMOTE party (`callee` prop — the
     actual caller when role='callee') and the buttons drive the CallHub via the
     parent's handlers. Demo mode keeps the dual-perspective flip view. */
-export function CallScreen({ callee, phase, onAccept, onDecline, onEnd, onAgree, onMuteToggle, live = false, role = 'caller' }: CallScreenProps) {
-  const caller: CallParty = { ...ME, accent: T.teal }; // demo-mode "you"
+export function CallScreen({ callee, phase, onAccept, onDecline, onEnd, offer, onOffer, onRespondOffer, onMuteToggle, live = false, role = 'caller' }: CallScreenProps) {
+  const myName = currentUserName() || t('common.user');
+  const caller: CallParty = { name: myName, initials: initialsOf(myName), sub: '', accent: T.teal }; // demo-mode "you"
   const [secs, setSecs] = useState(0);
   const [muted, setMuted] = useState(false);
   const [view, setView] = useState(role === 'callee' ? 'callee' : 'caller'); // 'caller' | 'callee'
   const ringing = phase === 'ringing';
-  const [agreed, setAgreed] = useState(false);
-  const agree = () => { setAgreed(true); onAgree && onAgree(); };
+  const firstName = callee.name.split(' ')[0];
   const toggleMute = () => setMuted((m) => { onMuteToggle && onMuteToggle(!m); return !m; });
 
   useEffect(() => {
@@ -64,7 +69,7 @@ export function CallScreen({ callee, phase, onAccept, onDecline, onEnd, onAgree,
   const status = phase === 'active' ? fmt(secs) : onCaller ? t('call.calling') : t('call.incoming');
 
   return (
-    <div className="otw-screen" style={{ position: 'absolute', inset: 0, zIndex: 30,
+    <div className="otw-screen" role="dialog" aria-modal="true" aria-label={callee.name} style={{ position: 'absolute', inset: 0, zIndex: 50,
       background: T.isDark
         ? 'linear-gradient(160deg,#0d1220 0%,#0f1117 50%,#0a1018 100%)'
         : `linear-gradient(160deg,${T.surface2} 0%,${T.bg} 50%,${T.stage} 100%)`,
@@ -139,19 +144,32 @@ export function CallScreen({ callee, phase, onAccept, onDecline, onEnd, onAgree,
       {phase === 'active'
         ? <div style={{ marginTop: 'auto', width: '100%', display: 'flex', flexDirection: 'column',
             alignItems: 'center', gap: 18 }}>
-            {agreed
-              ? <div style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 11,
+            {offer === 'agreed'
+              ? <div role="status" style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 11,
                   background: T.green + '1c', border: `1px solid ${T.green}55`, borderRadius: 15,
                   padding: '12px 14px', animation: 'fadeUp .3s ease both' }}>
                   <div style={{ width: 34, height: 34, borderRadius: '50%', background: T.green, flexShrink: 0,
                     display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17, color: '#fff' }}>✓</div>
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontSize: 13.5, fontWeight: 700, color: T.green }}>{t('call.agreedTitle')}</div>
-                    <div style={{ fontSize: 11, color: T.muted, marginTop: 1 }}>{t('call.agreedSub', { name: callee.name.split(' ')[0] })}</div>
+                    <div style={{ fontSize: 11, color: T.muted, marginTop: 1 }}>{t('call.agreedSub', { name: firstName })}</div>
                   </div>
                 </div>
-              : onCaller
-                ? <div style={{ display: 'flex', alignItems: 'center', gap: 8,
+              : offer === 'received'
+                ? <div role="status" style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10,
+                    animation: 'fadeUp .3s ease both' }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: T.text, textAlign: 'center' }}>🤝 {t('call.offerIncoming', { name: firstName })}</div>
+                    <div style={{ display: 'flex', gap: 10, width: '100%' }}>
+                      <button onClick={() => onRespondOffer(false)} style={{ flex: 1, padding: '13px', borderRadius: 14,
+                        border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 14, fontWeight: 600,
+                        cursor: 'pointer', fontFamily: 'DM Sans,sans-serif' }}>{t('call.offerDecline')}</button>
+                      <button onClick={() => onRespondOffer(true)} style={{ flex: 1, padding: '13px', borderRadius: 14,
+                        border: 'none', background: T.green, color: '#fff', fontSize: 14, fontWeight: 700,
+                        cursor: 'pointer', fontFamily: 'DM Sans,sans-serif' }}>{t('call.offerAccept')}</button>
+                    </div>
+                  </div>
+              : offer === 'sent'
+                ? <div role="status" style={{ display: 'flex', alignItems: 'center', gap: 8,
                     background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 999,
                     padding: '8px 16px', animation: 'fadeUp .3s ease both' }}>
                     <div style={{ width: 6, height: 6, borderRadius: 3, background: T.amber,
@@ -160,7 +178,10 @@ export function CallScreen({ callee, phase, onAccept, onDecline, onEnd, onAgree,
                   </div>
                 : <div style={{ width: '100%', display: 'flex', flexDirection: 'column',
                     alignItems: 'center', gap: 9, animation: 'fadeUp .3s ease both' }}>
-                    <button onClick={agree}
+                    {offer === 'declined' && (
+                      <div role="status" style={{ fontSize: 12, color: T.amber }}>{t('call.offerDeclined', { name: firstName })}</div>
+                    )}
+                    <button onClick={onOffer}
                       style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 9,
                         background: T.green, border: 'none', borderRadius: 15, padding: '15px 18px',
                         cursor: 'pointer', fontFamily: 'DM Sans,sans-serif',
@@ -174,7 +195,6 @@ export function CallScreen({ callee, phase, onAccept, onDecline, onEnd, onAgree,
             <div style={{ display: 'flex', gap: 20 }}>
               <CallBtn icon={muted ? '🔇' : '🎙'} label={muted ? t('call.unmute') : t('call.mute')} color={T.surface2} small onClick={toggleMute} />
               <CallBtn icon="✕" label={t('call.end')} color={T.red} onClick={onEnd} />
-              <CallBtn icon="📢" label={t('call.speaker')} color={T.surface2} small />
             </div>
           </div>
         : onCaller
@@ -195,7 +215,7 @@ function CallBtn({ icon, label, color, onClick, small }: CallBtnProps) {
   const [p, setP] = useState(false);
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
-      <button onClick={onClick}
+      <button onClick={onClick} aria-label={typeof label === 'string' ? label : undefined}
         onPointerDown={() => setP(true)} onPointerUp={() => setP(false)} onPointerLeave={() => setP(false)}
         style={{ width: small ? 54 : 64, height: small ? 54 : 64, borderRadius: '50%',
           background: color, border: 'none', cursor: 'pointer', fontSize: small ? 20 : 24,
@@ -204,7 +224,7 @@ function CallBtn({ icon, label, color, onClick, small }: CallBtnProps) {
           display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         {icon}
       </button>
-      <span style={{ fontSize: 11, color: T.muted }}>{label}</span>
+      <span aria-hidden="true" style={{ fontSize: 11, color: T.muted }}>{label}</span>
     </div>
   );
 }

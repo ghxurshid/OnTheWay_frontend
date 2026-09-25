@@ -15,6 +15,12 @@ export const tripApi = {
     return post('/trips', payload);
   },
 
+  /** GET /trips/mine — the caller's open trips (scheduled or in progress). */
+  mine() {
+    if (USE_MOCKS) return mockResponse([]);
+    return http('/trips/mine').then((rows) => rows || []);
+  },
+
   /** GET /trips/{id}. */
   getById(id: string) {
     if (USE_MOCKS) return mockResponse(null);

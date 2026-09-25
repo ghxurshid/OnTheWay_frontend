@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { T, partyColor } from '@/constants/theme';
 import { t } from '@/i18n';
 import { useUnread } from '@/hooks/useUnread';
+import { fmtLastSeen } from '@/utils/datetime';
 import type { Contact } from '@/models';
 
 interface ContactRowProps {
@@ -52,12 +53,12 @@ export function ContactRow({ c, onSelect, onRemove }: ContactRowProps) {
         <div style={{ fontSize: 11.5, color: c.online ? T.green : T.muted, marginTop: 2 }}>
           {unread > 0
             ? <span style={{ color: '#e8403a', fontWeight: 600 }}>{t('push.newMessage')}{unread > 1 ? ` · ${unread}` : ''}</span>
-            : <>{c.online ? t('common.online') : (c.lastSeen ? t('contacts.lastSeen', { time: c.lastSeen }) : t('common.offline'))}
+            : <>{c.online ? t('common.online') : (fmtLastSeen(c.lastSeen) ? t('contacts.lastSeen', { time: fmtLastSeen(c.lastSeen) }) : t('common.offline'))}
               <span style={{ color: T.muted }}> · {c.type === 'driver' ? t('common.driver') : t('common.passenger')}</span></>}
         </div>
       </div>
       {onRemove && (
-        <button onClick={(e) => { e.stopPropagation(); onRemove(c); }} title={t('contacts.remove')}
+        <button onClick={(e) => { e.stopPropagation(); onRemove(c); }} title={t('contacts.remove')} aria-label={t('contacts.remove')}
           style={{ width: 30, height: 30, borderRadius: 9, flexShrink: 0, padding: 0,
             border: `1px solid ${T.border}`, background: T.bg, color: T.muted, cursor: 'pointer',
             display: 'flex', alignItems: 'center', justifyContent: 'center' }}>

@@ -1,5 +1,6 @@
-/* SERVICE — unread message counts per contact/walker id (localStorage).
-   Increments on incoming messages, clears when a chat opens.
+/* SERVICE — unread message counts per user id (localStorage mirror).
+   Seeded from the server inbox, incremented on incoming messages, cleared
+   when that chat opens.
    Emits UNREAD_EVENT. */
 
 import { notifyStoreChange, readJson, writeJson } from '@/utils/storage';
@@ -23,6 +24,8 @@ export const unreadStore = {
     m[id] = (m[id] || 0) + n;
     save(m);
   },
+  /** Replace every count (the server inbox is the source of truth on boot). */
+  replace: (counts: UnreadMap): void => save({ ...counts }),
   clear: (id: string): void => {
     const m = unreadStore.map();
     if (!m[id]) return;

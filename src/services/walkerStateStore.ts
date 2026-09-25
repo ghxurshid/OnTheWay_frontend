@@ -78,6 +78,16 @@ export const walkerStateStore = {
     return state;
   },
 
+  /** Push every client-owned field again — after a reconnect the server may
+      have missed patches made while the socket was down. */
+  resync(): void {
+    const { freeMode, engaged, activeTripId, watchedWalkerIds } = state;
+    const wire: Record<string, unknown> = { freeMode, engaged, watchedWalkerIds };
+    const n = Number(activeTripId);
+    if (activeTripId != null && Number.isFinite(n)) wire.activeTripId = n;
+    presenceClient.syncWalkerState(wire).catch(() => {});
+  },
+
   /** Replace local state from a server snapshot (restore) — does NOT re-sync. */
   hydrate(serverState: Partial<WalkerState> | null | undefined): WalkerState {
     if (!serverState) return state;

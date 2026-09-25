@@ -14,7 +14,8 @@ export function SaveStar({ place, size = 18 }: SaveStarProps) {
     <button
       onClick={(e) => { e.stopPropagation(); savedStore.toggle(place); }}
       title={saved ? t('saved.removeTip') : t('saved.saveTip')}
-      style={{ width: size + 10, height: size + 10, borderRadius: 8, border: 'none',
+      aria-label={saved ? t('saved.removeTip') : t('saved.saveTip')} aria-pressed={saved}
+      style={{ width: Math.max(40, size + 10), height: Math.max(40, size + 10), borderRadius: 8, border: 'none',
         background: saved ? T.amberDim : 'transparent',
         cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
         flexShrink: 0, transition: 'background .15s ease', padding: 0, fontFamily: 'DM Sans,sans-serif' }}>

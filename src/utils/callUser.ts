@@ -23,11 +23,11 @@ export interface CallUser {
 
 interface WalkerLike {
   id: string; type: PartyType; initials: string; name: string;
-  vehicle?: string | null; seats?: number; rating?: number; fromLatlng?: LatLng; photoUrl?: string | null;
+  vehicle?: string | null; seats?: number; rating?: number | null; fromLatlng?: LatLng; photoUrl?: string | null;
 }
 interface ContactLike {
   id: string; type: PartyType; initials: string; name: string;
-  vehicle?: string; rating?: number; latlng?: LatLng;
+  vehicle?: string; rating?: number | null; latlng?: LatLng | null;
 }
 interface CallInvite {
   fromUserId: string | number;
@@ -37,15 +37,15 @@ interface CallInvite {
 /** A scheduled/simulated walker → call-user card. */
 export const walkerToCallUser = (w: WalkerLike): CallUser => ({
   id: w.id, type: w.type, initials: w.initials, name: w.name,
-  sub: w.type === 'driver' ? `${w.vehicle} · ${w.seats} ${t('common.seats')}` : t('common.passenger'),
-  rating: w.rating, latlng: w.fromLatlng,
+  sub: w.type === 'driver' ? (w.vehicle || t('common.driver')) : t('common.passenger'),
+  rating: w.rating ?? undefined, latlng: w.fromLatlng,
 });
 
 /** A saved contact → call-user card. */
 export const contactToUser = (c: ContactLike): CallUser => ({
   id: c.id, type: c.type, initials: c.initials, name: c.name,
   sub: c.type === 'driver' ? (c.vehicle || t('common.driver')) : t('common.passenger'),
-  rating: c.rating, latlng: c.latlng,
+  rating: c.rating ?? undefined, latlng: c.latlng ?? undefined,
 });
 
 /** Resolve the incoming caller's display card: the real profile carried in the
@@ -72,7 +72,7 @@ export const inviteToCallUser = (
     return {
       id, type: w.type, initials: w.initials, name: w.name,
       sub: w.type === 'driver' ? (w.vehicle || t('common.driver')) : t('common.passenger'),
-      rating: w.rating, photoUrl: w.photoUrl || null,
+      rating: w.rating ?? undefined, photoUrl: w.photoUrl || null,
     };
   }
   const c = contacts.find((x) => String(x.id) === id);

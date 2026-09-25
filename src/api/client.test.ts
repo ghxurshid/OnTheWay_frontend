@@ -68,3 +68,24 @@ describe('send()', () => {
     expect(init.body).toBeUndefined();
   });
 });
+
+describe('transport failures', () => {
+  it('reports a lost connection as code "network"', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch'); }));
+    await expect(http('/thing', { auth: false })).rejects.toMatchObject({ name: 'ApiError', status: 0, code: 'network' });
+  });
+
+  it('gives up after the timeout with code "timeout"', async () => {
+    vi.stubGlobal('fetch', vi.fn((_url: string, init: RequestInit) => new Promise((_, reject) => {
+      init.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+    })));
+    await expect(http('/slow', { auth: false, timeoutMs: 20 })).rejects.toMatchObject({ code: 'timeout' });
+  });
+
+  it('turns ProblemDetails into a message without the request URL', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => res(400, { title: 'One or more validation errors occurred.', errors: { name: ['Required'] } })));
+    await expect(http('/thing', { auth: false })).rejects.toMatchObject({
+      status: 400, message: 'One or more validation errors occurred.', errors: ['name: Required'],
+    });
+  });
+});

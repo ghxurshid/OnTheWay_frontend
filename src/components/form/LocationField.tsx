@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useId } from 'react';
 import { T } from '@/constants/theme';
 import { t } from '@/i18n';
 import { geocode, placeLabel, suggestionToPlace } from '@/services/geocodingService';
@@ -22,6 +22,8 @@ export function LocationField({ label, point, placeholder, accent = T.teal, onPi
   const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([]);
   const [searching, setSearching] = useState(false);
   const [focused, setFocused] = useState(false);
+  const [searchState, setSearchState] = useState<'idle' | 'empty' | 'failed'>('idle');
+  const inputId = useId();
   const debRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => { if (point) { setQuery(point.label); setSuggestions([]); } }, [point]);
@@ -30,12 +32,21 @@ export function LocationField({ label, point, placeholder, accent = T.teal, onPi
     setQuery(val);
     if (point) onSelect(null);
     if (debRef.current) clearTimeout(debRef.current);
-    if (val.trim().length < 2) { setSuggestions([]); setSearching(false); return; }
+    setSearchState('idle');
+    if (val.trim().length < 3) { setSuggestions([]); setSearching(false); return; }
     setSearching(true);
     debRef.current = setTimeout(async () => {
-      setSuggestions(await geocode(val));
-      setSearching(false);
-    }, 400);
+      try {
+        const found = await geocode(val);
+        setSuggestions(found);
+        setSearchState(found.length ? 'idle' : 'empty');
+      } catch {
+        setSuggestions([]);
+        setSearchState('failed');
+      } finally {
+        setSearching(false);
+      }
+    }, 600);
   };
 
   const pickSuggest = (s: PlaceSuggestion) => {
@@ -48,11 +59,11 @@ export function LocationField({ label, point, placeholder, accent = T.teal, onPi
 
   return (
     <div style={{ marginBottom: 12 }}>
-      <div style={FIELD_LABEL}>{label}</div>
+      <label htmlFor={inputId} style={{ ...FIELD_LABEL, display: 'block' }}>{label}</label>
       <div style={{ position: 'relative' }}>
         <div style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)',
           width: 8, height: 8, borderRadius: 4, background: accent, zIndex: 1 }} />
-        <input value={query}
+        <input id={inputId} value={query}
           placeholder={placeholder}
           onChange={(e) => onChange(e.target.value)}
           onFocus={() => setFocused(true)}
@@ -62,12 +73,12 @@ export function LocationField({ label, point, placeholder, accent = T.teal, onPi
             color: T.text, fontSize: 13, outline: 'none',
             fontFamily: 'DM Sans,sans-serif', transition: 'border-color .18s ease' }} />
         {query && (
-          <button onClick={clear} style={{ position: 'absolute', right: 42, top: '50%',
+          <button onClick={clear} aria-label={t('common.clear')} style={{ position: 'absolute', right: 42, top: '50%',
             transform: 'translateY(-50%)', width: 20, height: 20, borderRadius: 6, border: 'none',
             background: 'transparent', color: T.muted, cursor: 'pointer', display: 'flex',
             alignItems: 'center', justifyContent: 'center', fontSize: 12 }}>✕</button>
         )}
-        <button onClick={onPick} title={t('form.pickOnMap')}
+        <button onClick={onPick} title={t('form.pickOnMap')} aria-label={t('form.pickOnMap')}
           style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
             width: 28, height: 28, borderRadius: 8, border: `1px solid ${accent}40`, cursor: 'pointer',
             background: `${accent}14`, display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -80,6 +91,11 @@ export function LocationField({ label, point, placeholder, accent = T.teal, onPi
       </div>
 
       {focused && searching && <InlineSpinner size={14} style={{ marginTop: 8, padding: '2px 2px' }} />}
+      {!searching && searchState !== 'idle' && (
+        <div role="status" style={{ marginTop: 8, fontSize: 12, color: searchState === 'failed' ? T.amber : T.muted }}>
+          {searchState === 'failed' ? t('form.searchFailed') : t('form.noMatches')}
+        </div>
+      )}
       {focused && !searching && suggestions.length > 0 && (
         <div style={{ marginTop: 8, borderRadius: 12, overflow: 'hidden', border: `1px solid ${T.border}` }}>
           {suggestions.map((s, i) => (

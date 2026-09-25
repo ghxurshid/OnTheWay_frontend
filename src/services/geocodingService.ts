@@ -17,13 +17,14 @@ export const suggestionToPlace = (s: PlaceSuggestion): { latlng: LatLng; label: 
   label: placeLabel(s.display_name),
 });
 
-/** Forward geocode → up to five candidate places. */
+/** Forward geocode → up to five candidate places. Throws when the service fails. */
 export async function geocode(query: string): Promise<PlaceSuggestion[]> {
   return ((await geoApi.search(query)) as PlaceSuggestion[]).slice(0, 5);
 }
 
-/** Reverse geocode → short human label, falling back to coordinates. */
+/** Reverse geocode → short human label, falling back to coordinates when the
+    service has no answer (a label is a nicety — never block on it). */
 export async function reverseGeocode(latlng: LatLng): Promise<string> {
-  const d = await geoApi.reverse(latlng) as { display_name?: string } | null;
+  const d = await geoApi.reverse(latlng).catch(() => null) as { display_name?: string } | null;
   return d?.display_name ? placeLabel(d.display_name, 3) : `${latlng[0].toFixed(4)}, ${latlng[1].toFixed(4)}`;
 }

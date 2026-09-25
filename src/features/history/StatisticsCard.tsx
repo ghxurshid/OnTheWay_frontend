@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { T } from '@/constants/theme';
 import { t } from '@/i18n';
 import { dashboardApi } from '@/api/dashboardApi';
+import { ErrorState } from '@/components/ui/StatusStates';
 import type { TripStatistics } from '@/models';
 
 // Reporting periods offered in the selector (a subset of the backend's set).
@@ -14,16 +15,19 @@ export function StatisticsCard() {
   const [period, setPeriod] = useState('ThisMonth');
   const [stats, setStats] = useState<TripStatistics | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<unknown>(null);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let alive = true;
     setLoading(true);
+    setError(null);
     (dashboardApi.getStatistics(period) as Promise<TripStatistics>)
       .then((s) => { if (alive) setStats(s); })
-      .catch(() => { if (alive) setStats(null); })
+      .catch((e) => { if (alive) { setStats(null); setError(e); } })
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
-  }, [period]);
+  }, [period, attempt]);
 
   return (
     <div style={{ background: T.surface2, borderRadius: 16, padding: '14px', border: `1px solid ${T.border}` }}>
@@ -48,7 +52,9 @@ export function StatisticsCard() {
         })}
       </div>
 
-      {loading || !stats ? (
+      {error ? (
+        <ErrorState compact error={error} fallbackKey="dashboard.loadFailed" onRetry={() => setAttempt((n) => n + 1)} />
+      ) : loading || !stats ? (
         <div style={{ fontSize: 12, color: T.muted, textAlign: 'center', padding: '18px 0' }}>
           {loading ? t('common.loading') : t('dashboard.noData')}
         </div>

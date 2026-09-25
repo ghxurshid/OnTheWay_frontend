@@ -2,10 +2,18 @@ import { T } from '@/constants/theme';
 import { t } from '@/i18n';
 import { useSaved } from '@/hooks/useSaved';
 import { savedStore } from '@/services/savedStore';
+import { confirmAction } from '@/services/confirm';
+import type { ChatPeer } from '@/features/contacts/ChatsPanel';
 import type { SavedItem } from '@/models';
 
-/** Saved items grouped into places / routes / partners, with an empty state. */
-export function SavedPanel() {
+interface SavedPanelProps {
+  /** Open a chat with a saved partner. */
+  onOpenChat: (peer: ChatPeer) => void;
+}
+
+/** Saved items grouped into places / routes / partners, with an empty state.
+    A saved partner opens a chat in one tap. */
+export function SavedPanel({ onOpenChat }: SavedPanelProps) {
   const list = useSaved();
   if (list.length === 0) {
     return (
@@ -48,7 +56,11 @@ export function SavedPanel() {
           <div style={{ fontSize: 12, fontWeight: 600, color: T.amber }}>{t('saved.count', { n: list.length })}</div>
           <div style={{ fontSize: 10, color: T.muted }}>{t('saved.countSub')}</div>
         </div>
-        <button onClick={() => { if (confirm(t('saved.confirmClear'))) savedStore.clear(); }}
+        <button onClick={async () => {
+          const ok = await confirmAction({ title: t('saved.confirmClear'), body: t('saved.confirmClearBody'),
+            confirmLabel: t('common.clear'), danger: true });
+          if (ok) savedStore.clear();
+        }}
           style={{ fontSize: 10, padding: '5px 10px', borderRadius: 8,
             border: `1px solid ${T.border}`, background: 'transparent',
             color: T.muted, cursor: 'pointer', fontFamily: 'DM Sans,sans-serif' }}>
@@ -89,7 +101,14 @@ export function SavedPanel() {
                     </div>
                   )}
                 </div>
-                <button onClick={() => savedStore.toggle(p)} title={t('saved.remove')}
+                {p.type === 'partner' && p.userId && (
+                  <button onClick={() => onOpenChat({ id: p.userId!, name: p.label, initials: p.initials || '?', type: p.partyType || 'passenger' })}
+                    style={{ padding: '7px 12px', borderRadius: 9, border: `1px solid ${T.teal}45`, background: T.tealDim,
+                      color: T.teal, fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans,sans-serif' }}>
+                    💬 {t('saved.openChat')}
+                  </button>
+                )}
+                <button onClick={() => savedStore.toggle(p)} title={t('saved.remove')} aria-label={t('saved.remove')}
                   style={{ width: 32, height: 32, borderRadius: 9,
                     background: T.amberDim, border: `1px solid ${T.amber}30`,
                     color: T.amber, cursor: 'pointer',

@@ -212,7 +212,10 @@ export function createVectorGestureSync(renderer: LeafletRenderer): VectorGestur
   // map or renderer in the app is affected.
   const baseUpdate = renderer._update;
   renderer._update = function patchedUpdate(this: LeafletRenderer, ...args: unknown[]) {
-    if (!gesturing) return baseUpdate.apply(this, args);
+    // A renderer that has never completed an update (it joined the map in the
+    // middle of an animation) has no _bounds/_center yet: it must run the full
+    // update first, or every later transform/clip reads undefined.
+    if (!gesturing || !this._bounds || !this._center) return baseUpdate.apply(this, args);
     // Mid-gesture: keep _zoom/_center/_topLeft exactly where the paths are
     // projected, leave the viewBox alone, and only re-apply the transform — so
     // the SVG scales with the tiles on this very frame instead of being reset.

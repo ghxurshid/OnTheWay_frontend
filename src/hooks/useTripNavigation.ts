@@ -36,11 +36,13 @@ interface UseTripNavigationArgs {
   liveTripIdRef: MutableRefObject<string | null>;
   setActiveRoute: (r: ActiveRoute | null) => void;
   setNavProgress: (n: number) => void;
+  /** Told when real GPS is unavailable/denied (true) or delivering again (false). */
+  onGpsIssue?: (issue: boolean) => void;
 }
 
 export function useTripNavigation({
   mapHook, userLocRef, applyFollow, followMeRef, lastHeadingRef,
-  activeRouteRef, liveTripIdRef, setActiveRoute, setNavProgress,
+  activeRouteRef, liveTripIdRef, setActiveRoute, setNavProgress, onGpsIssue,
 }: UseTripNavigationArgs) {
   const navTimerRef = useRef<ReturnType<typeof setInterval> | null>(null); // mock-mode simulated-nav interval
   const navWatchRef = useRef<number | null>(null);    // navigator.geolocation.watchPosition id
@@ -133,14 +135,15 @@ export function useTripNavigation({
     // fallback; if geolocation is denied the route waits at 0% for a real fix.
     if (typeof navigator === 'undefined' || !navigator.geolocation) return;
     navWatchRef.current = navigator.geolocation.watchPosition(
-      onRealFix,
-      () => { /* denied / unavailable → wait for a real fix */ },
+      (pos) => { onGpsIssue?.(false); onRealFix(pos); },
+      () => onGpsIssue?.(true), // denied / unavailable → the route bar explains it
       { enableHighAccuracy: true, maximumAge: 1000, timeout: 20000 },
     );
   };
 
   const endRoute = () => {
     stopNav();
+    onGpsIssue?.(false);
     // Ending the route completes the Live trip backing THIS route only — a
     // separately-scheduled planned trip must not be completed here.
     closeLiveTrip(liveTripIdRef.current, 'complete');

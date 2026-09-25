@@ -1,55 +1,63 @@
 /* ════════════════════════════════════════════════════════════════
    AUTH SERVICE — owns the login/refresh lifecycle.
-   Wires the refresh implementation into authStore (so the HTTP client can
-   recover from 401s) and exposes a single `ensureAuth()` the app awaits at
-   startup before showing authenticated screens.
+   Wires the session-renewal strategy into authStore (so the HTTP client
+   and the realtime hubs can recover from an expired token) and exposes a
+   single `ensureAuth()` the app awaits at startup.
+
+   Renewal: the rotating refresh token first; if that is gone or rejected,
+   a fresh sign-in with the Telegram initData the Mini App was opened with.
+   Only when both fail is the session lost (the app then asks the user to
+   reopen it).
    ════════════════════════════════════════════════════════════════ */
 
 import { authApi } from '@/api/authApi';
+import { appError } from '@/utils/errors';
 import { authStore } from './authStore';
+import type { AuthSession } from './authStore';
 import { getInitData } from './telegram';
 
-// Register the concrete refresh strategy so authStore.refresh() (called by the
-// HTTP client on 401) knows how to obtain a fresh session.
-authStore.setRefresher(async () => {
-  const token = authStore.getRefreshToken();
-  if (!token) throw new Error('No refresh token');
-  const session = await authApi.refresh(token);
-  authStore.set(session);
-  return session;
-});
-
 /** Sign in with the current Telegram initData and persist the session. */
-export async function login(): Promise<unknown> {
+async function loginSession(): Promise<AuthSession> {
   const initData = getInitData();
   if (!initData) {
-    throw new Error(
-      'Telegram initData topilmadi. Ilovani Telegram orqali oching yoki ' +
-      'lokal test uchun .env.local ga VITE_TG_INIT_DATA qo\'shing.',
-    );
+    if (import.meta.env?.DEV) {
+      console.warn('[auth] No Telegram initData: open the app inside Telegram, or set VITE_TG_INIT_DATA in .env.local for local testing.');
+    }
+    throw appError('NO_INIT_DATA');
   }
   const session = await authApi.telegram(initData);
   authStore.set(session);
-  return session.user;
+  return session;
 }
+
+authStore.setRefresher(async () => {
+  const token = authStore.getRefreshToken();
+  if (token) {
+    try {
+      const session = await authApi.refresh(token);
+      authStore.set(session);
+      return session;
+    } catch {
+      /* rotated/expired refresh token → fall back to a fresh Telegram login */
+    }
+  }
+  return loginSession();
+});
 
 /**
  * Guarantee an authenticated session for the rest of the app.
- *  - valid token        → reuse it
- *  - expired but has RT → refresh
- *  - otherwise          → fresh Telegram login
+ *  - valid token → reuse it
+ *  - otherwise   → renew (refresh token, then Telegram login)
  */
 export async function ensureAuth(): Promise<unknown> {
   if (authStore.isAuthenticated() && !authStore.isAccessTokenExpired()) {
     return authStore.getUser();
   }
-  if (authStore.getRefreshToken()) {
-    try {
-      const session = await authStore.refresh();
-      return session.user;
-    } catch {
-      /* refresh failed (expired/rotated) → fall through to a fresh login */
-    }
-  }
-  return login();
+  return (await authStore.refresh()).user;
+}
+
+/** The signed-in user's display name (from the session), or null. */
+export function currentUserName(): string | null {
+  const user = authStore.getUser() as { fullName?: string } | null;
+  return user?.fullName?.trim() || null;
 }

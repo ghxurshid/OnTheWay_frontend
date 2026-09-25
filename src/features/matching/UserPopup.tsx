@@ -1,7 +1,10 @@
 import { T, TEAL_GRADIENT, partyColor } from '@/constants/theme';
 import { t } from '@/i18n';
+import { useBackHandler } from '@/hooks/useBackHandler';
+import { SaveStar } from '@/features/saved/SaveStar';
 
 interface PopupUser {
+  id: string;
   type: 'driver' | 'passenger';
   initials: string;
   name: string;
@@ -10,28 +13,34 @@ interface PopupUser {
   trips?: number;
   dist?: string;
   eta?: string;
+  /** Route-match percentage, when the matcher computed one. */
+  match?: number;
+  offline?: boolean;
 }
 interface UserPopupProps {
   user: PopupUser;
   onClose: () => void;
   onCall: () => void;
   onChat: () => void;
+  /** Save this user as a contact (real users only). */
+  onAddContact?: () => void;
 }
 
 /** Bottom-sheet profile popup for a selected matched user (call / chat). */
-export function UserPopup({ user, onClose, onCall, onChat }: UserPopupProps) {
+export function UserPopup({ user, onClose, onCall, onChat, onAddContact }: UserPopupProps) {
+  useBackHandler(onClose);
   const isDriver = user.type === 'driver';
   const color = partyColor(user.type);
   const stats: [string, string | undefined, string][] = [
     [t('userPopup.distance'), user.dist, color],
     [t('userPopup.arrival'), user.eta, color],
-    [t('userPopup.match'), '87%', T.green],
+    ...(user.match != null ? [[t('userPopup.match'), `${user.match}%`, T.green] as [string, string, string]] : []),
   ];
   return (
     <div style={{ position: 'absolute', inset: 0, zIndex: 25, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', pointerEvents: 'none' }}>
       <div style={{ flex: 1, pointerEvents: 'none' }} />
       <div style={{ background: T.surface, borderRadius: '24px 24px 0 0', pointerEvents: 'auto',
-        animation: 'slideUp .3s cubic-bezier(.34,1.2,.64,1)', padding: '20px 20px 44px' }}>
+        animation: 'slideUp .3s cubic-bezier(.34,1.2,.64,1)', padding: '20px 20px calc(24px + env(safe-area-inset-bottom,0px))' }} role="dialog" aria-label={user.name}>
         <div style={{ width: 36, height: 4, borderRadius: 2, background: T.border, margin: '0 auto 20px' }} />
         <div style={{ display: 'flex', gap: 16, marginBottom: 20 }}>
           <div style={{ position: 'relative' }}>
@@ -41,7 +50,7 @@ export function UserPopup({ user, onClose, onCall, onChat }: UserPopupProps) {
               <span style={{ fontSize: 20, fontWeight: 700, color }}>{user.initials}</span>
             </div>
             <div style={{ position: 'absolute', bottom: 2, right: 2, width: 12, height: 12, borderRadius: 6,
-              background: T.green, border: `2px solid ${T.surface}` }} />
+              background: user.offline ? T.muted : T.green, border: `2px solid ${T.surface}` }} />
           </div>
           <div style={{ flex: 1 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -50,7 +59,7 @@ export function UserPopup({ user, onClose, onCall, onChat }: UserPopupProps) {
                 color, fontWeight: 600 }}>{isDriver ? t('common.driver') : t('common.passenger')}</div>
             </div>
             <div style={{ fontSize: 13, color: T.muted, marginTop: 2 }}>{user.sub}</div>
-            <div style={{ display: 'flex', gap: 12, marginTop: 6 }}>
+            <div style={{ display: 'flex', gap: 12, marginTop: 6, alignItems: 'center' }}>
               <span style={{ fontSize: 12, color: T.muted }}>⭐ {user.rating}</span>
               <span style={{ fontSize: 12, color: T.muted }}>🛣️ {t('userPopup.tripsCount', { n: user.trips })}</span>
             </div>
@@ -81,9 +90,18 @@ export function UserPopup({ user, onClose, onCall, onChat }: UserPopupProps) {
             fontFamily: 'DM Sans,sans-serif' }}>
             💬 {t('common.chat')}
           </button>
-          <button onClick={onClose} style={{ width: 48, height: 48, borderRadius: 14,
+          <button onClick={onClose} aria-label={t('common.close')} style={{ width: 48, height: 48, borderRadius: 14,
             border: `1px solid ${T.border}`, background: 'transparent',
             color: T.muted, cursor: 'pointer', fontSize: 18 }}>✕</button>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 12 }}>
+          <SaveStar place={{ id: 'partner-' + user.id, type: 'partner', label: user.name, sub: user.sub,
+            initials: user.initials, userId: String(user.id), partyType: user.type }} />
+          {onAddContact && (
+            <button onClick={onAddContact} style={{ flex: 1, padding: '10px', borderRadius: 12,
+              border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 13, fontWeight: 600,
+              cursor: 'pointer', fontFamily: 'DM Sans,sans-serif' }}>👥 {t('contacts.add')}</button>
+          )}
         </div>
       </div>
     </div>

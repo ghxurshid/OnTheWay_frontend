@@ -39,10 +39,15 @@ function updateCaches(event: string, payload: Payload) {
 const events = createEmitter('presence');
 const hub = createHubClient('/hubs/presence', (conn) => {
   EVENTS.forEach((ev) => conn.on(ev, (payload: Payload) => { updateCaches(ev, payload); events.emit(ev, payload); }));
-  conn.onreconnected(() => {
-    positions.clear(); // server re-seeds via Walkers…
-    if (currentMode) conn.invoke('SetRole', currentMode).catch(() => {}); // …once we re-announce our role
-  });
+});
+
+// After any reconnect/restart the server has a fresh connection with no role:
+// drop the stale positions (the server re-seeds them via Walkers once we
+// re-announce the role) and let the app re-publish its session state.
+hub.onReconnected(() => {
+  positions.clear();
+  if (currentMode) hub.connected()?.invoke('SetRole', currentMode).catch(() => {});
+  events.emit('Reconnected');
 });
 
 /** Client→server call; resolves to `fallback` (no-op) while disconnected. */
@@ -55,6 +60,12 @@ export const presenceClient = {
   connect: hub.connect,
   disconnect: hub.disconnect,
   isConnected: hub.isConnected,
+  /** Connection health (for the "Live" indicator / offline banner). */
+  status: hub.status,
+  onStatus: hub.onStatus,
+
+  /** Whether the user currently has a live connection (known from presence). */
+  isOnline: (userId: string | number): boolean => onlineIds.has(String(userId)),
 
   /** Snapshot of all known live positions. */
   getPositions: (): PresencePosition[] => [...positions.values()],

@@ -8,10 +8,13 @@ export function listHistory() {
   return historyApi.list();
 }
 
-/** Totals used by the history stats row. */
+/** Totals used by the history stats row: trips, kilometres and the average of
+    the ratings the user gave (null when they rated nothing yet). */
 export function historyTotals(history: Trip[]) {
-  const totalKm = history.reduce((s, h) => s + parseFloat(h.km), 0).toFixed(1);
-  return { totalTrips: history.length, totalKm };
+  const totalKm = history.reduce((s, h) => s + (h.distanceKm ?? (parseFloat(h.km) || 0)), 0).toFixed(1);
+  const rated = history.map((h) => h.rating).filter((r): r is number => typeof r === 'number' && r > 0);
+  const averageRating = rated.length ? (rated.reduce((a, b) => a + b, 0) / rated.length).toFixed(1) : null;
+  return { totalTrips: history.length, totalKm, averageRating };
 }
 
 /** Driver vs. passenger split used by the dashboard role chart. */

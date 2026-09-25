@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import type { ReactNode } from 'react';
 import { T } from '@/constants/theme';
 import { t } from '@/i18n';
-import { useEscapeKey } from '@/hooks/useEscapeKey';
+import { useBackHandler } from '@/hooks/useBackHandler';
 
 interface FullScreenPanelProps {
   title: ReactNode;
@@ -15,7 +15,7 @@ interface FullScreenPanelProps {
 export function FullScreenPanel({ title, onClose, accent = T.teal, children }: FullScreenPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   // Keyboard a11y: dismiss on Escape and move focus into the dialog on open.
-  useEscapeKey(onClose);
+  useBackHandler(onClose);
   useEffect(() => { panelRef.current?.focus(); }, []);
   return (
     <div ref={panelRef} className="otw-screen" role="dialog" aria-modal="true" aria-label={typeof title === 'string' ? title : undefined} tabIndex={-1}
