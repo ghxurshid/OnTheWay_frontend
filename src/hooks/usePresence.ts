@@ -58,6 +58,7 @@ export function usePresence({
     if (USE_MOCKS || screen !== 'map' || !mode) return undefined;
     let alive = true;
     const profiles = new Map<string, Any>(); // userId → WalkerProfileDto
+    const profileRequested = new Set<string>(); // ids a refresh was scheduled for
     let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 
     const oppositeRole = mode === 'driver' ? 'passenger' : 'driver';
@@ -66,10 +67,15 @@ export function usePresence({
       if (!alive) return;
       const positions = presenceClient.getPositions();
       const seen = new Set();
+      let missingProfile = false;
       positions.forEach((pos) => {
         if (pos.role && pos.role !== oppositeRole) return; // stale other-role entry
         const profile = profiles.get(pos.userId);
-        if (!profile) return; // profile not loaded yet; a refresh will pick it up
+        if (!profile) {
+          // E.g. joined while we were offline: fetch the profile once, then draw.
+          if (!profileRequested.has(pos.userId)) { profileRequested.add(pos.userId); missingProfile = true; }
+          return;
+        }
         const w = enrichLiveWalker(profile, pos);
         const prev = liveWalkersRef.current.get(w.id);
         if (prev && prev.offline) w.offline = true; // keep the greyed state
@@ -77,11 +83,15 @@ export function usePresence({
         seen.add(w.id);
         mapHook.upsertWalkerMarker(w, openWalker);
       });
-      // Drop walkers that are gone / no longer positioned.
+      // Drop walkers that are gone / no longer positioned — with their routes.
       [...liveWalkersRef.current.keys()].forEach((id) => {
-        if (!seen.has(id)) { liveWalkersRef.current.delete(id); mapHook.removeWalkerMarker(id); }
+        if (seen.has(id)) return;
+        liveWalkersRef.current.delete(id);
+        mapHook.removeWalkerRoute(id);
+        mapHook.removeWalkerMarker(id);
       });
       reportCount();
+      if (missingProfile) scheduleRefresh();
     };
     const reportCount = () => { if (alive) onWalkerCount(liveWalkersRef.current.size); };
 
@@ -102,7 +112,7 @@ export function usePresence({
     };
 
     const onMoved = (pos: Any) => {
-      if (!alive) return;
+      if (!alive || (pos.role && pos.role !== oppositeRole)) return; // in flight across a role switch
       if (!profiles.has(pos.userId)) { scheduleRefresh(); return; }
       const w = enrichLiveWalker(profiles.get(pos.userId), pos);
       const isNew = !liveWalkersRef.current.has(w.id);

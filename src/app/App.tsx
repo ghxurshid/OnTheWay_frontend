@@ -120,7 +120,6 @@ export function App() {
   const [walkerCount, setWalkerCount] = useState<number | null>(null);
   const pendingRestoreRef = useRef<any>(null);            // active trip to redraw once the map is up
   const liveTripIdRef = useRef<string | null>(null);      // persisted Live trip backing the on-map route
-  const sharedRouteRef = useRef<{ route: OsrmRoute; coords: LatLng[] } | null>(null); // republished after a reconnect
   const mapContainerRef = useRef<HTMLDivElement>(null);
 
   const userLocRef = useRef<LatLng | null>(null);
@@ -129,8 +128,6 @@ export function App() {
   const mapStyleRef = useRef(mapStyle);
   const activeRouteRef = useRef<NavRoute | null>(null);   // shared: current trip route (nav + free-mode + exit)
   const liveWalkersRef = useRef<Map<string, any>>(new Map()); // userId → enriched live walker
-  const bandedRef = useRef(banded);
-  useEffect(() => { bandedRef.current = banded; }, [banded]);
 
   const mapHook: MapHook = useMap(mapContainerRef, screen === 'map');
 
@@ -147,7 +144,9 @@ export function App() {
     const trip = snap?.activeTrip;
     const role = snap?.state?.role;
     const status = trip ? String(trip.status || '').toLowerCase() : '';
-    if (!USE_MOCKS && trip && role && (status === 'scheduled' || status === 'inprogress')) {
+    const resume = !USE_MOCKS && trip && role && (status === 'scheduled' || status === 'inprogress');
+    if (!USE_MOCKS) settleRestoredSession(resume ? trip : null);
+    if (resume) {
       pendingRestoreRef.current = trip;
       setMode(role);
       setHasCreatedTrip(true);
@@ -156,6 +155,26 @@ export function App() {
       setScreen('home');
     }
   }, [screen, loaderDone, authReady, sessionReady, authError]); // eslint-disable-line react-hooks/exhaustive-deps -- restoredSessionRef is a stable ref
+
+  // The server retained this walker's presence from before the app was closed.
+  // Decide now what of it still holds, so it matches what the app shows:
+  // resuming a trip keeps "band" (from the server's snapshot) and — for a Live
+  // trip, whose route is redrawn and re-shared — the live location; anything
+  // else is dropped, or the old position would linger on others' maps.
+  const settleRestoredSession = (resumedTrip: any) => {
+    const engagedNow = !!resumedTrip && walkerStateStore.get().engaged;
+    setBanded(engagedNow);
+    if (engagedNow) presenceClient.markEngaged().catch(() => {});
+    else publishBanded(false, null);
+    if (!resumedTrip) {
+      presenceClient.clearRoute().catch(() => {});
+      if (walkerStateStore.get().activeTripId) walkerStateStore.patch({ clearActiveTrip: true });
+    }
+    if (String(resumedTrip?.category || '').toLowerCase() !== 'live') {
+      walkerStateStore.patch({ freeMode: false });
+      presenceClient.stopSharing().catch(() => {});
+    }
+  };
 
   // A session that could not be renewed: stop and ask the user to sign in
   // again, instead of every screen quietly showing empty data.
@@ -315,7 +334,12 @@ export function App() {
   // Free Mode / live-location sharing. When on we stream our position into
   // presence (asking permission the first time) so the opposite role can see us
   // without us having created a trip; when off we stop and drop off their maps.
+  // The initial `false` is not a decision — whether a restored session still
+  // shares its location is settled once the session snapshot is in (see
+  // settleRestoredSession). Every change after that is the user's.
+  const freeModeInitRef = useRef(true);
   useEffect(() => {
+    if (freeModeInitRef.current) { freeModeInitRef.current = false; return; }
     // Free Mode is a client-owned live field — mirror it into the session model
     // (which syncs to the server and is restored on reopen).
     walkerStateStore.patch({ freeMode });
@@ -324,16 +348,12 @@ export function App() {
     else { stopLocationReporting(); presenceClient.stopSharing().catch(() => {}); }
   }, [freeMode]);
 
-  // After the realtime link comes back the server may have lost what we told it
-  // while offline: re-send the session state, the shared route and "busy".
+  // Back after a loss: presenceClient has replayed role / location / route /
+  // "band" already; re-send the session fields too (patches made while the
+  // socket was down never arrived).
   useEffect(() => {
     if (USE_MOCKS) return undefined;
-    return presenceClient.on('Reconnected', () => {
-      walkerStateStore.resync();
-      const shared = sharedRouteRef.current;
-      if (shared) presenceClient.publishRoute(toRoutePublishDto(shared.coords, shared.route)).catch(() => {});
-      if (bandedRef.current) presenceClient.markEngaged().catch(() => {});
-    });
+    return presenceClient.on('Reconnected', () => walkerStateStore.resync());
   }, []);
 
   // ── Chat notifications: every incoming message is surfaced, not only the
@@ -353,13 +373,19 @@ export function App() {
 
   useEffect(() => {
     if (USE_MOCKS || !authReady) return undefined;
-    chatApi.conversations().then((rows) => {
-      unreadStore.replace(Object.fromEntries(rows.filter((r) => r.unreadCount > 0)
+    // The server inbox is the truth for unread counts — on start and after every
+    // reconnect (messages that arrived while the socket was down raised no event).
+    // The chat on screen is being read, so it stays at zero.
+    const refreshUnread = () => chatApi.conversations().then((rows) => {
+      const open = chatUserRef.current ? idOf(chatUserRef.current.id) : null;
+      unreadStore.replace(Object.fromEntries(rows.filter((r) => r.unreadCount > 0 && idOf(r.otherParticipantId) !== open)
         .map((r) => [idOf(r.otherParticipantId), r.unreadCount])));
     }).catch(() => { /* keep the local counts */ });
+    refreshUnread();
+    const offReconnected = chatClient.onReconnected(refreshUnread);
 
     const myId = idOf((authStore.getUser() as { id?: string } | null)?.id ?? '');
-    return chatClient.on('ReceiveMessage', (m: ChatMessageDto) => {
+    const offMessage = chatClient.on('ReceiveMessage', (m: ChatMessageDto) => {
       const from = idOf(m.senderId);
       if (from === myId) return;
       // The sender's ✓✓: this device has it, whether or not that chat is open.
@@ -369,6 +395,7 @@ export function App() {
       const user = chatPeerFor(from, m.senderName);
       notify({ title: t('chat.newFrom', { name: user.name.split(' ')[0] }), body: m.content, user, chat: true, action: t('chat.reply') });
     });
+    return () => { offReconnected(); offMessage(); };
   }, [authReady, chatPeerFor, notify]);
 
   useEffect(() => { if (chatUser) unreadStore.clear(idOf(chatUser.id)); }, [chatUser]);
@@ -428,7 +455,6 @@ export function App() {
   // Live mode: share the route over presence so watching walkers see it, and
   // turn on live-location sharing (the Free Mode switch reflects it).
   const shareRoute = (route: OsrmRoute, coords: LatLng[]) => {
-    sharedRouteRef.current = { route, coords };
     presenceClient.publishRoute(toRoutePublishDto(coords, route)).catch(() => {});
     setFreeMode(true);
   };
@@ -437,18 +463,21 @@ export function App() {
   // the road between its persisted origin/destination, draw it, re-share it over
   // presence and resume navigation. Planned trips restore the map/mode only.
   const restoreLiveRoute = async (trip: any) => {
+    const notSharing = () => { presenceClient.stopSharing().catch(() => {}); };
     try {
       if (String(trip.category || '').toLowerCase() !== 'live') return;
       const from = [trip.origin?.latitude, trip.origin?.longitude];
       const to = [trip.destination?.latitude, trip.destination?.longitude];
-      if (from.some((v) => v == null) || to.some((v) => v == null)) return;
+      if (from.some((v) => v == null) || to.some((v) => v == null)) { notSharing(); return; }
       const [route] = await getRoute([from, to] as LatLng[]);
-      if (!route?.geometry) return;
+      if (!route?.geometry) { notSharing(); return; }
       const coords = routeCoords(route);
       liveTripIdRef.current = String(trip.id);
       shareRoute(route, coords);
       driveRoute(route, coords);
-    } catch { /* restore is best-effort; the map still works without it */ }
+    } catch {
+      notSharing(); // restore is best-effort; the map still works without it
+    }
   };
   // Expose the latest restoreLiveRoute to usePresence (declared above it).
   restoreLiveRouteRef.current = restoreLiveRoute;
@@ -475,10 +504,7 @@ export function App() {
     driveRoute(route, coords);
   };
 
-  const finishRoute = () => {
-    sharedRouteRef.current = null;
-    endRoute();
-  };
+  const finishRoute = () => endRoute();
 
   const handleMapTask = async (task: MapTask) => {
     if (task.type === 'pick') {
@@ -570,7 +596,6 @@ export function App() {
     // route and call off the backing Live trip (it is simply closed).
     closeLiveTrip(liveTripIdRef.current, 'cancel');
     liveTripIdRef.current = null;
-    sharedRouteRef.current = null;
     setFreeMode(false); // stop sharing our live location when leaving the map
     setHasCreatedTrip(false); // reset engagement when leaving the map
     if (banded) { setBanded(false); publishBanded(false, null); }

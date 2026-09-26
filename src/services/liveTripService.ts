@@ -10,6 +10,7 @@ import { USE_MOCKS } from '@/api/client';
 import { tripApi } from '@/api/tripApi';
 import { presenceClient } from '@/services/realtime';
 import { walkerStateStore } from '@/services/walkerStateStore';
+import { tripOutbox } from '@/services/tripOutbox';
 import type { OsrmRoute } from '@/services/routeService';
 import type { LatLng, PartyType } from '@/models';
 import { readJson, writeJson } from '@/utils/storage';
@@ -65,13 +66,16 @@ export async function createLiveTrip(route: OsrmRoute, coords: LatLng[], waypoin
 }
 
 /** Withdraws the shared route and closes the Live trip behind it — completed
-    when the route ends, cancelled when the walker abandons the map. */
+    when the route ends, cancelled when the walker abandons the map. The close
+    goes through the trip outbox, so it lands even if the network is down now. */
 export function closeLiveTrip(tripId: string | null, outcome: 'complete' | 'cancel'): void {
   const companions = takeCompanions();
   if (USE_MOCKS) return;
   presenceClient.clearRoute().catch(() => {});
   if (!tripId) return;
-  (outcome === 'complete' ? tripApi.complete(tripId, companions) : tripApi.cancel(tripId)).catch(() => {});
+  tripOutbox.enqueue(outcome === 'complete'
+    ? { kind: 'complete', tripId, companionIds: companions }
+    : { kind: 'cancel', tripId });
   if (walkerStateStore.get().activeTripId === tripId) walkerStateStore.patch({ clearActiveTrip: true });
 }
 
@@ -81,5 +85,5 @@ export function publishBanded(banded: boolean, tripId: string | null): void {
   walkerStateStore.patch({ engaged: banded });
   if (USE_MOCKS) return;
   (banded ? presenceClient.markEngaged() : presenceClient.markAvailable()).catch(() => {});
-  if (tripId) (banded ? tripApi.hide(tripId) : tripApi.show(tripId)).catch(() => {});
+  if (tripId) tripOutbox.enqueue({ kind: banded ? 'hide' : 'show', tripId });
 }

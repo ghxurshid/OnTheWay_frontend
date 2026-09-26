@@ -15,6 +15,8 @@ import { USE_MOCKS } from '@/api/client';
 import { ensureAuth } from '@/services/authService';
 import { connectRealtime } from '@/services/realtime';
 import { walkerStateStore } from '@/services/walkerStateStore';
+import { chatOutbox } from '@/services/chatOutbox';
+import { tripOutbox } from '@/services/tripOutbox';
 import { listContacts } from '@/services/contactService';
 import { initTelegramUi } from '@/services/telegram';
 
@@ -37,6 +39,10 @@ export function useBootstrap() {
         await ensureAuth();
         setAuthReady(true);
         await connectRealtime();
+        // Whatever the last session could not deliver (offline, app closed):
+        // the messages written and the trips closed / banded.
+        chatOutbox.flush();
+        tripOutbox.flush();
         // Restore the retained session (role, free mode, engaged, active trip)
         // so a reopened app resumes its pre-close state.
         restoredSessionRef.current = await walkerStateStore.restoreFromServer();

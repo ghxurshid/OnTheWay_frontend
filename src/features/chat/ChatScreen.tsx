@@ -16,13 +16,18 @@ import { ErrorState } from '@/components/ui/StatusStates';
 import { MessageTicks } from '@/components/ui/MessageTicks';
 import { fmt12 } from '@/utils/datetime';
 import { idOf, isRealUserId } from '@/utils/ids';
+import { chatOutbox } from '@/services/chatOutbox';
+import type { OutboxItem } from '@/services/chatOutbox';
 import type { PartyType } from '@/models';
 
 interface ChatUser { id: string | number; type: PartyType; name: string; initials: string }
 
-/** pending → confirmed by the socket echo / REST (sent) → receipts lift it to
-    delivered / read; failed → tap to resend. */
-interface Msg { id: string; from: 'me' | 'them'; text: string; at: Date; status: MessageStatus }
+/** pending → confirmed by the server (sent) → receipts lift it to delivered /
+    read; failed → tap to resend. A bubble of mine carries the device's own id
+    (`clientId`, see chatOutbox) so the server's copy settles it exactly. While
+    offline it stays pending in the outbox and goes out on reconnect — even if
+    this chat was closed meanwhile. */
+interface Msg { id: string; clientId?: string; from: 'me' | 'them'; text: string; at: Date; status: MessageStatus }
 
 interface ChatScreenProps {
   user: ChatUser;
@@ -33,14 +38,21 @@ interface ChatScreenProps {
 
 const MAX_LENGTH = 4000;
 const PAGE_SIZE = 30;
+/** After a reconnect, fetch at most this many pages to close the gap. */
+const RESYNC_MAX_PAGES = 5;
+/** A "typing…" that is not refreshed expires (the peer may have dropped mid-word). */
+const TYPING_TTL_MS = 6000;
 
 // Ids arrive as numbers over REST and as strings over the hub, so they are
 // always compared as strings (idOf) to avoid number-vs-string mismatches.
 const toMsg = (m: ChatMessageDto, myId: string | null): Msg => {
   const mine = idOf(m.senderId) === myId;
-  return { id: idOf(m.id), from: mine ? 'me' : 'them', text: m.content, at: new Date(m.sentAtUtc),
-    status: mine ? statusFromServer(m) : 'sent' };
+  return { id: idOf(m.id), clientId: m.clientMessageId || undefined, from: mine ? 'me' : 'them', text: m.content,
+    at: new Date(m.sentAtUtc), status: mine ? statusFromServer(m) : 'sent' };
 };
+/** A message still in the outbox (not on the server yet). */
+const fromOutbox = (i: OutboxItem): Msg =>
+  ({ id: i.clientId, clientId: i.clientId, from: 'me', text: i.text, at: new Date(i.at), status: i.failed ? 'failed' : 'pending' });
 const byTime = (a: Msg, b: Msg) => a.at.getTime() - b.at.getTime();
 const inFlight = (m: Msg) => m.status === 'pending' || m.status === 'failed';
 
@@ -57,7 +69,7 @@ export function ChatScreen({ user, onBack, onCall }: ChatScreenProps) {
   const myId = authedId != null ? idOf(authedId) : null;
   useBackHandler(onBack);
 
-  const [msgs, setMsgs] = useState<Msg[]>(live ? [] : [
+  const [msgs, setMsgs] = useState<Msg[]>(live ? () => chatOutbox.pendingFor(uid).map(fromOutbox) : [
     { id: 'd1', from: 'them', status: 'sent',
       text: isDriver ? t('chat.greetDriverThem') : t('chat.greetPassengerThem'),
       at: new Date(Date.now() - 2 * 60000) },
@@ -76,6 +88,9 @@ export function ChatScreen({ user, onBack, onCall }: ChatScreenProps) {
   const stickToBottom = useRef(true);
   const seqRef = useRef(0);
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const peerTypingTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const msgsRef = useRef<Msg[]>(msgs);
+  msgsRef.current = msgs;
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -84,7 +99,8 @@ export function ChatScreen({ user, onBack, onCall }: ChatScreenProps) {
 
   // Merge server messages into the list: dedupe by id (keeping the further
   // receipt state — a resync carries what the socket missed) and settle the
-  // matching in-flight bubble (same text from me) instead of showing it twice.
+  // in-flight bubble the message came from instead of showing it twice — by the
+  // device's own id (a server predating it: by the same text from me).
   const merge = useCallback((incoming: Msg[]) => {
     setMsgs((cur) => {
       let next = cur;
@@ -95,7 +111,8 @@ export function ChatScreen({ user, onBack, onCall }: ChatScreenProps) {
           if (status !== next[known].status) next = next.map((x, i) => (i === known ? { ...x, status } : x));
           continue;
         }
-        const pending = m.from === 'me' ? next.findIndex((x) => inFlight(x) && x.from === 'me' && x.text === m.text) : -1;
+        const pending = m.from !== 'me' ? -1 : next.findIndex((x) => inFlight(x) && x.from === 'me'
+          && (m.clientId ? x.clientId === m.clientId : x.text === m.text));
         next = pending >= 0 ? next.map((x, i) => (i === pending ? m : x)) : [...next, m];
       }
       return [...next].sort(byTime);
@@ -118,12 +135,18 @@ export function ChatScreen({ user, onBack, onCall }: ChatScreenProps) {
     }
   }, [uid, myId, merge]);
 
-  // Quiet refresh of the newest page after a reconnect: messages and receipts
-  // the socket missed (the history carries each message's receipt times).
-  const resync = useCallback(() => {
-    chatApi.withUser(uid, 1, PAGE_SIZE)
-      .then(({ items }) => merge(items.map((m) => toMsg(m, myId))))
-      .catch(() => { /* the next reconnect retries */ });
+  // Quiet refresh after a reconnect: messages and receipts the socket missed
+  // (the history carries each message's receipt times). Pages back until it
+  // meets a message we already have, so a long outage leaves no gap.
+  const resync = useCallback(async () => {
+    const known = new Set(msgsRef.current.map((m) => m.id));
+    try {
+      for (let p = 1; p <= RESYNC_MAX_PAGES; p++) {
+        const { items, hasNextPage } = await chatApi.withUser(uid, p, PAGE_SIZE);
+        merge(items.map((m) => toMsg(m, myId)));
+        if (!hasNextPage || !known.size || items.some((m) => known.has(idOf(m.id)))) break;
+      }
+    } catch { /* the next reconnect retries */ }
   }, [uid, myId, merge]);
 
   // Live mode: history, realtime delivery/typing/receipts, presence.
@@ -144,7 +167,7 @@ export function ChatScreen({ user, onBack, onCall }: ChatScreenProps) {
       const from = idOf(m.senderId);
       if (from !== uid && from !== myId) return; // other conversation
       if (from === uid) {
-        setTyping(false);
+        stopPeerTyping();
         markSeen(idOf(m.id));
       }
       stickToBottom.current = true;
@@ -156,36 +179,48 @@ export function ChatScreen({ user, onBack, onCall }: ChatScreenProps) {
     const offDelivered = chatClient.on('MessagesDelivered', onReceipt('delivered'));
     const offRead = chatClient.on('MessagesRead', onReceipt('read'));
     const offTyping = chatClient.on('TypingIndicator', (fromUserId, isTyping) => {
-      if (idOf(fromUserId) === uid) setTyping(isTyping);
+      if (idOf(fromUserId) !== uid) return;
+      if (!isTyping) { stopPeerTyping(); return; }
+      setTyping(true);
+      clearTimeout(peerTypingTimerRef.current);
+      peerTypingTimerRef.current = setTimeout(() => setTyping(false), TYPING_TTL_MS);
     });
+    // Back online: fetch what was missed and report it seen (the outbox sends what waited).
     const offReconnected = chatClient.onReconnected(() => { resync(); markSeen(); });
+    const offSettled = chatOutbox.on('settled', (item: OutboxItem, saved: ChatMessageDto | null) => {
+      if (item.toUserId !== uid) return;
+      if (saved) merge([toMsg(saved, myId)]);
+      else setStatus(item.clientId, 'sent');
+    });
+    const offFailed = chatOutbox.on('failed', (item: OutboxItem) => {
+      if (item.toUserId === uid) setStatus(item.clientId, 'failed');
+    });
     const offForeground = onAppForeground(() => markSeen());
     const offOnline = presenceClient.on('UserOnline', (id) => { if (idOf(id) === uid) setOnline(true); });
-    const offOffline = presenceClient.on('UserOffline', (id) => { if (idOf(id) === uid) setOnline(false); });
+    const offOffline = presenceClient.on('UserOffline', (id) => {
+      if (idOf(id) === uid) { setOnline(false); stopPeerTyping(); }
+    });
+    // A fresh presence connection brings the full online list — ours may be stale.
+    const offRoster = presenceClient.on('OnlineUsers', () => setOnline(presenceClient.isOnline(uid)));
 
     return () => {
       offMsg(); offDelivered(); offRead(); offTyping(); offReconnected(); offForeground(); offOnline(); offOffline();
+      offRoster(); offSettled(); offFailed();
+      clearTimeout(peerTypingTimerRef.current);
     };
   }, [live, uid, myId, loadPage, merge, resync]);
 
   const setStatus = (id: string, status: MessageStatus) =>
     setMsgs((cur) => cur.map((m) => (m.id === id ? { ...m, status } : m)));
 
-  // Deliver one message: the socket first (its echo confirms it), REST if the
-  // socket is down (the response confirms it), "failed" if both fail.
-  const deliver = async (localId: string, text: string) => {
-    setStatus(localId, 'pending');
-    try {
-      await chatClient.sendMessage(uid, text);
-    } catch {
-      try {
-        const saved = await chatApi.send(uid, text);
-        if (saved) merge([toMsg(saved, myId)]);
-        else setStatus(localId, 'sent');
-      } catch {
-        setStatus(localId, 'failed');
-      }
-    }
+  function stopPeerTyping() {
+    clearTimeout(peerTypingTimerRef.current);
+    setTyping(false);
+  }
+
+  const resend = (clientId: string) => {
+    setStatus(clientId, 'pending');
+    chatOutbox.retry(clientId);
   };
 
   const send = (text: string) => {
@@ -193,10 +228,13 @@ export function ChatScreen({ user, onBack, onCall }: ChatScreenProps) {
     if (!txt) return;
     setInput('');
     stickToBottom.current = true;
-    const localId = `local-${++seqRef.current}`;
-    setMsgs((m) => [...m, { id: localId, from: 'me', text: txt, at: new Date(), status: live ? 'pending' : 'sent' }]);
-
-    if (live) { deliver(localId, txt); return; }
+    if (live) {
+      const item = chatOutbox.send(uid, txt); // settles through the 'settled' / 'failed' events
+      setMsgs((m) => [...m, fromOutbox(item)]);
+      return;
+    }
+    const localId = `demo-${++seqRef.current}`;
+    setMsgs((m) => [...m, { id: localId, from: 'me', text: txt, at: new Date(), status: 'sent' }]);
 
     // Demo fallback: the simulated walker receives and reads it, then replies.
     setTimeout(() => setStatus(localId, 'delivered'), 350);
@@ -300,7 +338,7 @@ export function ChatScreen({ user, onBack, onCall }: ChatScreenProps) {
                 </div>
               </div>
               {failed && (
-                <button onClick={() => deliver(m.id, m.text)} style={{ marginTop: 3, border: 'none', background: 'transparent',
+                <button onClick={() => resend(m.id)} style={{ marginTop: 3, border: 'none', background: 'transparent',
                   color: T.red, fontSize: 11.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans,sans-serif' }}>
                   ↻ {t('chat.resend')}
                 </button>

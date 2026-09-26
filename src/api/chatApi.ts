@@ -32,6 +32,8 @@ export interface ChatMessageDto {
   deliveredAtUtc?: string | null;
   readAtUtc?: string | null;
   senderName?: string | null;
+  /** The sending device's own id for the message (echoed back to settle it). */
+  clientMessageId?: string | null;
 }
 
 /** ChatHub MessagesDelivered / MessagesRead: `byUserId` received / read every
@@ -71,9 +73,10 @@ export const chatApi = {
     return send('POST', `/chat/with/${userId}/read${query}`);
   },
 
-  /** POST /chat/messages — REST send (the server still delivers it live). */
-  send(recipientId: string, content: string): Promise<ChatMessageDto | null> {
+  /** POST /chat/messages — REST send (the server still delivers it live). The
+      same `clientMessageId` as a failed socket attempt makes the retry idempotent. */
+  send(recipientId: string, content: string, clientMessageId?: string): Promise<ChatMessageDto | null> {
     if (USE_MOCKS) return mockResponse(null);
-    return send('POST', '/chat/messages', { recipientId, content });
+    return send('POST', '/chat/messages', { recipientId, content, clientMessageId });
   },
 };

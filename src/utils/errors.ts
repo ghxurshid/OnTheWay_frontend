@@ -42,6 +42,11 @@ export function errorMessage(e: unknown, fallbackKey = 'errors.generic'): string
   return t(fallbackKey);
 }
 
+/** True when the request never reached the server (offline, timed out) —
+    worth retrying once the connection is back. */
+export const isNetworkError = (e: unknown): boolean =>
+  e instanceof ApiError && (e.code === 'network' || e.code === 'timeout');
+
 /** True for a 409 — the request conflicts with what already exists. */
 export const isConflict = (e: unknown): boolean => e instanceof ApiError && e.status === 409;
 

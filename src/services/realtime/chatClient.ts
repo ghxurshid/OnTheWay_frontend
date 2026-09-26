@@ -6,6 +6,7 @@
    ════════════════════════════════════════════════════════════════ */
 
 import { createEmitter, createHubClient } from './hubConnection';
+import type { ChatMessageDto } from '@/api/chatApi';
 
 const events = createEmitter('chat');
 const hub = createHubClient('/hubs/chat', (conn) => {
@@ -23,10 +24,14 @@ export const chatClient = {
   /** Fires after the socket came back — time to resync what was missed. */
   onReconnected: hub.onReconnected,
 
-  /** Send a message to a recipient user id. */
-  sendMessage(toUserId: string, content: string) {
+  /** Send a message to a recipient user id. `clientMessageId` makes it
+      idempotent: resending after a lost acknowledgement (here or over REST)
+      returns the stored message instead of posting it twice. Resolves to the
+      persisted message. */
+  sendMessage(toUserId: string, content: string, clientMessageId: string): Promise<ChatMessageDto> {
     const c = hub.connected();
-    return c ? c.invoke('SendMessage', toUserId, content) : Promise.reject(new Error('Chat hub not connected'));
+    return c ? c.invoke('SendMessageWithId', toUserId, content, clientMessageId)
+      : Promise.reject(new Error('Chat hub not connected'));
   },
 
   sendTyping(toUserId: string, isTyping: boolean) {

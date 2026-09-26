@@ -10,6 +10,8 @@ import { presenceClient } from '@/services/realtime';
 import { readJson, writeJson } from '@/utils/storage';
 
 const KEY = 'ontheway_walker_state_v1';
+/** How long the boot waits for the presence connection before giving up on restoring. */
+const RESTORE_WAIT_MS = 8000;
 
 export interface WalkerState {
   role: 'driver' | 'passenger' | null;
@@ -79,12 +81,14 @@ export const walkerStateStore = {
   },
 
   /** Push every client-owned field again — after a reconnect the server may
-      have missed patches made while the socket was down. */
+      have missed patches made while the socket was down (including a cleared
+      active trip, which a missing field could not express). */
   resync(): void {
     const { freeMode, engaged, activeTripId, watchedWalkerIds } = state;
     const wire: Record<string, unknown> = { freeMode, engaged, watchedWalkerIds };
     const n = Number(activeTripId);
     if (activeTripId != null && Number.isFinite(n)) wire.activeTripId = n;
+    else wire.clearActiveTrip = true;
     presenceClient.syncWalkerState(wire).catch(() => {});
   },
 
@@ -106,8 +110,11 @@ export const walkerStateStore = {
     });
   },
 
-  /** Fetch the server snapshot and rehydrate the local model on app reopen. */
+  /** Fetch the server snapshot and rehydrate the local model on app reopen. A
+      slow or failed first connect is waited for a little (its retries run
+      meanwhile) — without the snapshot the session could not be resumed. */
   async restoreFromServer(): Promise<{ state?: Partial<WalkerState>; activeTrip?: unknown } | null> {
+    await presenceClient.whenConnected(RESTORE_WAIT_MS);
     const snap = await presenceClient.getWalkerState().catch(() => null);
     if (snap && snap.state) this.hydrate(snap.state);
     return snap;

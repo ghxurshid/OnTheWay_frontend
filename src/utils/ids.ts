@@ -9,3 +9,10 @@ export const idOf = (value: unknown): string => String(value ?? '');
 
 /** True for a real backend user (not a simulated demo walker). */
 export const isRealUserId = (value: unknown): boolean => REAL_ID_RE.test(idOf(value));
+
+/** A new device-generated id for an outgoing item (idempotency key). Older
+    WebViews lack crypto.randomUUID, so fall back to time + randomness. */
+export const newClientId = (): string =>
+  (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`);
