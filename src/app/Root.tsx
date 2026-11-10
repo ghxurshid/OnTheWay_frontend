@@ -1,15 +1,21 @@
 /* ════════════════════════════════════════════════════════════════
-   Root — composition root. Wraps App in the Theme + i18n providers (the
-   single re-render seams for the global stores) and renders it as a
-   centred, tablet-width surface on the backdrop.
+   Root — composition root. Wraps App in the Theme + i18n providers and
+   renders it as a centred, tablet-width surface on the backdrop. The tree
+   is built inside StoreRerender, so a language or theme change renders
+   every component again (without remounting anything).
    ════════════════════════════════════════════════════════════════ */
 
 import { ThemeProvider } from '@/contexts/ThemeContext';
 import { I18nProvider } from '@/contexts/I18nContext';
+import { StoreRerender } from '@/contexts/StoreRerender';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { App } from './App';
 
 export function Root() {
+  return <StoreRerender render={() => <Tree />} />;
+}
+
+function Tree() {
   return (
     <ThemeProvider>
       <I18nProvider>

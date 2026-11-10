@@ -7,6 +7,7 @@ import { FullScreenPanel } from '@/components/ui/FullScreenPanel';
 import { feedbackApi } from '@/api/feedbackApi';
 import { confirmAction } from '@/services/confirm';
 import { errorMessage } from '@/utils/errors';
+import { idOf, isRealUserId } from '@/utils/ids';
 
 const MAX_DETAIL = 600;
 
@@ -16,15 +17,18 @@ const APP_VERSION = '1.0.0';
 
 interface ComplaintScreenProps {
   onClose: () => void;
+  /** Prefill when reporting a specific person from their card; `userId` is
+      that person, sent along as `reportedUserId`. */
+  initial?: { cat?: string; subject?: string; userId?: string | null } | null;
 }
 
 /** Localised label of a complaint category id ('app' → t('complaint.catApp')). */
 const catLabel = (id: string): string => t('complaint.cat' + id.charAt(0).toUpperCase() + id.slice(1));
 
 /** Complaint / feedback form with category, subject, detail and a sent state. */
-export function ComplaintScreen({ onClose: close }: ComplaintScreenProps) {
-  const [cat, setCat] = useState<string | null>(null);
-  const [subject, setSubject] = useState('');
+export function ComplaintScreen({ onClose: close, initial }: ComplaintScreenProps) {
+  const [cat, setCat] = useState<string | null>(initial?.cat || null);
+  const [subject, setSubject] = useState(initial?.subject || '');
   const [body, setBody] = useState('');
   const [sent, setSent] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -42,6 +46,9 @@ export function ComplaintScreen({ onClose: close }: ComplaintScreenProps) {
   };
   const valid = cat && subject.trim().length >= 3 && body.trim().length >= 10;
 
+  // The person this report is about — only a real user (demo walkers have no account).
+  const reportedUserId = isRealUserId(initial?.userId) ? idOf(initial?.userId) : undefined;
+
   // A ref, not `busy`: taps in the same frame all see the stale state.
   const inflightRef = useRef(false);
   async function submit() {
@@ -55,6 +62,7 @@ export function ComplaintScreen({ onClose: close }: ComplaintScreenProps) {
         title: subject.trim(),
         description: `[${catLabel(cat)}] ${body.trim()}`,
         appVersion: APP_VERSION,
+        ...(reportedUserId ? { reportedUserId } : {}),
       });
       setTicket(saved?.id != null ? String(saved.id) : null);
       setSent(true);
@@ -101,12 +109,12 @@ export function ComplaintScreen({ onClose: close }: ComplaintScreenProps) {
   const labelStyle: CSSProperties = { fontSize: 12, fontWeight: 600, color: T.muted, marginBottom: 8,
     textTransform: 'uppercase', letterSpacing: .6, display: 'block' };
   const inputStyle: CSSProperties = { width: '100%', background: T.surface2, border: `1px solid ${T.border}`,
-    borderRadius: 12, padding: '12px 14px', color: T.text, fontSize: 14, fontFamily: 'DM Sans,sans-serif',
+    borderRadius: 12, padding: '12px 14px', color: T.text, fontSize: 16, fontFamily: 'DM Sans,sans-serif',
     outline: 'none', resize: 'none' };
 
   return (
     <FullScreenPanel title={t('complaint.title')} accent={T.amber} onClose={onClose}>
-      <div style={{ flex: 1, overflowY: 'auto', padding: '16px 16px 28px' }}>
+      <div style={{ flex: 1, overflowY: 'auto', padding: '16px 16px calc(28px + env(safe-area-inset-bottom, 0px))' }}>
         <div style={{ fontSize: 13.5, color: T.muted, lineHeight: 1.55, marginBottom: 20 }}>
           {t('complaint.intro')}
         </div>
@@ -116,12 +124,12 @@ export function ComplaintScreen({ onClose: close }: ComplaintScreenProps) {
           {COMPLAINT_CATS.map((c) => {
             const act = cat === c.id;
             return (
-              <button key={c.id} onClick={() => setCat(c.id)} aria-pressed={act} style={{ display: 'flex', alignItems: 'center', gap: 9,
+              <button key={c.id} onClick={() => setCat(c.id)} aria-pressed={act} style={{ display: 'flex', alignItems: 'center', gap: 9, minHeight: 48, minWidth: 0,
                 padding: '11px 12px', borderRadius: 12, cursor: 'pointer', fontFamily: 'DM Sans,sans-serif',
                 border: `1.5px solid ${act ? T.amber + '70' : T.border}`,
                 background: act ? T.amberDim : T.surface2, textAlign: 'left', transition: 'all .15s ease' }}>
                 <span style={{ fontSize: 16 }}>{c.icon}</span>
-                <span style={{ fontSize: 13, fontWeight: act ? 600 : 500, color: act ? T.amber : T.text }}>{catLabel(c.id)}</span>
+                <span style={{ fontSize: 13, fontWeight: act ? 600 : 500, color: act ? T.amber : T.text, lineHeight: 1.3, overflowWrap: 'anywhere' }}>{catLabel(c.id)}</span>
               </button>
             );
           })}
@@ -142,7 +150,7 @@ export function ComplaintScreen({ onClose: close }: ComplaintScreenProps) {
         </div>
 
         {error && (
-          <div role="alert" style={{ fontSize: 12.5, color: T.amber, marginBottom: 12, textAlign: 'center' }}>
+          <div role="alert" style={{ fontSize: 12.5, color: T.red, marginBottom: 12, textAlign: 'center' }}>
             {error}
           </div>
         )}

@@ -17,7 +17,10 @@ import { connectRealtime } from '@/services/realtime';
 import { walkerStateStore } from '@/services/walkerStateStore';
 import { chatOutbox } from '@/services/chatOutbox';
 import { tripOutbox } from '@/services/tripOutbox';
-import { listContacts } from '@/services/contactService';
+import { CONTACTS_EVENT, contactRoster, listContacts } from '@/services/contactService';
+import { blockStore } from '@/services/blockStore';
+import { syncProfileMirror } from '@/services/profileService';
+import { settingsService } from '@/services/settingsService';
 import { initTelegramUi } from '@/services/telegram';
 
 export function useBootstrap() {
@@ -53,10 +56,26 @@ export function useBootstrap() {
     })();
   }, [bootNonce]);
 
-  // Contacts loaded once authenticated.
+  // Contacts loaded once authenticated; the ref follows the roster (an add or a
+  // remove refreshes it — see contactService).
   useEffect(() => {
-    if (!authReady) return;
-    listContacts().then((c) => { contactsRef.current = c; }).catch(() => {});
+    if (!authReady) return undefined;
+    const sync = () => { contactsRef.current = contactRoster.list(); };
+    window.addEventListener(CONTACTS_EVENT, sync);
+    listContacts().catch(() => {});
+    return () => window.removeEventListener(CONTACTS_EVENT, sync);
+  }, [authReady]);
+
+  // Server-owned data mirrored locally, refreshed once signed in: the block list
+  // (so blocked people stay hidden on this device too), my car (create-trip seats,
+  // the drawer, the "add your car" hint) and my settings (language, theme, the
+  // switches that gate toasts — right on a new device before Settings is opened).
+  // Best-effort — the cached copies stay when offline. Demo mode keeps them local.
+  useEffect(() => {
+    if (!authReady || USE_MOCKS) return;
+    blockStore.hydrate().catch(() => {});
+    syncProfileMirror().catch(() => {});
+    settingsService.sync().catch(() => {});
   }, [authReady]);
 
   // Re-arm the boot sequence after a failure (the auth-error retry button).

@@ -9,6 +9,7 @@
    ════════════════════════════════════════════════════════════════ */
 
 import { readJson, writeJson } from '@/utils/storage';
+import { currentTelegramUserId } from './accountGuard';
 
 const STORAGE_KEY = 'otw-session';
 
@@ -17,6 +18,8 @@ export interface AuthSession {
   accessTokenExpiresAt?: string;
   refreshToken?: string;
   user?: unknown;
+  /** The Telegram user this session belongs to (see services/accountGuard). */
+  telegramUserId?: string | null;
 }
 
 type Refresher = () => Promise<AuthSession>;
@@ -30,7 +33,9 @@ const persist = (): void => writeJson(STORAGE_KEY, session);
 export const authStore = {
   /** Replace the whole session (after login / refresh). */
   set(next: AuthSession | null) {
-    session = next || null;
+    // Stamp the Telegram user the session belongs to, so another account opening
+    // the app on this device never reuses it (services/accountGuard).
+    session = next ? { ...next, telegramUserId: currentTelegramUserId() ?? next.telegramUserId ?? session?.telegramUserId ?? null } : null;
     persist();
   },
 

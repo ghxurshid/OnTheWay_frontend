@@ -109,10 +109,17 @@ html[data-theme="light"] .user-dot { border-color: #ffffff; }
 /* Map control stack, top-right. Starts below the floating top bar (14 + 40)
    AND below the toast band, so a notification sliding in never lands on the
    zoom / basemap buttons; --sat keeps it clear of the notch and status bar. */
-.otw-edge-top { top: calc(88px + var(--sat)) !important; }
+.otw-edge-top { top: calc(96px + var(--sat)) !important; }
 /* The toast reserves the control column on its right (see PushToast). */
-.otw-toast { top: calc(62px + var(--sat)) !important; right: calc(62px + var(--sar)) !important; left: calc(16px + var(--sal)) !important; }
+.otw-toast { top: calc(72px + var(--sat)) !important; right: calc(62px + var(--sar)) !important; left: calc(16px + var(--sal)) !important; max-width: 460px; }
+.otw-notice > [role="status"] { max-width: 520px; }
+/* Landscape phones: a docked card leaves no room for a notice row over the map. */
+@media (max-height: 480px) { .otw-dock { max-height: calc(100% - 196px - var(--sat) - var(--sab)); overflow-y: auto; pointer-events: auto !important; } }
 .otw-navbar { margin-bottom: calc(20px + var(--sab)) !important; }
+.otw-dock { bottom: calc(116px + var(--sab)) !important; left: calc(12px + var(--sal)) !important; right: calc(12px + var(--sar)) !important; }
+.otw-notice { top: calc(72px + var(--sat)) !important; }
+.otw-notice.otw-notice-low { top: calc(128px + var(--sat)) !important; } /* below the speedometer */
+.otw-speed { top: calc(72px + var(--sat)) !important; left: calc(16px + var(--sal)) !important; }
 .otw-drawer {
   width: min(322px, 86vw) !important;
   padding-top: var(--sat);
@@ -171,3 +178,9 @@ select:focus-visible, [role="button"]:focus-visible, [tabindex]:focus-visible {
     transition-duration: .01ms !important;
   }
 }
+
+/* Theme basemaps: OSM tiles restyled (see constants/map.ts). */
+.otw-tiles-dark { filter: invert(1) hue-rotate(180deg) brightness(.82) contrast(.92) saturate(.35); }
+.otw-tiles-light { filter: saturate(.45) brightness(1.04) contrast(.94); }
+/* Leaflet's fade-in can stall (rotate plugin / hidden mount), leaving loaded tiles at opacity 0. */
+.leaflet-tile.leaflet-tile-loaded { opacity: 1 !important; }

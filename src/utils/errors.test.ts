@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { ApiError } from '@/api/client';
 import { i18nStore, t } from '@/i18n';
-import { appError, errorMessage, fieldErrors, isConflict, isUserOffline } from './errors';
+import { appError, errorMessage, fieldErrors, isConflict, isUserBlocked, isUserOffline } from './errors';
 
 beforeEach(() => i18nStore.set('en'));
 
@@ -26,6 +26,20 @@ describe('errorMessage', () => {
     const hub = new Error("An unexpected error occurred invoking 'InitiateCall'. HubException: USER_OFFLINE");
     expect(errorMessage(hub)).toBe(t('errors.userOffline'));
     expect(isUserOffline(hub)).toBe(true);
+  });
+
+  it('says the user cannot be contacted when a block stands between the two (REST or hub)', () => {
+    // The backend's coded 403: { success: false, message, errors: ["user_blocked"] }.
+    const rest = new ApiError(403, 'You cannot message this user.', ['user_blocked']);
+    expect(errorMessage(rest)).toBe(t('errors.userBlocked'));
+    expect(isUserBlocked(rest)).toBe(true);
+    expect(isUserBlocked(new ApiError(403, 'user_blocked'))).toBe(true);
+    expect(isUserBlocked(new Error("Failed to invoke 'SendMessage'. HubException: user_blocked"))).toBe(true);
+    expect(isUserBlocked(new ApiError(403, 'You do not have permission to perform this action.'))).toBe(false);
+    // A refused call: what signalR rejects InitiateCall with — not "offline", and never raw text.
+    const call = new Error("An unexpected error occurred invoking 'InitiateCall' on the server. HubException: user_blocked");
+    expect(errorMessage(call)).toBe(t('errors.userBlocked'));
+    expect(isUserOffline(call)).toBe(false);
   });
 
   it('falls back to the given key', () => {

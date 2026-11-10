@@ -10,11 +10,13 @@ interface RouteNavBarProps {
   onEnd: () => void;
   /** Real GPS is unavailable/denied: explain why progress is not moving. */
   gpsIssue?: boolean;
+  /** Share the journey with someone close (Telegram / share sheet). */
+  onShare?: () => void;
 }
 
 /** Active-route progress bar (Yandex-style) with ETA. Ending the trip is an
     explicit, confirmed action — it completes the trip and stops live sharing. */
-export function RouteNavBar({ route, progress, onEnd, gpsIssue = false }: RouteNavBarProps) {
+export function RouteNavBar({ route, progress, onEnd, gpsIssue = false, onShare }: RouteNavBarProps) {
   const [confirming, setConfirming] = useState(false);
   const pct = Math.round(progress * 100);
   const done = progress >= 1;
@@ -25,7 +27,7 @@ export function RouteNavBar({ route, progress, onEnd, gpsIssue = false }: RouteN
   const arrival = fmt12(new Date(Date.now() + remMin * 60000));
 
   return (
-    <div className="otw-dockleft" role="region" aria-label={t('nav2.endTip')} style={{ position: 'absolute', left: 12, right: 12, bottom: 116, zIndex: 3, pointerEvents: 'auto',
+    <div role="region" aria-label={t('nav2.endTip')} style={{ position: 'relative', pointerEvents: 'auto',
       background: T.glass2, backdropFilter: 'blur(20px)', borderRadius: 18,
       border: `1px solid ${done ? T.green + '40' : T.teal + '30'}`,
       boxShadow: '0 8px 28px rgba(0,0,0,.5)', padding: '14px 16px',
@@ -66,12 +68,21 @@ export function RouteNavBar({ route, progress, onEnd, gpsIssue = false }: RouteN
                   <span style={{ fontSize: 13, color: T.muted }}>{t('nav2.remaining', { km: remKm })}</span>
                 </div>
               )}
-              <div style={{ fontSize: 11, color: T.muted, marginTop: 1 }}>
+              <div style={{ fontSize: 12, color: T.muted, marginTop: 1 }}>
                 {done ? t('nav2.finished') : t('nav2.eta', { time: arrival })}
               </div>
             </div>
+            {onShare && !done && (
+              <button onClick={onShare} aria-label={t('share.btn')} title={t('share.btn')}
+                style={{ width: 44, height: 44, borderRadius: 12, flexShrink: 0, border: `1px solid ${T.border}`,
+                  background: T.surface2, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <svg width="18" height="18" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                  <path d="M10 13V3M6.5 6.5 10 3l3.5 3.5M4 11v4.5A1.5 1.5 0 0 0 5.5 17h9a1.5 1.5 0 0 0 1.5-1.5V11" stroke={T.text} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+            )}
             <button onClick={() => setConfirming(true)}
-              style={{ height: 38, padding: '0 14px', borderRadius: 12, flexShrink: 0,
+              style={{ height: 44, padding: '0 14px', borderRadius: 12, flexShrink: 0,
                 border: done ? 'none' : `1px solid ${T.red}40`, background: done ? T.green : 'rgba(255,92,114,0.1)',
                 color: done ? '#fff' : T.red, cursor: 'pointer', fontSize: 13, fontWeight: 700,
                 fontFamily: 'DM Sans,sans-serif' }}>
@@ -88,8 +99,8 @@ export function RouteNavBar({ route, progress, onEnd, gpsIssue = false }: RouteN
               transition: 'width .45s linear' }} />
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 5 }}>
-            <span style={{ fontSize: 10, color: done ? T.green : T.teal, fontWeight: 600 }}>{pct}%</span>
-            <span style={{ fontSize: 10, color: T.muted }}>
+            <span style={{ fontSize: 11.5, color: done ? T.green : T.teal, fontWeight: 600 }}>{pct}%</span>
+            <span style={{ fontSize: 11.5, color: T.muted }}>
               {t('common.km', { n: route.distanceKm.toFixed(1) })} · {t('common.minutes', { n: Math.round(route.durationMin) })}
             </span>
           </div>

@@ -32,11 +32,12 @@ describe('composeNotes', () => {
     to: { latlng: [41.35, 69.29] as [number, number], label: 'B' }, date: '2026-09-26', tStart: 8, tEnd: 10, seats: '3', note: 'No smoking',
   };
 
-  it('keeps the seats and the departure window the form collected', () => {
-    expect(composeNotes(base)).toBe('No smoking\nFree seats: 3\nDeparture window: 08:00–10:00');
+  it('keeps the typed note and the departure window — seats are a field of their own', () => {
+    expect(composeNotes(base)).toBe('No smoking\nDeparture window: 08:00–10:00');
   });
 
-  it('omits seats for a passenger and returns null when empty', () => {
+  it('returns null when there is nothing to say', () => {
+    expect(composeNotes({ ...base, note: '  ', tEnd: 8 })).toBeNull();
     expect(composeNotes({ ...base, type: 'passenger', note: '', tEnd: 8 })).toBeNull();
   });
 });

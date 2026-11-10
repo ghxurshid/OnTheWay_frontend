@@ -8,16 +8,27 @@ import { USE_MOCKS, mockResponse, http, send } from './client';
 
 const post = (path: string, body?: unknown) => send('POST', path, body);
 
+// Demo mode: the trips this session published, so "My trips" and the
+// planned-trips board show the user's own trip like the backend would.
+const MOCK_OWN: Array<Record<string, unknown> & { id: string; status: string }> = [];
+
+/** Demo only: remember a published trip (called by walkerApi.create). */
+export function rememberMockTrip(dto: Record<string, unknown>): string {
+  const id = 'trip_' + Date.now().toString(36);
+  MOCK_OWN.unshift({ id, status: 'Scheduled', isVisible: true, ...dto });
+  return id;
+}
+
 export const tripApi = {
   /** POST /trips — publish a trip. Category "Planned"/"Live", role "Driver"/"Passenger". */
   create(payload: Record<string, unknown>) {
-    if (USE_MOCKS) return mockResponse({ id: 'trip_' + Date.now(), ...payload });
+    if (USE_MOCKS) return mockResponse({ id: rememberMockTrip(payload), ...payload });
     return post('/trips', payload);
   },
 
   /** GET /trips/mine — the caller's open trips (scheduled or in progress). */
   mine() {
-    if (USE_MOCKS) return mockResponse([]);
+    if (USE_MOCKS) return mockResponse(MOCK_OWN.filter((x) => x.status === 'Scheduled' || x.status === 'InProgress'));
     return http('/trips/mine').then((rows) => rows || []);
   },
 
@@ -65,7 +76,11 @@ export const tripApi = {
 
   /** POST /trips/{id}/cancel — call off own trip (simply closes it). */
   cancel(id: string) {
-    if (USE_MOCKS) return mockResponse({ id, status: 'Cancelled' });
+    if (USE_MOCKS) {
+      const row = MOCK_OWN.find((x) => x.id === id);
+      if (row) row.status = 'Cancelled';
+      return mockResponse({ id, status: 'Cancelled' });
+    }
     return post(`/trips/${id}/cancel`);
   },
 };

@@ -24,6 +24,8 @@ export default defineConfig({
         // defined"). Leave them in the import-graph order rollup picks.
         manualChunks(id) {
           if (id.includes('/node_modules/@microsoft/signalr/')) return 'signalr';
+          // MapLibre (vector basemap under Leaflet) is self-contained — safe to split.
+          if (id.includes('/node_modules/maplibre-gl/')) return 'maplibre';
           if (/\/node_modules\/(react|react-dom|scheduler)\//.test(id)) return 'react';
           return undefined;
         },

@@ -42,7 +42,29 @@ export const i18nStore = {
 };
 i18nStore.apply();
 
-type StringNode = Record<Lang, string>;
+/** Plural forms of one text, by CLDR category (see strings.ts). */
+export type PluralForms = Partial<Record<Intl.LDMLPluralRule, string>>;
+type Text = string | PluralForms;
+type StringNode = Record<Lang, Text>;
+
+const pluralRules = new Map<string, Intl.PluralRules>();
+const rulesFor = (lang: Lang): Intl.PluralRules => {
+  let rules = pluralRules.get(lang);
+  if (!rules) { rules = new Intl.PluralRules(lang); pluralRules.set(lang, rules); }
+  return rules;
+};
+
+/** The form of `text` for count `n` in `lang` (a plain string is every form). */
+function pickForm(text: Text | undefined, lang: Lang, n: unknown): string | undefined {
+  if (text == null || typeof text === 'string') return text;
+  const count = Number(n);
+  const category = Number.isFinite(count) ? rulesFor(lang).select(count) : 'other';
+  return text[category] ?? text.other ?? text.many ?? Object.values(text)[0];
+}
+
+/** Every wording of a node (each language, each plural form). */
+const allTexts = (node: StringNode): string[] =>
+  Object.values(node).flatMap((v) => (typeof v === 'string' ? [v] : Object.values(v).filter((x): x is string => typeof x === 'string')));
 
 function lookup(path: string): StringNode | null {
   const parts = path.split('.');
@@ -55,12 +77,22 @@ function lookup(path: string): StringNode | null {
   return node as StringNode;
 }
 
-/** Translate `path` in the active language, substituting `{token}` vars. */
+/** True when `text` is what `path` says in ANY language (ignoring case and
+    outer spaces): a value stored in the language it was picked in still matches
+    after the user switches language. */
+export function isTranslationOf(path: string, text: string | null | undefined): boolean {
+  const node = lookup(path);
+  const wanted = (text || '').trim().toLowerCase();
+  return !!node && !!wanted && allTexts(node).some((v) => v.toLowerCase() === wanted);
+}
+
+/** Translate `path` in the active language, substituting `{token}` vars. A
+    text with plural forms takes the one for `vars.n`. */
 export function t(path: string, vars?: Record<string, unknown>): string {
   const node = lookup(path);
   if (!node) return path; // missing → echo the key (debug aid)
-  let str: string | undefined = node[i18nStore.mode];
-  if (str == null) str = node[DEFAULT_LANG];
+  const lang = node[i18nStore.mode] != null ? i18nStore.mode : DEFAULT_LANG;
+  let str: string | undefined = pickForm(node[lang], lang, vars?.n);
   if (str == null) return path;
   if (vars) {
     str = str.replace(/\{(\w+)\}/g, (m, k) => (vars[k] != null ? String(vars[k]) : m));

@@ -16,6 +16,7 @@ const codeOf = (e: unknown): string | undefined => (e as { code?: string } | nul
 
 /** A localized, actionable message for `e`; `fallbackKey` when nothing specific fits. */
 export function errorMessage(e: unknown, fallbackKey = 'errors.generic'): string {
+  if (isUserBlocked(e)) return t('errors.userBlocked');
   if (e instanceof ApiError) {
     if (e.code === 'network') return t('errors.network');
     if (e.code === 'timeout') return t('errors.timeout');
@@ -49,6 +50,13 @@ export const isNetworkError = (e: unknown): boolean =>
 
 /** True for a 409 — the request conflicts with what already exists. */
 export const isConflict = (e: unknown): boolean => e instanceof ApiError && e.status === 409;
+
+/** True when the server refused because one of the two blocked the other
+    (REST 403 / hub error carrying the code `user_blocked`). */
+export function isUserBlocked(e: unknown): boolean {
+  const parts = [(e as Error | null)?.message || '', ...(e instanceof ApiError ? e.errors : [])];
+  return parts.some((p) => /\buser_blocked\b/i.test(p));
+}
 
 /** True when the server said the callee has no live connection. */
 export const isUserOffline = (e: unknown): boolean =>

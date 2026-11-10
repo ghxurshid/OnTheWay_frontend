@@ -9,6 +9,11 @@ type Node = { [k: string]: Node | string };
 const lookup = (path: string): Node | undefined =>
   path.split('.').reduce<Node | undefined>((n, k) => (n && typeof n[k] === 'object' ? (n[k] as Node) : undefined), STRINGS as unknown as Node);
 
+/** A string, or plural forms (strings by CLDR category) that include a general one. */
+const isText = (v: unknown): boolean => typeof v === 'string'
+  || (!!v && typeof v === 'object' && Object.values(v).every((x) => typeof x === 'string')
+    && ('other' in (v as object) || 'many' in (v as object)));
+
 describe('i18n keys', () => {
   it('every t() key used in the app is translated to uz, ru and en', () => {
     const missing: string[] = [];
@@ -17,7 +22,7 @@ describe('i18n keys', () => {
       // Only whole literal keys: t('a.b') / t('a.b', vars) — not t('a.prefix' + x).
       for (const [, key] of code.matchAll(/\bt\(\s*'([a-zA-Z0-9]+(?:\.[a-zA-Z0-9]+)+)'\s*[,)]/g)) {
         const node = lookup(key);
-        if (!node || ['uz', 'ru', 'en'].some((l) => typeof node[l] !== 'string')) missing.push(`${key} (${file})`);
+        if (!node || ['uz', 'ru', 'en'].some((l) => !isText(node[l]))) missing.push(`${key} (${file})`);
       }
     }
     expect(missing).toEqual([]);

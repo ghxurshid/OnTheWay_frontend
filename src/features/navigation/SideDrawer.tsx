@@ -1,9 +1,11 @@
 import type { ReactNode } from 'react';
 import { T, TEAL_GRADIENT } from '@/constants/theme';
 import { t } from '@/i18n';
-import { ToggleRow } from '@/components/ui/ToggleRow';
 import { useBackHandler } from '@/hooks/useBackHandler';
-import { currentUserName } from '@/services/authService';
+import { usePrefs } from '@/hooks/usePrefs';
+import { useProfileIdentity } from '@/hooks/useProfileIdentity';
+import { RoleGlyph } from '@/components/ui/MapSheet';
+import { vehicleLine } from '@/services/prefsStore';
 import { initialsOf } from '@/utils/avatar';
 import type { PartyType } from '@/models';
 
@@ -11,36 +13,23 @@ interface SideDrawerProps {
   open: boolean;
   onClose: () => void;
   mode: PartyType;
-  freeMode: boolean;
-  onToggleFreeMode: () => void;
-  /** "Bandman" — marked full, hidden from discovery. */
-  banded: boolean;
-  /** Only meaningful once the walker has a discoverable trip. */
-  canBand: boolean;
-  onToggleBanded: () => void;
   onExit: () => void;
   onOpenPanel: (key: string) => void;
 }
 
-/** Left drawer: profile, status toggles, settings + account panels, exit.
- *  Search mode (passenger/driver) is chosen once on the home screen at app start
- *  and is intentionally not switchable here — changing it mid-session caused
- *  ambiguities, so a user who wants another mode re-opens the app and picks it. */
-export function SideDrawer({ open, onClose, mode, freeMode, onToggleFreeMode,
-  banded, canBand, onToggleBanded, onExit, onOpenPanel }: SideDrawerProps) {
+/** Left drawer: who I am (Telegram photo, name, role, car) → profile; then
+ *  settings, support and privacy, and switching role. Visibility switches live
+ *  in the map's top bar ("Who can see you?"), trips in the bottom bar. */
+export function SideDrawer({ open, onClose, mode, onExit, onOpenPanel }: SideDrawerProps) {
   useBackHandler(onClose, open);
-  const name = currentUserName() || t('common.user');
-  // Free Mode = sharing a live location with no destination. That only makes sense
-  // for drivers (taxi-like: available, will go wherever asked). A passenger has no
-  // destination to share, so they can't enable it — they become visible to drivers
-  // by creating a trip instead. See docs business-spec §9.3.
-  const canFreeMode = mode === 'driver';
-  const freeModeActive = canFreeMode && freeMode;
+  const { name, photo } = useProfileIdentity();
+  const prefs = usePrefs();
+  const car = vehicleLine(prefs.vehicle);
   const navItems = [
-    { key: 'myTrips', label: t('drawer.myTrips'), sub: t('drawer.myTripsSub'),
-      color: T.teal, icon: (c: string) => (<svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-        <rect x="3" y="4" width="14" height="13" rx="2" stroke={c} strokeWidth="1.6" />
-        <path d="M7 2v3M13 2v3M3 9h14M7 12.5h6" stroke={c} strokeWidth="1.6" strokeLinecap="round" /></svg>) },
+    { key: 'settings', label: t('drawer.settings'), sub: t('drawer.settingsSub'),
+      color: T.teal, icon: (c: string) => (<svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+        <circle cx="10" cy="10" r="2.5" stroke={c} strokeWidth="1.6" />
+        <path d="M10 3v2M10 15v2M3 10h2M15 10h2M4.93 4.93l1.41 1.41M13.66 13.66l1.41 1.41M4.93 15.07l1.41-1.41M13.66 6.34l1.41-1.41" stroke={c} strokeWidth="1.6" strokeLinecap="round" /></svg>) },
     { key: 'complaint', label: t('drawer.complaint'), sub: t('drawer.complaintSub'),
       color: T.amber, icon: (c: string) => (<svg width="20" height="20" viewBox="0 0 20 20" fill="none">
         <path d="M4 4h12v9H8l-4 3V4z" stroke={c} strokeWidth="1.6" strokeLinejoin="round" />
@@ -52,7 +41,7 @@ export function SideDrawer({ open, onClose, mode, freeMode, onToggleFreeMode,
   ];
 
   const sectionLabel = (label: ReactNode) => (
-    <div style={{ fontSize: 11, fontWeight: 600, color: T.muted, margin: '0 0 8px',
+    <div style={{ fontSize: 11.5, fontWeight: 600, color: T.muted, margin: '0 0 8px',
       textTransform: 'uppercase', letterSpacing: .8 }}>{label}</div>
   );
 
@@ -69,12 +58,12 @@ export function SideDrawer({ open, onClose, mode, freeMode, onToggleFreeMode,
         display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '18px 18px 14px', borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
+          padding: '16px 18px 12px', borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <div style={{ width: 4, height: 20, borderRadius: 2, background: T.teal }} />
             <span style={{ fontSize: 16, fontWeight: 600, color: T.text }}>{t('drawer.menu')}</span>
           </div>
-          <button onClick={onClose} aria-label={t('drawer.close')} style={{ width: 32, height: 32, borderRadius: 10,
+          <button onClick={onClose} aria-label={t('drawer.close')} style={{ width: 44, height: 44, borderRadius: 12,
             border: `1px solid ${T.border}`, background: T.hover, color: T.muted,
             cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
@@ -85,119 +74,61 @@ export function SideDrawer({ open, onClose, mode, freeMode, onToggleFreeMode,
 
         <div style={{ flex: 1, minHeight: 0, overflowY: 'auto',
           padding: '14px 16px 24px', display: 'flex', flexDirection: 'column', gap: 18 }}>
-          {/* Profile */}
-          <div style={{ background: T.surface2, borderRadius: 18, padding: '14px',
-            border: `1px solid ${T.border}`, display: 'flex', gap: 14, alignItems: 'center' }}>
-            <div style={{ width: 50, height: 50, borderRadius: 15,
-              background: TEAL_GRADIENT,
+          {/* Profile → edit */}
+          <button onClick={() => onOpenPanel('profile')} style={{ background: T.surface2, borderRadius: 18, padding: '14px',
+            border: `1px solid ${T.border}`, display: 'flex', gap: 14, alignItems: 'center', cursor: 'pointer', textAlign: 'left',
+            fontFamily: 'DM Sans,sans-serif', width: '100%' }}>
+            <div style={{ width: 54, height: 54, borderRadius: 16, overflow: 'hidden', background: TEAL_GRADIENT,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 19, fontWeight: 700, color: 'white', flexShrink: 0 }}>{initialsOf(name)}</div>
+              fontSize: 19, fontWeight: 700, color: 'white', flexShrink: 0 }}>
+              {photo ? <img src={photo} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : initialsOf(name)}
+            </div>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 15, fontWeight: 600, color: T.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</div>
-              <div style={{ fontSize: 12, color: T.muted }}>{mode === 'driver' ? t('home.driverLabel') : t('home.passengerLabel')}</div>
-            </div>
-          </div>
-
-          {/* Status: how discoverable you are right now. Free Mode shares a live
-              location with no destination (drivers only — passengers see a
-              disabled switch explaining why); Busy hides an existing trip from
-              search. Both are the same ToggleRow, stacked, so they read and
-              behave as one control group. */}
-          <div>
-            {sectionLabel(t('drawer.status'))}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <ToggleRow
-                label={t('drawer.freeMode')}
-                sub={canFreeMode ? t('drawer.freeModeSub') : t('drawer.freeModePassenger')}
-                checked={freeModeActive}
-                disabled={!canFreeMode}
-                onToggle={onToggleFreeMode}
-                icon={(
-                  <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-                    <path d="M10 2.5l6 2.2v4.3c0 3.6-2.5 6.6-6 8-3.5-1.4-6-4.4-6-8V4.7l6-2.2z" stroke={T.teal} strokeWidth="1.6" strokeLinejoin="round" opacity=".35" />
-                    <circle cx="10" cy="9" r="2.4" stroke={T.teal} strokeWidth="1.6" />
-                    <path d="M10 11.4v3" stroke={T.teal} strokeWidth="1.6" strokeLinecap="round" />
-                  </svg>
-                )}
-              />
-              {/* Band ("to'ldi"): a reversible visibility flag — no booking or seat
-                  accounting. Only actionable once a discoverable trip exists. */}
-              <ToggleRow
-                label={t('drawer.busy')}
-                sub={!canBand ? t('drawer.busyNoTrip') : (banded ? t('drawer.busyOn') : t('drawer.busyOff'))}
-                checked={canBand && banded}
-                disabled={!canBand}
-                accent={T.red}
-                onToggle={onToggleBanded}
-                icon={(
-                  <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-                    <circle cx="10" cy="10" r="7" stroke={T.red} strokeWidth="1.6" opacity=".45" />
-                    <path d="M5.4 5.4l9.2 9.2" stroke={T.red} strokeWidth="1.7" strokeLinecap="round" />
-                  </svg>
-                )}
-              />
-            </div>
-          </div>
-
-          {/* Settings */}
-          <div>
-            {sectionLabel(t('drawer.settings'))}
-            <button onClick={() => onOpenPanel('settings')} style={{ display: 'flex', alignItems: 'center', gap: 13,
-              padding: '15px', borderRadius: 15, cursor: 'pointer', width: '100%', textAlign: 'left',
-              border: `1.5px solid ${T.teal}40`, background: `${T.teal}12`, fontFamily: 'DM Sans,sans-serif',
-              boxShadow: `0 0 0 1px ${T.teal}0d` }}>
-              <div style={{ width: 42, height: 42, borderRadius: 12, background: `${T.teal}22`, flexShrink: 0,
-                display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <svg width="22" height="22" viewBox="0 0 20 20" fill="none">
-                  <circle cx="10" cy="10" r="2.5" stroke={T.teal} strokeWidth="1.6" />
-                  <path d="M10 3v2M10 15v2M3 10h2M15 10h2M4.93 4.93l1.41 1.41M13.66 13.66l1.41 1.41M4.93 15.07l1.41-1.41M13.66 6.34l1.41-1.41" stroke={T.teal} strokeWidth="1.6" strokeLinecap="round" />
-                </svg>
+              <div style={{ fontSize: 15.5, fontWeight: 700, color: T.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</div>
+              <div style={{ fontSize: 12.5, color: mode === 'driver' ? T.amber : T.teal, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 5, marginTop: 2 }}>
+                <RoleGlyph type={mode} size={14} color={mode === 'driver' ? T.amber : T.teal} />
+                {mode === 'driver' ? t('common.driver') : t('common.passenger')}
               </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>{t('drawer.settings')}</div>
-                <div style={{ fontSize: 12, color: T.muted, marginTop: 1 }}>{t('drawer.settingsSub')}</div>
+              <div style={{ fontSize: 12, color: T.muted, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {car || t('profile.addCar')}
               </div>
-              <svg width="15" height="15" viewBox="0 0 14 14" fill="none" style={{ flexShrink: 0 }}>
-                <path d="M5 3 L9 7 L5 11" stroke={T.teal} strokeWidth="1.7" strokeLinecap="round" />
-              </svg>
-            </button>
-          </div>
+            </div>
+            <span style={{ fontSize: 12.5, fontWeight: 700, color: T.teal, flexShrink: 0 }}>{t('profile.edit')}</span>
+          </button>
 
-          {/* Account */}
           <div>
             {sectionLabel(t('drawer.account'))}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {navItems.map((it) => (
                 <button key={it.key} onClick={() => onOpenPanel(it.key)} style={{ display: 'flex', alignItems: 'center', gap: 12,
-                  padding: '12px 14px', borderRadius: 13, border: `1px solid ${T.border}`, cursor: 'pointer',
+                  minHeight: 60, padding: '10px 14px', borderRadius: 13, border: `1px solid ${T.border}`, cursor: 'pointer',
                   background: T.surface2, fontFamily: 'DM Sans,sans-serif', textAlign: 'left', width: '100%' }}>
                   <div style={{ width: 38, height: 38, borderRadius: 11, background: `${it.color}18`, flexShrink: 0,
                     display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{it.icon(it.color)}</div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: T.text }}>{it.label}</div>
-                    <div style={{ fontSize: 11.5, color: T.muted }}>{it.sub}</div>
+                    <div style={{ fontSize: 14.5, fontWeight: 600, color: T.text }}>{it.label}</div>
+                    <div style={{ fontSize: 12, color: T.muted }}>{it.sub}</div>
                   </div>
                   <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ flexShrink: 0 }}>
                     <path d="M5 3 L9 7 L5 11" stroke={T.muted} strokeWidth="1.6" strokeLinecap="round" />
                   </svg>
                 </button>
               ))}
-              <button onClick={onExit} style={{ width: '100%', padding: '12px 14px', borderRadius: 13,
-                border: `1px solid ${T.red}30`, background: 'rgba(255,92,114,0.06)',
+              <button onClick={onExit} style={{ width: '100%', minHeight: 56, padding: '10px 14px', borderRadius: 13,
+                border: `1px solid ${T.border}`, background: T.surface2,
                 display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer', fontFamily: 'DM Sans,sans-serif' }}>
-                <div style={{ width: 38, height: 38, borderRadius: 11, background: `${T.red}18`, flexShrink: 0,
+                <div style={{ width: 38, height: 38, borderRadius: 11, background: mode === 'driver' ? T.tealDim : T.amberDim, flexShrink: 0,
                   display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-                    <path d="M12 14l4-4-4-4" stroke={T.red} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-                    <path d="M16 10H7M8 4H5a1 1 0 00-1 1v10a1 1 0 001 1h3" stroke={T.red} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
+                  <RoleGlyph type={mode === 'driver' ? 'passenger' : 'driver'} size={19} color={mode === 'driver' ? T.teal : T.amber} />
                 </div>
-                <span style={{ flex: 1, fontSize: 14, fontWeight: 600, color: T.red, textAlign: 'left' }}>{t('drawer.exit')}</span>
+                <span style={{ flex: 1, fontSize: 14.5, fontWeight: 600, color: T.text, textAlign: 'left' }}>
+                  {t('role.switchTo', { role: mode === 'driver' ? t('common.passenger') : t('common.driver') })}
+                </span>
               </button>
             </div>
           </div>
 
-          <div style={{ textAlign: 'center', fontSize: 11, color: T.muted, marginTop: 2 }}>
+          <div style={{ textAlign: 'center', fontSize: 11.5, color: T.muted, marginTop: 2 }}>
             {t('common.version')}
           </div>
         </div>

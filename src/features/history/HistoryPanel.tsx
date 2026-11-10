@@ -15,11 +15,13 @@ const durationLabel = (h: Trip): string =>
   h.durationMinutes != null ? t('common.minutes', { n: h.durationMinutes }) : h.duration;
 const kmLabel = (h: Trip): string => t('common.km', { n: h.distanceKm != null ? h.distanceKm.toFixed(1) : h.km });
 
-/** Trip history list + dashboard tabs. */
-export function HistoryPanel() {
+/** Trip history list + dashboard tabs. With `view`, renders just that one
+    (the bottom bar's "My trips" panel owns the tabs then). */
+export function HistoryPanel({ view }: { view?: 'history' | 'dashboard' } = {}) {
   const { history, loading, error, reload } = useHistory();
   const [selected, setSelected] = useState<string | null>(null);
-  const [tab, setTab] = useState('history'); // 'history' | 'dashboard'
+  const [ownTab, setTab] = useState('history'); // 'history' | 'dashboard'
+  const tab = view || ownTab;
   const { totalTrips, totalKm, averageRating } = historyTotals(history);
 
   const TABS = [
@@ -42,10 +44,10 @@ export function HistoryPanel() {
             { label: t('history.statDistance'), val: totalKm, unit: 'km', color: T.amber },
             { label: t('history.yourRating'), val: averageRating ?? '—', unit: averageRating ? '⭐' : '', color: T.purple },
           ].map((s) => (
-            <div key={s.label} style={{ flex: 1, background: T.surface2, borderRadius: 14,
-              padding: '10px 12px', border: `1px solid ${T.border}` }}>
-              <div style={{ fontSize: 18, fontWeight: 700, color: s.color }}>{s.val}<span style={{ fontSize: 11, color: T.muted, fontWeight: 400 }}> {s.unit}</span></div>
-              <div style={{ fontSize: 10, color: T.muted, marginTop: 2, lineHeight: 1.3 }}>{s.label}</div>
+            <div key={s.label} style={{ flex: 1, minWidth: 0, background: T.surface2, borderRadius: 14,
+              padding: '10px 10px', border: `1px solid ${T.border}` }}>
+              <div style={{ fontSize: 18, fontWeight: 700, color: s.color, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.val}<span style={{ fontSize: 11, color: T.muted, fontWeight: 400 }}> {s.unit}</span></div>
+              <div style={{ fontSize: 11.5, color: T.muted, marginTop: 2, lineHeight: 1.3, overflowWrap: 'anywhere' }}>{s.label}</div>
             </div>
           ))}
         </div>
@@ -100,7 +102,7 @@ export function HistoryPanel() {
                       </div>
                       <div>
                         <div style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{h.partner || t('history.noPartner')}</div>
-                        <div style={{ fontSize: 10, color: T.muted }}>{t('history.partner')}</div>
+                        <div style={{ fontSize: 11.5, color: T.muted }}>{t('history.partner')}</div>
                       </div>
                     </div>
                   </div>
@@ -116,7 +118,7 @@ export function HistoryPanel() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       {/* Sub-tabs */}
-      <Segmented options={TABS} value={tab} onChange={setTab} pad={9} style={{ margin: '12px 16px 0', flexShrink: 0 }} />
+      {!view && <Segmented options={TABS} value={tab} onChange={setTab} pad={9} style={{ margin: '12px 16px 0', flexShrink: 0 }} />}
 
       {tab === 'dashboard' && (
         <div style={{ flex: 1, overflowY: 'auto' }}><Dashboard /></div>

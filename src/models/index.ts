@@ -10,9 +10,13 @@ export type { LatLng };
 
 export type PartyType = 'driver' | 'passenger';
 
-/** A scheduled walker (driver or passenger). */
+/** A scheduled walker (driver or passenger) — one published trip. */
 export interface Walker {
+  /** The TRIP id (route cache, list keys). */
   id: string;
+  /** The trip owner — the person to call, chat with, save or block
+      (`personIdOf`). Demo rows use their own id. */
+  userId?: string;
   type: PartyType;
   name: string;
   initials: string;
@@ -21,9 +25,12 @@ export interface Walker {
   fromLatlng: LatLng;
   toLatlng: LatLng;
   when: Date;
-  seats?: number;
+  /** A driver's free seats (informational; null = not given). */
+  seats?: number | null;
   rating: number | null;
   vehicle: string | null;
+  /** Completed trips (as owner or confirmed companion). */
+  trips?: number;
 }
 
 /** A contact the user has saved. */
@@ -81,10 +88,14 @@ export interface ActiveRoute {
 export interface PushNotif {
   title: string;
   body: string;
-  user?: { id?: string; type?: PartyType; name?: string; initials?: string; sub?: string; latlng?: LatLng };
+  user?: { id?: string; type?: PartyType; name?: string; initials?: string; sub?: string; latlng?: LatLng | null };
   chat?: boolean;
   action?: string;
   duration?: number;
+  /** What it is about — gates it against the notification settings. */
+  kind?: 'match' | 'chat' | 'call' | 'agree' | 'info';
+  /** 'high' still shows in quiet mode and over open panels (calls, agreements). */
+  priority?: 'high';
 }
 
 /** A geocoded place: a coordinate plus a human-readable label. */

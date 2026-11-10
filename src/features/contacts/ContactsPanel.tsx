@@ -1,15 +1,17 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { T } from '@/constants/theme';
 import { t } from '@/i18n';
 import { useContacts } from '@/hooks/useContacts';
-import { useUnread } from '@/hooks/useUnread';
-import { groupByPresence, removeContact } from '@/services/contactService';
+import { useSaved } from '@/hooks/useSaved';
+import { partyColor } from '@/constants/theme';
+import { useStoreEvent } from '@/hooks/useStoreEvent';
+import { BLOCK_EVENT, blockStore } from '@/services/blockStore';
+import { groupByPresence, removeContact, unavailablePeople } from '@/services/contactService';
+import { idOf } from '@/utils/ids';
 import { confirmAction } from '@/services/confirm';
 import { Spinner } from '@/components/ui/Spinner';
-import { Segmented } from '@/components/ui/Segmented';
 import { EmptyState, ErrorState } from '@/components/ui/StatusStates';
 import { ContactRow } from './ContactRow';
-import { ChatsPanel } from './ChatsPanel';
 import type { ChatPeer } from './ChatsPanel';
 import type { Contact } from '@/models';
 
@@ -18,12 +20,27 @@ interface ContactsPanelProps {
   onOpenChat: (peer: ChatPeer) => void;
 }
 
-/** Contacts (grouped by presence, searchable) and the chat inbox. */
+/** Favourites (★ saved companions) on top, then contacts grouped by presence
+    and searchable. The chat inbox has its own bottom-bar tab. */
 export function ContactsPanel({ onSelect, onOpenChat }: ContactsPanelProps) {
   const { contacts, loading, error, reload } = useContacts();
-  const unread = useUnread();
-  const unreadTotal = Object.values(unread).reduce((a, b) => a + b, 0);
-  const [tab, setTab] = useState(unreadTotal > 0 ? 'chats' : 'contacts');
+  const partners = useSaved().filter((p) => p.type === 'partner' && p.userId);
+  // Hidden, never deleted (they come back after an unblock): people I blocked,
+  // and — checked when the panel opens — people the server no longer shows me
+  // (they blocked me). Offline they stay listed.
+  const blocked = useStoreEvent(BLOCK_EVENT, blockStore.list);
+  const [unavailable, setUnavailable] = useState<Set<string>>(() => new Set());
+  const partnerIds = partners.map((p) => idOf(p.userId)).join(',');
+  const blockedIds = blocked.join(',');
+  useEffect(() => {
+    let alive = true;
+    if (!partnerIds) return undefined;
+    unavailablePeople(partnerIds.split(','))
+      .then((gone) => { if (alive) setUnavailable(gone); })
+      .catch(() => { /* keep them listed */ });
+    return () => { alive = false; };
+  }, [partnerIds, blockedIds]);
+  const favourites = partners.filter((p) => !blocked.includes(idOf(p.userId)) && !unavailable.has(idOf(p.userId)));
   const [query, setQuery] = useState('');
   const [removed, setRemoved] = useState<Set<string>>(() => new Set());
   const [removeError, setRemoveError] = useState(false);
@@ -95,12 +112,30 @@ export function ContactsPanel({ onSelect, onOpenChat }: ContactsPanelProps) {
 
   return (
     <div style={{ flex: 1, overflowY: 'auto', padding: '12px 16px 32px', display: 'flex', flexDirection: 'column' }}>
-      <Segmented value={tab} onChange={setTab} pad={9} style={{ marginBottom: 14, flexShrink: 0 }}
-        options={[
-          { id: 'contacts', label: t('contacts.tabContacts') },
-          { id: 'chats', label: unreadTotal > 0 ? `${t('contacts.tabChats')} · ${unreadTotal}` : t('contacts.tabChats') },
-        ]} />
-      {tab === 'contacts' ? renderContacts() : <ChatsPanel onOpenChat={onOpenChat} />}
+      {favourites.length > 0 && (
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 11.5, fontWeight: 600, color: T.muted, margin: '0 0 8px', textTransform: 'uppercase', letterSpacing: .8 }}>
+            ★ {t('contacts.favourites')} · {favourites.length}
+          </div>
+          <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 4 }}>
+            {favourites.map((p) => {
+              const color = partyColor(p.partyType);
+              return (
+                <button key={p.id} onClick={() => onOpenChat({ id: p.userId!, name: p.label, initials: p.initials || '?', type: p.partyType || 'passenger' })}
+                  aria-label={`${p.label} · ${t('saved.openChat')}`}
+                  style={{ flexShrink: 0, width: 84, minHeight: 92, padding: '10px 6px', borderRadius: 14, border: `1px solid ${T.border}`,
+                    background: T.surface2, cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
+                    fontFamily: 'DM Sans,sans-serif' }}>
+                  <span style={{ width: 42, height: 42, borderRadius: 13, background: `${color}22`, border: `1.5px solid ${color}55`,
+                    color, fontSize: 14, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{p.initials || '?'}</span>
+                  <span style={{ fontSize: 12, color: T.text, fontWeight: 600, width: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.label.split(' ')[0]}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+      {renderContacts()}
     </div>
   );
 }

@@ -17,16 +17,19 @@ export const DEFAULT_SETTINGS: UserSettings = {
   },
 };
 
+// Demo mode: what this session saved (null → the panel keeps the local theme/language).
+let mockSaved: Record<string, unknown> | null = null;
+
 export const settingsApi = {
   /** GET /settings — the caller's settings (defaults if never customised). */
   get() {
-    if (USE_MOCKS) return mockResponse(DEFAULT_SETTINGS);
+    if (USE_MOCKS) return mockResponse(mockSaved);
     return http('/settings');
   },
 
   /** PUT /settings — persist the caller's settings (created on first save). */
   update(settings: Record<string, unknown>) {
-    if (USE_MOCKS) return mockResponse({ ...DEFAULT_SETTINGS, ...settings });
+    if (USE_MOCKS) { mockSaved = { ...DEFAULT_SETTINGS, ...settings }; return mockResponse(mockSaved); }
     return send('PUT', '/settings', settings);
   },
 };

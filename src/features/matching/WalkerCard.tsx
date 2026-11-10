@@ -2,6 +2,7 @@ import { T, partyColor } from '@/constants/theme';
 import { t } from '@/i18n';
 import { fmt12, fmtDay } from '@/utils/datetime';
 import type { Walker } from '@/models';
+import { walkerFacts } from './format';
 
 interface WalkerCardProps {
   walker: Walker;
@@ -14,6 +15,7 @@ interface WalkerCardProps {
 export function WalkerCard({ walker: w, idx, dist, onSelect }: WalkerCardProps) {
   const isDriver = w.type === 'driver';
   const color = partyColor(w.type);
+  const meta = walkerFacts(w);
   return (
     <button onClick={onSelect} style={{ width: '100%', textAlign: 'left', background: T.surface2,
       borderRadius: 16, border: `1px solid ${T.border}`, cursor: 'pointer', padding: '12px 14px',
@@ -29,25 +31,29 @@ export function WalkerCard({ walker: w, idx, dist, onSelect }: WalkerCardProps) 
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: T.text, overflow: 'hidden',
+          {/* The name keeps its room; a long car line is what gets cut. */}
+          <span style={{ fontSize: 14, fontWeight: 600, color: T.text, overflow: 'hidden', flexShrink: 0, maxWidth: '58%',
             textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{w.name}</span>
-          <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 5, background: `${color}20`,
-            color, fontWeight: 600, flexShrink: 0 }}>{isDriver ? '🚗' : '🧑‍✈️'} {isDriver ? (w.vehicle || t('common.driver')) : t('walkerCard.passengerTag')}</span>
+          <span style={{ fontSize: 11.5, padding: '2px 6px', borderRadius: 5, background: `${color}20`,
+            color, fontWeight: 600, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{isDriver ? '🚗' : '🧑‍✈️'} {isDriver ? (w.vehicle || t('common.driver')) : t('walkerCard.passengerTag')}</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 1 }}>
           <div style={{ width: 6, height: 6, borderRadius: 3, background: T.teal, flexShrink: 0 }} />
-          <span style={{ fontSize: 11, color: T.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{w.from}</span>
+          <span style={{ fontSize: 12.5, color: T.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{w.from}</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
           <div style={{ width: 6, height: 6, borderRadius: 3, background: T.red, flexShrink: 0 }} />
-          <span style={{ fontSize: 11, color: T.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{w.to}</span>
+          <span style={{ fontSize: 12.5, color: T.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{w.to}</span>
         </div>
+        {meta && (
+          <div style={{ fontSize: 11.5, color: T.muted, marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{meta}</div>
+        )}
       </div>
       <div style={{ textAlign: 'right', flexShrink: 0 }}>
         <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{fmt12(w.when)}</div>
-        <div style={{ fontSize: 10, color: T.teal }}>{fmtDay(w.when)}</div>
-        <div style={{ fontSize: 10, color: T.muted }}>{dist != null && isFinite(dist) ? t('common.km', { n: dist.toFixed(1) }) : ''}</div>
-        {w.rating != null && <div style={{ fontSize: 10, color: T.amber }}>★ {w.rating}</div>}
+        <div style={{ fontSize: 11.5, color: T.teal }}>{fmtDay(w.when)}</div>
+        <div style={{ fontSize: 11.5, color: T.muted }}>{dist != null && isFinite(dist) ? t('common.km', { n: dist.toFixed(1) }) : ''}</div>
+        {w.rating != null && <div style={{ fontSize: 11.5, color: T.amber }}>★ {w.rating}</div>}
       </div>
       <svg width="8" height="14" viewBox="0 0 8 14" fill="none" style={{ flexShrink: 0, opacity: .5 }}>
         <path d="M1 1L7 7L1 13" stroke={T.muted} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />

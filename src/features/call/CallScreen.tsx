@@ -2,8 +2,6 @@ import { useState, useEffect } from 'react';
 import type { ReactNode } from 'react';
 import { T, partyColor } from '@/constants/theme';
 import { t } from '@/i18n';
-import { currentUserName } from '@/services/authService';
-import { initialsOf } from '@/utils/avatar';
 import type { RideOfferState } from '@/hooks/useCallSession';
 import type { PartyType } from '@/models';
 
@@ -29,20 +27,19 @@ interface CallScreenProps {
   onMuteToggle?: (muted: boolean) => void;
   live?: boolean;
   role?: 'caller' | 'callee';
+  /** Where the other person is heading and how far away they are, when known. */
+  context?: string | null;
 }
 
 const accentOf = (p: CallParty): string => p.accent || partyColor(p.type);
 
 /** Call screen (ringing/active) with a two-sided "ride together" offer.
-    Real calls (`live`): always shows the REMOTE party (`callee` prop — the
-    actual caller when role='callee') and the buttons drive the CallHub via the
-    parent's handlers. Demo mode keeps the dual-perspective flip view. */
-export function CallScreen({ callee, phase, onAccept, onDecline, onEnd, offer, onOffer, onRespondOffer, onMuteToggle, live = false, role = 'caller' }: CallScreenProps) {
-  const myName = currentUserName() || t('common.user');
-  const caller: CallParty = { name: myName, initials: initialsOf(myName), sub: '', accent: T.teal }; // demo-mode "you"
+    Always shows the REMOTE party (`callee` prop — the actual caller when
+    role='callee'), what they are travelling and how far away they are; the
+    buttons drive the CallHub (live) or the demo session via the parent. */
+export function CallScreen({ callee, phase, onAccept, onDecline, onEnd, offer, onOffer, onRespondOffer, onMuteToggle, role = 'caller', context }: CallScreenProps) {
   const [secs, setSecs] = useState(0);
   const [muted, setMuted] = useState(false);
-  const [view, setView] = useState(role === 'callee' ? 'callee' : 'caller'); // 'caller' | 'callee'
   const ringing = phase === 'ringing';
   const firstName = callee.name.split(' ')[0];
   const toggleMute = () => setMuted((m) => { onMuteToggle && onMuteToggle(!m); return !m; });
@@ -51,20 +48,11 @@ export function CallScreen({ callee, phase, onAccept, onDecline, onEnd, offer, o
     if (phase === 'active') { const i = setInterval(() => setSecs((c) => c + 1), 1000); return () => clearInterval(i); }
   }, [phase]);
 
-  useEffect(() => {
-    if (!ringing || live) return; // real calls stay on the owner's perspective
-    const i = setInterval(() => setView((v) => (v === 'caller' ? 'callee' : 'caller')), 2800);
-    return () => clearInterval(i);
-  }, [ringing, live]);
-
   const fmt = (s: number) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 
-  // Live calls have no perspective to flip: `onCaller` is fixed by our role and
-  // the person on screen is always the remote party. Demo mode alternates views.
-  const onCaller = live ? role === 'caller' : view === 'caller';
-  const shown = live ? callee : (onCaller ? callee : caller);
+  const onCaller = role === 'caller';
+  const shown = callee;
   const color = accentOf(shown);
-  const flip = () => setView((v) => (v === 'caller' ? 'callee' : 'caller'));
 
   const status = phase === 'active' ? fmt(secs) : onCaller ? t('call.calling') : t('call.incoming');
 
@@ -75,37 +63,15 @@ export function CallScreen({ callee, phase, onAccept, onDecline, onEnd, offer, o
         : `linear-gradient(160deg,${T.surface2} 0%,${T.bg} 50%,${T.stage} 100%)`,
       display: 'flex', flexDirection: 'column', alignItems: 'center', padding: 'calc(24px + env(safe-area-inset-top,0px)) 24px calc(60px + env(safe-area-inset-bottom,0px))' }}>
 
-      {live
-        ? <div style={{ fontSize: 10.5, color: T.muted, letterSpacing: .4, marginBottom: 30,
-            minHeight: 14 }}>
-            {ringing ? '' : t('call.connected')}
-          </div>
-        : <>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6,
-              background: T.hover, border: `1px solid ${T.border}`,
-              borderRadius: 999, padding: '6px 8px 6px 14px' }}>
-              <div style={{ width: 7, height: 7, borderRadius: 4, flexShrink: 0,
-                background: onCaller ? T.teal : color,
-                boxShadow: `0 0 8px ${onCaller ? T.teal : color}` }} />
-              <span style={{ fontSize: 12, fontWeight: 600, color: T.text, whiteSpace: 'nowrap' }}>
-                {onCaller ? t('call.yourScreen') : t('call.theirScreen', { name: callee.name.split(' ')[0] })}
-              </span>
-              <button onClick={flip} title={t('call.flipTip')} style={{
-                width: 26, height: 26, borderRadius: 8, flexShrink: 0,
-                border: `1px solid ${T.border}`, background: T.hover,
-                color: T.muted, cursor: 'pointer', fontSize: 13,
-                display: 'flex', alignItems: 'center', justifyContent: 'center' }}>⇄</button>
-            </div>
-            <div style={{ fontSize: 10.5, color: T.muted, letterSpacing: .4, marginBottom: 30 }}>
-              {ringing ? t('call.bothViews') : t('call.connected')}
-            </div>
-          </>}
+      <div style={{ fontSize: 12, color: T.muted, letterSpacing: .4, marginBottom: 30, minHeight: 16 }}>
+        {ringing ? '' : t('call.connected')}
+      </div>
 
       <div style={{ position: 'absolute', top: '22%', left: '50%', transform: 'translateX(-50%)',
         width: 280, height: 280, borderRadius: 140,
         background: `radial-gradient(circle,${color}12 0%,transparent 70%)`, pointerEvents: 'none' }} />
 
-      <div key={view + phase} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center',
+      <div key={phase} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center',
         width: '100%', animation: 'fadeUp .35s ease both', position: 'relative', zIndex: 1 }}>
         <div style={{ position: 'relative', marginBottom: 26 }}>
           {ringing && [1, 2, 3].map((i) => (
@@ -126,6 +92,11 @@ export function CallScreen({ callee, phase, onAccept, onDecline, onEnd, offer, o
           lineHeight: 1.25, maxWidth: 300, textWrap: 'balance' }}>{shown.name}</div>
         <div style={{ fontSize: 13, color: T.muted, textAlign: 'center', marginTop: 6,
           maxWidth: 300, lineHeight: 1.4 }}>{shown.sub}</div>
+        {context && (
+          <div style={{ marginTop: 10, padding: '7px 12px', borderRadius: 999, background: T.hover,
+            border: `1px solid ${T.border}`, fontSize: 12.5, color: T.text, maxWidth: 320, textAlign: 'center',
+            lineHeight: 1.35 }}>{context}</div>
+        )}
         {phase === 'active'
           ? <div style={{ fontSize: 18, color: T.teal, fontVariantNumeric: 'tabular-nums', marginTop: 14, fontWeight: 600 }}>{status}</div>
           : <div style={{ fontSize: 14, color, animation: 'pulse 1.2s ease infinite', marginTop: 14 }}>{status}</div>}

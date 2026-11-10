@@ -11,6 +11,7 @@ import 'leaflet-ant-path';
 import { T } from '@/constants/theme';
 import type { StyleTheme } from '@/constants/map';
 import { t } from '@/i18n';
+import { prefsStore } from '@/services/prefsStore';
 import type { LatLng } from '@/utils/geo';
 
 type LeafletIcon = any;
@@ -50,16 +51,34 @@ export function makeAntPath(latlngs: LatLng[], opts: AntPathOptions): LeafletIco
   return L.polyline(latlngs, { color: opts.color, weight: opts.weight, opacity: opts.opacity, dashArray: '10 14' });
 }
 
-export function makeWalkerIcon(color: string, initials: string): LeafletIcon {
+const carGlyph = (c: string) => `<svg width="21" height="21" viewBox="0 0 24 24" aria-hidden="true">
+  <path d="M6.2 10.5 7.6 6.9A2 2 0 0 1 9.5 5.6h5a2 2 0 0 1 1.9 1.3l1.4 3.6" fill="none" stroke="#fff" stroke-width="2" stroke-linejoin="round"/>
+  <rect x="3.5" y="10.2" width="17" height="6.3" rx="2.2" fill="#fff"/>
+  <rect x="5.6" y="12.2" width="2.6" height="1.6" rx=".8" fill="${c}"/><rect x="15.8" y="12.2" width="2.6" height="1.6" rx=".8" fill="${c}"/>
+  <circle cx="7.6" cy="16.8" r="2.1" fill="${c}" stroke="#fff" stroke-width="1.6"/><circle cx="16.4" cy="16.8" r="2.1" fill="${c}" stroke="#fff" stroke-width="1.6"/>
+</svg>`;
+const personGlyph = `<svg width="19" height="19" viewBox="0 0 24 24" aria-hidden="true">
+  <circle cx="12" cy="7.2" r="3.7" fill="#fff"/><path d="M4.8 20.6c0-4.1 3.2-7 7.2-7s7.2 2.9 7.2 7z" fill="#fff"/>
+</svg>`;
+
+/** A walker on the map. The look follows the user's "map markers" setting:
+    'initials' — a coloured disc with initials (the original look);
+    'icons'    — a car (driver, rounded square) or a person (passenger, disc). */
+export function makeWalkerIcon(color: string, initials: string, type?: string | null): LeafletIcon {
+  const icons = prefsStore.get().markerStyle === 'icons';
+  const isDriver = type === 'driver';
+  const size = icons ? 36 : 34;
+  const radius = icons && isDriver ? '12px' : '50%';
+  const face = icons ? (isDriver ? carGlyph(color) : personGlyph) : initials;
   return L.divIcon({
-    html: `<div style="position:relative;width:34px;height:34px">
+    html: `<div style="position:relative;width:${size}px;height:${size}px">
       <div style="position:absolute;inset:-16px;border-radius:50%;cursor:pointer"></div>
-      <div style="position:absolute;inset:-6px;border-radius:50%;background:${color}33;animation:pulse 1.8s ease infinite;pointer-events:none"></div>
-      <div style="width:34px;height:34px;border-radius:50%;background:${color};border:2.5px solid #fff;
+      <div style="position:absolute;inset:-6px;border-radius:${radius === '50%' ? '50%' : '16px'};background:${color}33;animation:pulse 1.8s ease infinite;pointer-events:none"></div>
+      <div style="width:${size}px;height:${size}px;border-radius:${radius};background:${color};border:2.5px solid #fff;
         box-shadow:0 2px 8px rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;
-        font:700 12px 'DM Sans',sans-serif;color:#fff;position:relative;z-index:1;pointer-events:none">${initials}</div>
+        font:700 12px 'DM Sans',sans-serif;color:#fff;position:relative;z-index:1;pointer-events:none">${face}</div>
     </div>`,
-    className: '', iconSize: [34, 34], iconAnchor: [17, 17],
+    className: '', iconSize: [size, size], iconAnchor: [size / 2, size / 2],
   });
 }
 

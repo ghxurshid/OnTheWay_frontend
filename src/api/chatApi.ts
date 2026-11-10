@@ -49,10 +49,33 @@ export interface MessageReceipt {
 
 export interface MessagePage { items: ChatMessageDto[]; hasNextPage: boolean }
 
+// Demo mode: messages the simulation "received", so the inbox lists the same
+// conversations the unread badges count.
+const MOCK_INBOX = new Map<string, ConversationRow>();
+
+/** Demo only: record an incoming message in the mock inbox. */
+export function recordMockIncoming(from: { id: string; name: string; type?: string }, content: string): void {
+  const id = String(from.id);
+  const prev = MOCK_INBOX.get(id);
+  MOCK_INBOX.delete(id);
+  MOCK_INBOX.set(id, {
+    id: 'conv_' + id, otherParticipantId: id, otherParticipantName: from.name,
+    otherParticipantKind: from.type === 'driver' ? 'Driver' : 'Passenger',
+    lastMessage: content, lastMessageSenderId: id, lastMessageAtUtc: new Date().toISOString(),
+    lastMessageId: 'm_' + Date.now(), unreadCount: (prev?.unreadCount || 0) + 1,
+  });
+}
+
+/** Demo only: the thread with `userId` was opened — its messages are read. */
+export function markMockRead(userId: string): void {
+  const row = MOCK_INBOX.get(String(userId));
+  if (row) row.unreadCount = 0;
+}
+
 export const chatApi = {
   /** GET /chat/conversations — the caller's inbox, most recent first. */
   conversations(pageNumber = 1, pageSize = 30): Promise<ConversationRow[]> {
-    if (USE_MOCKS) return mockResponse([]);
+    if (USE_MOCKS) return mockResponse([...MOCK_INBOX.values()].reverse());
     return http(`/chat/conversations?pageNumber=${pageNumber}&pageSize=${pageSize}`)
       .then((p) => p?.items || []);
   },

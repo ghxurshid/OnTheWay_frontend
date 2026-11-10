@@ -1,0 +1,137 @@
+/* ════════════════════════════════════════════════════════════════
+   LEAFLET ICON FACTORIES + ant-path helper
+   All SVG/divIcon builders that the map layer uses. Imports Leaflet as a
+   module (npm) and pulls in leaflet-ant-path for its side-effect of
+   registering L.polyline.antPath. Leaflet is untyped, so its return values
+   flow as `any`; the factory params carry real (string/theme) types.
+   ════════════════════════════════════════════════════════════════ */
+
+import L from 'leaflet';
+import 'leaflet-ant-path';
+import { T } from '@/constants/theme';
+import type { StyleTheme } from '@/constants/map';
+import { t } from '@/i18n';
+import { prefsStore } from '@/services/prefsStore';
+import type { LatLng } from '@/utils/geo';
+
+type LeafletIcon = any;
+type AntPathOptions = Record<string, any>;
+
+export function makeMarkerIcon(color: string, label: string): LeafletIcon {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="40" viewBox="0 0 32 40">
+    <path d="M16 0C7.163 0 0 7.163 0 16c0 10 16 24 16 24s16-14 16-24C32 7.163 24.837 0 16 0z"
+      fill="${color}" stroke="rgba(0,0,0,0.3)" stroke-width="1"/>
+    <circle cx="16" cy="16" r="7" fill="white" fill-opacity="0.9"/>
+    <text x="16" y="20" text-anchor="middle" font-size="9" font-weight="700"
+      font-family="DM Sans,sans-serif" fill="${color}">${label}</text>
+  </svg>`;
+  return L.divIcon({ html: svg, className: '', iconSize: [32, 40], iconAnchor: [16, 40], popupAnchor: [0, -40] });
+}
+
+export function makeUserDot(): LeafletIcon {
+  return L.divIcon({ html: '<div class="user-dot"></div>', className: '', iconSize: [16, 16], iconAnchor: [8, 8] });
+}
+
+export function makeMatchedIcon(color: string, initials: string): LeafletIcon {
+  return L.divIcon({
+    html: `<div class="matched-marker" style="background:${color}22;border-color:${color};color:${color}">${initials}</div>`,
+    className: '', iconSize: [40, 40], iconAnchor: [20, 20],
+  });
+}
+
+// Ant-path (crawling dashes) — falls back to a plain dashed polyline when
+// the plugin isn't available.
+export function makeAntPath(latlngs: LatLng[], opts: AntPathOptions): LeafletIcon {
+  if (L.polyline && typeof L.polyline.antPath === 'function') {
+    return L.polyline.antPath(latlngs, opts);
+  }
+  if (L.Polyline && L.Polyline.AntPath) {
+    return new L.Polyline.AntPath(latlngs, opts);
+  }
+  return L.polyline(latlngs, { color: opts.color, weight: opts.weight, opacity: opts.opacity, dashArray: '10 14' });
+}
+
+const carGlyph = (c: string) => `<svg width="21" height="21" viewBox="0 0 24 24" aria-hidden="true">
+  <path d="M6.2 10.5 7.6 6.9A2 2 0 0 1 9.5 5.6h5a2 2 0 0 1 1.9 1.3l1.4 3.6" fill="none" stroke="#fff" stroke-width="2" stroke-linejoin="round"/>
+  <rect x="3.5" y="10.2" width="17" height="6.3" rx="2.2" fill="#fff"/>
+  <rect x="5.6" y="12.2" width="2.6" height="1.6" rx=".8" fill="${c}"/><rect x="15.8" y="12.2" width="2.6" height="1.6" rx=".8" fill="${c}"/>
+  <circle cx="7.6" cy="16.8" r="2.1" fill="${c}" stroke="#fff" stroke-width="1.6"/><circle cx="16.4" cy="16.8" r="2.1" fill="${c}" stroke="#fff" stroke-width="1.6"/>
+</svg>`;
+const personGlyph = `<svg width="19" height="19" viewBox="0 0 24 24" aria-hidden="true">
+  <circle cx="12" cy="7.2" r="3.7" fill="#fff"/><path d="M4.8 20.6c0-4.1 3.2-7 7.2-7s7.2 2.9 7.2 7z" fill="#fff"/>
+</svg>`;
+
+/** A walker on the map. The look follows the user's "map markers" setting:
+    'initials' — a coloured disc with initials (the original look);
+    'icons'    — a car (driver, rounded square) or a person (passenger, disc). */
+export function makeWalkerIcon(color: string, initials: string, type?: string | null): LeafletIcon {
+  const icons = prefsStore.get().markerStyle === 'icons';
+  const isDriver = type === 'driver';
+  const size = icons ? 36 : 34;
+  const radius = icons && isDriver ? '12px' : '50%';
+  const face = icons ? (isDriver ? carGlyph(color) : personGlyph) : initials;
+  return L.divIcon({
+    html: `<div style="position:relative;width:${size}px;height:${size}px">
+      <div style="position:absolute;inset:-16px;border-radius:50%;cursor:pointer"></div>
+      <div style="position:absolute;inset:-6px;border-radius:${radius === '50%' ? '50%' : '16px'};background:${color}33;animation:pulse 1.8s ease infinite;pointer-events:none"></div>
+      <div style="width:${size}px;height:${size}px;border-radius:${radius};background:${color};border:2.5px solid #fff;
+        box-shadow:0 2px 8px rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;
+        font:700 12px 'DM Sans',sans-serif;color:#fff;position:relative;z-index:1;pointer-events:none">${face}</div>
+    </div>`,
+    className: '', iconSize: [size, size], iconAnchor: [size / 2, size / 2],
+  });
+}
+
+export function makeStartIcon(color: string, theme: StyleTheme): LeafletIcon {
+  return L.divIcon({
+    html: `<div style="width:13px;height:13px;border-radius:50%;background:${color};
+      border:3px solid ${theme.markerStroke};box-shadow:0 0 0 2px ${color}"></div>`,
+    className: '', iconSize: [13, 13], iconAnchor: [6.5, 6.5],
+  });
+}
+
+export function makeDestIcon(color: string, theme: StyleTheme): LeafletIcon {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="26" height="32" viewBox="0 0 26 32">
+    <path d="M13 0C5.82 0 0 5.82 0 13c0 8.5 13 19 13 19s13-10.5 13-19C26 5.82 20.18 0 13 0z"
+      fill="${color}" stroke="${theme.markerStroke}" stroke-width="1.5"/>
+    <circle cx="13" cy="13" r="4.6" fill="#fff" fill-opacity="0.95"/>
+  </svg>`;
+  return L.divIcon({ html: svg, className: '', iconSize: [26, 32], iconAnchor: [13, 32] });
+}
+
+// Current user ("you") — distinct rippling marker with a heading arrow.
+// The arrow carries NO CSS transition: its angle is (heading − map bearing) and
+// is rewritten per frame by the heading sync (utils/mapRenderSync), so an
+// easing curve here would only add lag to a two-finger rotate. Smoothing of the
+// noisy GPS heading happens in JS instead; `will-change` keeps the arrow on its
+// own compositor layer so each rotation is a GPU transform, not a repaint.
+export function makeMeIcon(): LeafletIcon {
+  return L.divIcon({
+    html: `<div style="position:relative;width:44px;height:44px">
+      <div style="position:absolute;left:50%;top:50%;width:30px;height:30px;margin:-15px 0 0 -15px;
+        transform-origin:center;border-radius:50%;border:2px solid ${T.teal};
+        animation:ripple 2.2s ease-out infinite"></div>
+      <div style="position:absolute;left:50%;top:50%;width:30px;height:30px;margin:-15px 0 0 -15px;
+        transform-origin:center;border-radius:50%;border:2px solid ${T.teal};
+        animation:ripple 2.2s ease-out infinite 1.1s"></div>
+      <div style="position:absolute;left:50%;top:50%;width:30px;height:30px;transform:translate(-50%,-50%);
+        border-radius:50%;background:linear-gradient(135deg,#2fe6dd,#0e9e97);
+        border:3.5px solid #fff;
+        box-shadow:0 0 0 2px ${T.teal},0 0 22px ${T.teal},0 4px 14px rgba(0,0,0,.65);
+        display:flex;align-items:center;justify-content:center">
+        <div class="me-arrow" style="display:flex;align-items:center;justify-content:center;transform-origin:center;will-change:transform;backface-visibility:hidden">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
+            <path d="M12 2 L20 21 L12 16 L4 21 Z" fill="#fff"/>
+          </svg>
+        </div>
+      </div>
+      <div style="position:absolute;left:50%;top:-22px;transform:translateX(-50%);
+        background:linear-gradient(135deg,#2fe6dd,#0e9e97);color:#04201e;
+        font:800 9.5px 'DM Sans',sans-serif;letter-spacing:.6px;
+        padding:3px 9px;border-radius:10px;white-space:nowrap;
+        border:1.5px solid rgba(255,255,255,.85);
+        box-shadow:0 3px 10px rgba(0,0,0,.5),0 0 14px ${T.teal}aa">${t('mapui.you')}</div>
+    </div>`,
+    className: '', iconSize: [44, 44], iconAnchor: [22, 22],
+  });
+}

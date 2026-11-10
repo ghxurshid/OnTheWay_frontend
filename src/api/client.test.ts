@@ -33,6 +33,13 @@ describe('http() envelope handling', () => {
     await expect(http('/thing', { auth: false })).resolves.toBeNull();
   });
 
+  it('keeps a coded 403 (errors[0] is the code, e.g. "user_blocked")', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => res(403, { success: false, message: 'Blocked.', errors: ['user_blocked'], data: null })));
+    await expect(http('/chat/with/9/messages', { auth: false })).rejects.toMatchObject({
+      name: 'ApiError', status: 403, errors: ['user_blocked'],
+    });
+  });
+
   it('throws ApiError with the envelope message/errors on failure', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => res(400, { success: false, message: 'Bad input', errors: ['x'] })));
     await expect(http('/thing', { auth: false })).rejects.toMatchObject({

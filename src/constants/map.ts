@@ -11,12 +11,29 @@ export interface MapStyle {
   id: string;
   url: string;
   subdomains: string;
+  /** CSS class on the tile pane (filters that restyle the base tiles). */
+  className?: string;
+  /** MapLibre style URL. When set (and WebGL works) the basemap is drawn as
+   *  vectors so street names stay readable at any map rotation; `url` is the
+   *  raster fallback. */
+  vector?: string;
 }
 
+// OpenFreeMap: keyless, no rate limit, OpenMapTiles styles whose line labels
+// use text-keep-upright (flip past 90° so they never read upside down).
+const OFM = 'https://tiles.openfreemap.org/styles/';
+
+// The theme basemaps (dark / light) are OpenStreetMap tiles restyled with a
+// CSS filter (styles/global.css). CARTO's keyless basemaps answer some hosts
+// (Telegram WebViews, sandboxed previews) with an "API KEY REQUIRED" tile that
+// covers the whole map, so the app does not depend on them.
+// openstreetmap.org also 403s embedded/sandboxed origins, so use Esri's keyless street tiles.
+const OSM = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}';
+
 export const MAP_STYLES: MapStyle[] = [
-  { id: 'dark', url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', subdomains: 'abcd' },
-  { id: 'streets', url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', subdomains: 'abc' },
-  { id: 'light', url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', subdomains: 'abcd' },
+  { id: 'dark', url: OSM, subdomains: '', className: 'otw-tiles-dark', vector: OFM + 'dark' },
+  { id: 'streets', url: OSM, subdomains: '', vector: OFM + 'liberty' },
+  { id: 'light', url: OSM, subdomains: '', className: 'otw-tiles-light', vector: OFM + 'positron' },
   { id: 'satellite', url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', subdomains: '' },
 ];
 

@@ -2,10 +2,16 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import 'leaflet/dist/leaflet.css';
 import './styles/global.css';
-import { Root } from './app/Root';
+import { resetIfAccountChanged } from './services/accountGuard';
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <Root />
-  </StrictMode>,
-);
+// Before any store reads localStorage: another Telegram account on this device
+// must not inherit the previous one's session or queued writes.
+resetIfAccountChanged();
+
+import('./app/Root').then(({ Root }) => {
+  createRoot(document.getElementById('root')!).render(
+    <StrictMode>
+      <Root />
+    </StrictMode>,
+  );
+});

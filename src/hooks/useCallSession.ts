@@ -7,9 +7,12 @@
    the hub; simulated walkers get a demo approach on the map.
 
    "Ride together" is a real two-sided agreement: one side offers over the
-   CallHub, the other accepts or declines. On acceptance both sides add each
-   other as contacts and record the partner as a companion of the journey
-   (sent when the trip is completed).
+   CallHub, the other accepts or declines. On acceptance the server records
+   the agreement for the pair and shows it to both on every device
+   (agreementService); both sides add each other as contacts and record the
+   partner as a companion of the journey (sent when the trip is completed).
+   The other person's later actions on the agreement — cancelled, at the
+   pick-up, ended — surface here as toasts.
 
    Shared app pieces are injected: notify (push toast), the map controller
    (demo approach), userLocRef, and the roster refs used to resolve an
@@ -18,6 +21,8 @@
 
 import { useState, useEffect, useRef } from 'react';
 import type { MutableRefObject } from 'react';
+import { agreementService } from '@/services/agreementService';
+import { haptic } from '@/services/telegram';
 import { t } from '@/i18n';
 import { USE_MOCKS } from '@/api/client';
 import { TASHKENT } from '@/constants/map';
@@ -59,9 +64,27 @@ export function useCallSession({ authReady, notify, mapHook, userLocRef, liveWal
 
   const setOffer = (offer: RideOfferState) => setCallState((c) => (c ? { ...c, offer } : c));
 
-  // Both sides confirmed: remember the partner for this journey.
+  // Both sides confirmed. A real call counts only once the server holds the
+  // agreement: an "accepted" answer without one (an offer that was never made,
+  // expired, or a block in between) must not record a companion or a contact.
   const agree = (u: CallUser, live: boolean) => {
+    if (!live) { confirmAgreed(u, false); return; }
+    setOffer('sent'); // "waiting" until the server confirms (normally a moment)
+    agreementService.whenAgreedWith(String(u.id)).then((agreed) => {
+      if (agreed) { confirmAgreed(u, true); return; }
+      setOffer('none');
+      notify({ title: t('call.failedTitle'), body: t('errors.generic'), kind: 'agree', priority: 'high' });
+    });
+  };
+
+  // The agreement stands: remember the partner for this journey.
+  const confirmAgreed = (u: CallUser, live: boolean) => {
     setOffer('agreed');
+    // The map, chat and trip summary follow the agreement from here on (a real
+    // call's agreement is replaced by the server's copy as soon as it arrives).
+    agreementService.agreedInCall({ id: String(u.id), name: u.name, initials: u.initials, type: u.type,
+      vehicle: u.type === 'driver' ? u.sub || null : null });
+    haptic('success');
     const pid = 'partner-' + u.id;
     if (!savedStore.has(pid)) {
       savedStore.toggle({ id: pid, type: 'partner', initials: u.initials, label: u.name, sub: u.sub, userId: String(u.id), partyType: u.type });
@@ -70,8 +93,25 @@ export function useCallSession({ authReady, notify, mapHook, userLocRef, liveWal
       recordCompanion(String(u.id));
       addContact(String(u.id)).catch(() => { /* the agreement stands even if the contact save fails */ });
     }
-    notify({ title: t('push.rideAgreedTitle'), body: t('push.rideAgreedBody', { name: firstName(u) }) });
+    notify({ title: t('push.rideAgreedTitle'), body: t('push.rideAgreedBody', { name: firstName(u) }), kind: 'agree', priority: 'high' });
   };
+
+  // What the other person does to an agreement (any device, also after a
+  // reconnect): a toast, so it is noticed even away from the map card.
+  useEffect(() => agreementService.onPeerEvent((e) => {
+    const peer = e.agreement.peer;
+    const first = (peer.name || '').split(' ')[0] || t('common.user');
+    // (Who is no companion any more is agreementService's business.)
+    if (e.kind === 'arrived') {
+      haptic('success');
+      notify({ title: t('agree.peerArrived', { name: first }), body: peer.vehicle || peer.name, kind: 'agree', priority: 'high' });
+    } else if (e.kind === 'cancelled') {
+      haptic('warning');
+      notify({ title: t('agree.peerCancelled', { name: first }), body: peer.name, kind: 'agree', priority: 'high' });
+    } else {
+      notify({ title: t('agree.ended'), body: peer.name, kind: 'agree', priority: 'high' });
+    }
+  }), [notify]);
 
   // Ring (sound + vibration) while an incoming call waits for an answer.
   const incomingRinging = !!callState && callState.role === 'callee' && callState.phase === 'ringing';
@@ -113,7 +153,9 @@ export function useCallSession({ authReady, notify, mapHook, userLocRef, liveWal
     const offOffer = callClient.on('rideOffer', () => setOffer('received'));
     const offAnswer = callClient.on('rideOfferAnswered', ({ accepted }) => {
       const cs = callStateRef.current;
-      if (!cs) return;
+      // Only an offer this side actually sent gets an answer (a forged or stale
+      // "accept" is relayed as not accepted — never show "declined" for it).
+      if (!cs || cs.offer !== 'sent') return;
       if (accepted) agree(cs.user, true);
       else setOffer('declined');
     });
@@ -128,6 +170,8 @@ export function useCallSession({ authReady, notify, mapHook, userLocRef, liveWal
     user,
     chat: true,
     action: t('common.chat'),
+    // The answer to the user's own tap: shown even while the chat it came from closes.
+    priority: 'high',
   });
 
   const handleCall = async (user: CallUser) => {

@@ -8,6 +8,12 @@
    sends it. After each (re)connect that whole state is replayed, so what the
    server holds for this device — role, sharing, "band", route — never drifts
    from what the app shows, whatever happened to the socket in between.
+
+   The "ride together" agreement and the "tell me when someone appears" alert
+   are server session state on this hub too: changes are pushed, and services
+   that keep state of their own (agreementService, walkerAlertService)
+   register an `onResync` step that runs after the replay — send what was
+   queued offline, then catch up.
    ════════════════════════════════════════════════════════════════ */
 
 import type { HubConnection } from '@microsoft/signalr';
@@ -20,7 +26,13 @@ const EVENTS = [
   'Walkers', 'WalkerJoined', 'WalkerMoved', 'WalkerGone',
   'RoutePublished', 'RouteCleared',
   'TripEvent',
+  'AgreementUpdated', 'AgreementEnded',
+  'WalkerAlertChanged', 'WalkerAlertFired',
 ] as const;
+
+/** A step that brings some server-held state in line after a (re)connect. */
+export type ResyncStep = (conn: HubConnection) => Promise<void>;
+const resyncSteps: ResyncStep[] = [];
 
 type Payload = any;
 
@@ -53,6 +65,13 @@ async function resync(conn: HubConnection): Promise<void> {
     } catch (e) {
       if (conn.state !== 'Connected') throw e; // lost again: the next connect replays it all
       // The server refused this one step (e.g. a stale route); replay the rest.
+    }
+  }
+  for (const step of resyncSteps) {
+    try {
+      await step(conn);
+    } catch (e) {
+      if (conn.state !== 'Connected') throw e;
     }
   }
 }
@@ -138,4 +157,16 @@ export const presenceClient = {
   syncWalkerState: (delta: unknown) => invoke<unknown>('SyncWalkerState', null, delta),
   getWalkerState: () =>
     invoke<{ state?: Record<string, unknown>; activeTrip?: unknown } | null>('GetWalkerState', null),
+
+  // --- extension point for services with server-held state of their own ---
+
+  /** Run `step` after every (re)connect, once the presence state is replayed
+      (and before the status turns 'connected'). Returns an unregister fn. */
+  onResync(step: ResyncStep): () => void {
+    resyncSteps.push(step);
+    return () => { const i = resyncSteps.indexOf(step); if (i >= 0) resyncSteps.splice(i, 1); };
+  },
+  /** The connection while Connected, else null (for callers that must know a
+      command really went out — e.g. an outbox). */
+  connection: (): HubConnection | null => hub.connected(),
 };

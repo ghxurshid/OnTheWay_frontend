@@ -5,6 +5,7 @@
 
 import { t } from '@/i18n';
 import { initialsOf } from '@/utils/avatar';
+import { personIdOf } from '@/utils/ids';
 import type { LatLng } from '@/utils/geo';
 
 type PartyType = 'driver' | 'passenger';
@@ -22,8 +23,12 @@ export interface CallUser {
 }
 
 interface WalkerLike {
-  id: string; type: PartyType; initials: string; name: string;
-  vehicle?: string | null; seats?: number; rating?: number | null; fromLatlng?: LatLng; photoUrl?: string | null;
+  /** A planned-board walker: the trip id (the person is `userId`). */
+  id: string;
+  /** The trip owner, on planned-board walkers. */
+  userId?: string;
+  type: PartyType; initials: string; name: string;
+  vehicle?: string | null; seats?: number | null; rating?: number | null; fromLatlng?: LatLng; photoUrl?: string | null;
 }
 interface ContactLike {
   id: string; type: PartyType; initials: string; name: string;
@@ -34,9 +39,10 @@ interface CallInvite {
   caller?: { name?: string; kind?: string; username?: string; vehicle?: string; rating?: number; photoUrl?: string | null } | null;
 }
 
-/** A scheduled/simulated walker → call-user card. */
+/** A scheduled/simulated walker → call-user card. The card is the PERSON: a
+    planned-board walker's trip owner (`userId`), never its trip id. */
 export const walkerToCallUser = (w: WalkerLike): CallUser => ({
-  id: w.id, type: w.type, initials: w.initials, name: w.name,
+  id: personIdOf(w), type: w.type, initials: w.initials, name: w.name,
   sub: w.type === 'driver' ? (w.vehicle || t('common.driver')) : t('common.passenger'),
   rating: w.rating ?? undefined, latlng: w.fromLatlng,
 });

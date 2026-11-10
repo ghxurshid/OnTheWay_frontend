@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { T, TEAL_GRADIENT, RECEIPT_READ, partyColor } from '@/constants/theme';
 import { t } from '@/i18n';
-import { CHAT_QUICK_KEYS, randomChatReplyKey } from '@/constants/app';
+import { randomChatReplyKey } from '@/constants/app';
+import { prefsStore, vehicleLine } from '@/services/prefsStore';
+import { useAgreement } from '@/hooks/useAgreement';
 import { authStore } from '@/services/authStore';
 import { chatClient } from '@/services/realtime/chatClient';
 import { presenceClient } from '@/services/realtime/presenceClient';
@@ -15,6 +17,7 @@ import { useBackHandler } from '@/hooks/useBackHandler';
 import { ErrorState } from '@/components/ui/StatusStates';
 import { MessageTicks } from '@/components/ui/MessageTicks';
 import { fmt12 } from '@/utils/datetime';
+import { errorMessage } from '@/utils/errors';
 import { idOf, isRealUserId } from '@/utils/ids';
 import { chatOutbox } from '@/services/chatOutbox';
 import type { OutboxItem } from '@/services/chatOutbox';
@@ -34,7 +37,22 @@ interface ChatScreenProps {
   onBack: () => void;
   /** Start a voice call with this user (hidden when absent). */
   onCall?: (user: ChatUser) => void;
+  /** What the other person is travelling (route · distance · ETA), when known. */
+  context?: string | null;
+  /** Centre the map on them (closes the chat). */
+  onShowOnMap?: () => void;
+  /** Offer to ride together. */
+  onRide?: () => void;
+  /** My role — tailors the quick replies. */
+  myRole?: 'driver' | 'passenger';
+  /** Where I am now (short label) for "I'm here". */
+  myPlace?: string | null;
 }
+
+// Quick replies by my role: a passenger asks where / when / which car; a
+// driver says when they'll arrive and what to look for.
+const QUICK_PASSENGER = ['chat.quick5', 'chat.quick3', 'chat.quick2', 'chat.quick8', 'chat.quick4'];
+const QUICK_DRIVER = ['chat.reply1', 'chat.quick6', 'chat.quick7', 'chat.quick5', 'chat.quick4'];
 
 const MAX_LENGTH = 4000;
 const PAGE_SIZE = 30;
@@ -60,7 +78,9 @@ const inFlight = (m: Msg) => m.status === 'pending' || m.status === 'failed';
     REST fallback when the socket is down, and messenger-style receipts — each
     of my messages shows 🕓 / ✓ / ✓✓ delivered / ✓✓ read. Simulated walkers get
     a local auto-responder. */
-export function ChatScreen({ user, onBack, onCall }: ChatScreenProps) {
+export function ChatScreen({ user, onBack, onCall, context, onShowOnMap, onRide, myRole = 'passenger', myPlace }: ChatScreenProps) {
+  const agreement = useAgreement();
+  const agreedWith = !!agreement && String(agreement.peer.id) === String(user.id);
   const isDriver = user.type === 'driver';
   const color = partyColor(user.type);
   const live = isRealUserId(user.id);
@@ -81,10 +101,13 @@ export function ChatScreen({ user, onBack, onCall }: ChatScreenProps) {
   const [hasOlder, setHasOlder] = useState(false);
   const [loading, setLoading] = useState(live);
   const [historyError, setHistoryError] = useState<unknown>(null);
+  // Why the server refused my last message (the bubble itself says "failed").
+  const [sendError, setSendError] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [typing, setTyping] = useState(false);
   const [online, setOnline] = useState(() => !live || presenceClient.isOnline(uid));
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const stickToBottom = useRef(true);
   const seqRef = useRef(0);
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -96,6 +119,14 @@ export function ChatScreen({ user, onBack, onCall }: ChatScreenProps) {
     const el = scrollRef.current;
     if (el && stickToBottom.current) el.scrollTop = el.scrollHeight;
   }, [msgs, typing]);
+
+  // The input grows with its text (up to its max height), then scrolls.
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+  }, [input]);
 
   // Merge server messages into the list: dedupe by id (keeping the further
   // receipt state — a resync carries what the socket missed) and settle the
@@ -192,8 +223,10 @@ export function ChatScreen({ user, onBack, onCall }: ChatScreenProps) {
       if (saved) merge([toMsg(saved, myId)]);
       else setStatus(item.clientId, 'sent');
     });
-    const offFailed = chatOutbox.on('failed', (item: OutboxItem) => {
-      if (item.toUserId === uid) setStatus(item.clientId, 'failed');
+    const offFailed = chatOutbox.on('failed', (item: OutboxItem, err: unknown) => {
+      if (item.toUserId !== uid) return;
+      setStatus(item.clientId, 'failed');
+      setSendError(errorMessage(err, 'errors.sendFailed')); // e.g. a block between the two
     });
     const offForeground = onAppForeground(() => markSeen());
     const offOnline = presenceClient.on('UserOnline', (id) => { if (idOf(id) === uid) setOnline(true); });
@@ -219,14 +252,23 @@ export function ChatScreen({ user, onBack, onCall }: ChatScreenProps) {
   }
 
   const resend = (clientId: string) => {
+    setSendError(null);
     setStatus(clientId, 'pending');
     chatOutbox.retry(clientId);
   };
+
+  const car = vehicleLine(prefsStore.get().vehicle);
+  const quickReplies = [
+    ...(myPlace ? [t('chatx.hereAt', { place: myPlace })] : []),
+    ...(myRole === 'driver' && car ? [t('chatx.myCar', { car })] : []),
+    ...(myRole === 'driver' ? QUICK_DRIVER : QUICK_PASSENGER).map((k) => t(k)),
+  ];
 
   const send = (text: string) => {
     const txt = (text || '').trim().slice(0, MAX_LENGTH);
     if (!txt) return;
     setInput('');
+    setSendError(null);
     stickToBottom.current = true;
     if (live) {
       const item = chatOutbox.send(uid, txt); // settles through the 'settled' / 'failed' events
@@ -262,7 +304,7 @@ export function ChatScreen({ user, onBack, onCall }: ChatScreenProps) {
       <div style={{ padding: '14px 12px 10px', display: 'flex', alignItems: 'center', gap: 10,
         background: T.glassSolid, backdropFilter: 'blur(20px)',
         borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
-        <button onClick={onBack} aria-label={t('common.back')} style={{ width: 36, height: 36, borderRadius: 10,
+        <button onClick={onBack} aria-label={t('common.back')} style={{ width: 44, height: 44, borderRadius: 12, flexShrink: 0,
           background: 'transparent', border: `1px solid ${T.border}`,
           display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
@@ -279,15 +321,15 @@ export function ChatScreen({ user, onBack, onCall }: ChatScreenProps) {
             background: online ? T.green : T.muted, border: `2px solid ${T.bg}` }} />
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 14, fontWeight: 600, color: T.text,
+          <div style={{ fontSize: 15, fontWeight: 600, color: T.text,
             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user.name}</div>
-          <div style={{ fontSize: 11, color: online ? T.green : T.muted, display: 'flex', alignItems: 'center', gap: 5 }}>
+          <div style={{ fontSize: 12, color: online ? T.green : T.muted, display: 'flex', alignItems: 'center', gap: 5 }}>
             <span style={{ width: 6, height: 6, borderRadius: 3, background: online ? T.green : T.muted }} />
             {online ? t('chat.online') : t('chat.offline')} · {isDriver ? t('common.driver') : t('common.passenger')}
           </div>
         </div>
         {onCall && (
-          <button onClick={() => onCall(user)} aria-label={t('chat.callTip')} title={t('chat.callTip')} style={{ width: 36, height: 36, borderRadius: 10,
+          <button onClick={() => onCall(user)} aria-label={t('chat.callTip')} title={t('chat.callTip')} style={{ width: 44, height: 44, borderRadius: 12, flexShrink: 0,
             background: T.tealDim, border: `1px solid ${T.teal}40`,
             display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
             <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
@@ -298,13 +340,34 @@ export function ChatScreen({ user, onBack, onCall }: ChatScreenProps) {
         )}
       </div>
 
+      {/* Trip context: where they are heading, how far, and the next step */}
+      {(context || onRide || onShowOnMap) && (
+        <div style={{ padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+          background: T.surface, borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
+          {context && <div style={{ flex: '1 1 180px', minWidth: 0, fontSize: 13, color: T.text, lineHeight: 1.4 }}>📍 {context}</div>}
+          <div style={{ display: 'flex', gap: 6, marginLeft: 'auto' }}>
+            {onShowOnMap && (
+              <button onClick={onShowOnMap} style={{ minHeight: 40, padding: '0 12px', borderRadius: 11, border: `1px solid ${T.border}`,
+                background: T.surface2, color: T.text, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans,sans-serif' }}>{t('chatx.onMap')}</button>
+            )}
+            {onRide && (
+              <button onClick={onRide} disabled={agreedWith} style={{ minHeight: 40, padding: '0 12px', borderRadius: 11, border: 'none',
+                background: agreedWith ? T.surface2 : T.green, color: agreedWith ? T.green : '#fff', fontSize: 13, fontWeight: 700,
+                cursor: agreedWith ? 'default' : 'pointer', fontFamily: 'DM Sans,sans-serif' }}>
+                🤝 {agreedWith ? (agreement?.status === 'pending' ? t('call.offerPending') : t('agree.agreedTitle')) : t('popup.rideTogether')}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Messages */}
       <div ref={scrollRef} aria-live="polite" onScroll={(e) => {
         const el = e.currentTarget;
         stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
       }} style={{ flex: 1, overflowY: 'auto', padding: '14px 14px 6px', display: 'flex', flexDirection: 'column', gap: 6 }}>
         {hasOlder && !loading && (
-          <button onClick={() => loadPage(page + 1)} style={{ alignSelf: 'center', padding: '6px 14px', borderRadius: 14,
+          <button onClick={() => loadPage(page + 1)} style={{ alignSelf: 'center', minHeight: 36, padding: '0 16px', borderRadius: 18,
             border: `1px solid ${T.border}`, background: T.surface2, color: T.muted, fontSize: 12, cursor: 'pointer',
             fontFamily: 'DM Sans,sans-serif', marginBottom: 6 }}>{t('chat.loadOlder')}</button>
         )}
@@ -330,15 +393,15 @@ export function ChatScreen({ user, onBack, onCall }: ChatScreenProps) {
                 border: me && !failed ? 'none' : `1px solid ${failed ? T.red + '66' : T.border}`,
                 opacity: status === 'pending' ? 0.7 : 1,
                 boxShadow: me && !failed ? `0 2px 10px ${T.tealGlow}` : 'none' }}>
-                <div style={{ fontSize: 13, lineHeight: 1.4, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{m.text}</div>
-                <div style={{ fontSize: 9, marginTop: 3, display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
+                <div style={{ fontSize: 14.5, lineHeight: 1.45, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{m.text}</div>
+                <div style={{ fontSize: 10.5, marginTop: 3, display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
                   gap: 3, color: me && !failed ? 'rgba(255,255,255,0.75)' : T.muted }}>
                   {failed ? t('chat.failed') : fmt12(m.at)}
                   {me && !failed && <MessageTicks status={status} color="rgba(255,255,255,0.75)" readColor={RECEIPT_READ} />}
                 </div>
               </div>
               {failed && (
-                <button onClick={() => resend(m.id)} style={{ marginTop: 3, border: 'none', background: 'transparent',
+                <button onClick={() => resend(m.id)} style={{ marginTop: 2, minHeight: 36, padding: '0 8px', border: 'none', background: 'transparent',
                   color: T.red, fontSize: 11.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans,sans-serif' }}>
                   ↻ {t('chat.resend')}
                 </button>
@@ -360,35 +423,39 @@ export function ChatScreen({ user, onBack, onCall }: ChatScreenProps) {
         )}
       </div>
 
+      {sendError && (
+        <div role="alert" style={{ padding: '4px 14px', fontSize: 12.5, color: T.red, lineHeight: 1.4, textAlign: 'center', flexShrink: 0 }}>{sendError}</div>
+      )}
+
       {/* Quick replies */}
       <div style={{ padding: '4px 14px 6px', display: 'flex', gap: 6, overflowX: 'auto',
         flexShrink: 0, scrollbarWidth: 'none',
         WebkitOverflowScrolling: 'touch',
         WebkitMaskImage: 'linear-gradient(to right,transparent 0,#000 14px,#000 calc(100% - 14px),transparent 100%)',
         maskImage: 'linear-gradient(to right,transparent 0,#000 14px,#000 calc(100% - 14px),transparent 100%)' }}>
-        {CHAT_QUICK_KEYS.map((k, i) => (
-          <button key={i} onClick={() => send(t(k))}
-            style={{ flexShrink: 0, padding: '6px 12px', borderRadius: 16,
+        {quickReplies.map((q, i) => (
+          <button key={i} onClick={() => send(q)}
+            style={{ flexShrink: 0, minHeight: 38, padding: '0 14px', borderRadius: 19,
               border: `1px solid ${T.border}`, background: T.surface2,
-              color: T.text, fontSize: 11, cursor: 'pointer',
+              color: T.text, fontSize: 13, cursor: 'pointer',
               whiteSpace: 'nowrap', fontFamily: 'DM Sans,sans-serif' }}>
-            {t(k)}
+            {q}
           </button>
         ))}
       </div>
 
       {/* Input */}
-      <div style={{ padding: '8px 14px 12px', display: 'flex', gap: 8, alignItems: 'flex-end',
+      <div style={{ padding: '8px 14px calc(12px + env(safe-area-inset-bottom, 0px))', display: 'flex', gap: 8, alignItems: 'flex-end',
         borderTop: `1px solid ${T.border}`, background: T.glassSolid, flexShrink: 0 }}>
-        <textarea value={input} onChange={(e) => onInput(e.target.value)} maxLength={MAX_LENGTH}
+        <textarea ref={inputRef} value={input} onChange={(e) => onInput(e.target.value)} maxLength={MAX_LENGTH}
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(input); } }}
           placeholder={t('chat.typeMessage')} aria-label={t('chat.typeMessage')} rows={1}
           style={{ flex: 1, padding: '10px 14px', borderRadius: 18, resize: 'none',
             background: T.surface2, border: `1px solid ${T.border}`,
-            color: T.text, fontSize: 13, fontFamily: 'DM Sans,sans-serif',
-            maxHeight: 80, minHeight: 40, lineHeight: 1.4 }} />
+            color: T.text, fontSize: 16, fontFamily: 'DM Sans,sans-serif',
+            maxHeight: 120, minHeight: 44, lineHeight: 1.4, overflowY: 'auto' }} />
         <button onClick={() => send(input)} disabled={!input.trim()} aria-label={t('chat.send')}
-          style={{ width: 40, height: 40, borderRadius: 12, border: 'none',
+          style={{ width: 44, height: 44, borderRadius: 12, border: 'none',
             background: input.trim() ? TEAL_GRADIENT : T.surface2,
             color: input.trim() ? 'white' : T.muted,
             cursor: input.trim() ? 'pointer' : 'not-allowed',

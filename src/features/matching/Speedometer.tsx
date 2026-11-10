@@ -26,7 +26,7 @@ export const Speedometer = memo(function Speedometer() {
   // No speed-limit sign: device geolocation has no road-limit data, and a
   // constant "60" would be information the app does not actually have.
   return (
-    <div aria-label={`${cur} ${t('speed.unit')}`} style={{ position: 'absolute', top: 64, left: 16, pointerEvents: 'none',
+    <div aria-label={`${cur} ${t('speed.unit')}`} className="otw-speed" style={{ position: 'absolute', top: 72, left: 16, pointerEvents: 'none',
       display: 'flex', alignItems: 'center', gap: 8 }}>
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center',
         justifyContent: 'center', width: 48, height: 48, borderRadius: 14,

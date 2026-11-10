@@ -1,0 +1,313 @@
+import { useState, useRef, useEffect } from 'react';
+import type { ReactNode } from 'react';
+import { T, TEAL_GRADIENT } from '@/constants/theme';
+import { t } from '@/i18n';
+import { TripsPanel } from '@/features/trips/TripsPanel';
+import { ChatsPanel } from '@/features/contacts/ChatsPanel';
+import { SchedulePanel } from '@/features/schedule/SchedulePanel';
+import { ContactsPanel } from '@/features/contacts/ContactsPanel';
+import { ContactMinimized } from '@/features/contacts/ContactMinimized';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { useBackHandler } from '@/hooks/useBackHandler';
+import { useUnread } from '@/hooks/useUnread';
+import type { ChatPeer } from '@/features/contacts/ChatsPanel';
+import type { Contact, LatLng, MapTask, PartyType } from '@/models';
+
+type PanelState = 'idle' | 'opening' | 'open' | 'closing';
+/** Panel slide-in / slide-out durations (ms), matched to the CSS animations. */
+const OPEN_DUR = 380;
+const CLOSE_DUR = 280;
+interface TabDef { id: string; label: string; icon: ((c: string) => ReactNode) | null }
+
+interface BottomNavBarProps {
+  onRouteSheet: () => void;
+  mode: PartyType;
+  routeActive: boolean;
+  userLoc: LatLng | null;
+  onMapTask?: (task: MapTask) => void;
+  hidden?: boolean;
+  onContactCall?: (c: Contact) => void;
+  onContactSms?: (c: Contact) => void;
+  engaged?: boolean;
+  onTripCreated?: (trip: unknown) => void;
+  /** Open the chat with someone from the inbox. */
+  onOpenChat: (peer: ChatPeer) => void;
+  /** A bottom panel opened/closed (the map chrome steps aside while open). */
+  onPanelChange?: (open: boolean) => void;
+  /** Ask the bar to open a panel from outside (e.g. an empty-map notice). */
+  request?: { id: string; n: number } | null;
+  /** How many of my published trips are still open (engagement follows it). */
+  onTripsChanged?: (openCount: number) => void;
+}
+
+/** Bottom navigation bar + expanding panel host:
+ *  My trips · Search (planned trips) · ⊕ create · Chats · Contacts. */
+export function BottomNavBar({ onRouteSheet, mode, routeActive, userLoc, onMapTask, hidden, onContactCall, onContactSms, engaged, onTripCreated, onOpenChat, onPanelChange, request, onTripsChanged }: BottomNavBarProps) {
+  const [panelState, setPanelState] = useState<PanelState>('idle');
+  const [active, setActive] = useState<string | null>(null);
+  const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  const clearContactFocus = () => {
+    setSelectedContact(null);
+    onMapTask?.({ type: 'contactClear' });
+  };
+  const selectContact = (c: Contact) => {
+    setSelectedContact(c);
+    onMapTask?.({ type: 'contactFocus', contact: c });
+  };
+
+
+  const openPanel = (id: string) => {
+    clearTimeout(timerRef.current);
+    if (selectedContact) clearContactFocus();
+    if (panelState === 'open' || panelState === 'opening') {
+      if (active === id) { closePanel(); return; }
+      setPanelState('closing');
+      timerRef.current = setTimeout(() => {
+        setActive(id);
+        setPanelState('opening');
+        timerRef.current = setTimeout(() => setPanelState('open'), OPEN_DUR);
+      }, CLOSE_DUR);
+      return;
+    }
+    setActive(id);
+    setPanelState('opening');
+    timerRef.current = setTimeout(() => setPanelState('open'), OPEN_DUR);
+  };
+
+  const closePanel = () => {
+    clearTimeout(timerRef.current);
+    if (selectedContact) clearContactFocus();
+    setPanelState('closing');
+    timerRef.current = setTimeout(() => {
+      setActive(null);
+      setPanelState('idle');
+    }, CLOSE_DUR);
+  };
+
+  // Outside requests (e.g. "See planned trips" on an empty map).
+  useEffect(() => {
+    if (request && !(active === request.id && panelState !== 'idle')) openPanel(request.id);
+  }, [request?.n]); // eslint-disable-line react-hooks/exhaustive-deps -- act on each new request only
+
+  const handleCenter = () => {
+    if (routeActive) return;
+    if (panelState !== 'idle') { closePanel(); }
+    onRouteSheet();
+  };
+
+  const panelShown = panelState !== 'idle';
+  useEffect(() => { onPanelChange?.(panelShown); }, [panelShown]); // eslint-disable-line react-hooks/exhaustive-deps -- notify on change only
+  useBackHandler(closePanel, panelShown && !hidden);
+  useBackHandler(clearContactFocus, !!selectedContact);
+  const unread = useUnread();
+  const unreadTotal = Object.values(unread).reduce((a, b) => a + b, 0);
+
+  const TABS: TabDef[] = [
+    { id: 'trips', label: t('nav.trips'),
+      icon: (c) => <svg width="22" height="22" viewBox="0 0 20 20" fill="none">
+        <path d="M5 16.5a2 2 0 100-4 2 2 0 000 4zM15 7.5a2 2 0 100-4 2 2 0 000 4z" stroke={c} strokeWidth="1.6" />
+        <path d="M6.5 13.2 13.5 6.8M7 14.5h6.5a2 2 0 002-2v-1" stroke={c} strokeWidth="1.6" strokeLinecap="round" />
+      </svg> },
+    { id: 'search', label: t('nav.search'),
+      icon: (c) => <svg width="22" height="22" viewBox="0 0 20 20" fill="none">
+        <circle cx="9" cy="9" r="5.5" stroke={c} strokeWidth="1.6" />
+        <path d="M13.2 13.2 17 17" stroke={c} strokeWidth="1.6" strokeLinecap="round" />
+      </svg> },
+    { id: 'center', label: t('nav.new'), icon: null },
+    { id: 'chats', label: t('nav.chats'),
+      icon: (c) => <svg width="22" height="22" viewBox="0 0 20 20" fill="none">
+        <path d="M4 4.5h12a1 1 0 011 1v7.5a1 1 0 01-1 1H9l-4 3v-3H4a1 1 0 01-1-1V5.5a1 1 0 011-1z" stroke={c} strokeWidth="1.6" strokeLinejoin="round" />
+      </svg> },
+    { id: 'contacts', label: t('nav.contacts'),
+      icon: (c) => <svg width="22" height="22" viewBox="0 0 20 20" fill="none">
+        <circle cx="7.5" cy="7" r="3" stroke={c} strokeWidth="1.6" />
+        <path d="M2.5 16.5c0-2.8 2.2-4.6 5-4.6s5 1.8 5 4.6" stroke={c} strokeWidth="1.6" strokeLinecap="round" />
+        <path d="M13.4 5.3a2.6 2.6 0 010 5M14.6 16.5c0-2.4-1.3-4.1-3-4.5" stroke={c} strokeWidth="1.6" strokeLinecap="round" />
+      </svg> },
+  ];
+
+  const panelTitles: Record<string, string> = {
+    trips: t('nav.titleTrips'), search: t('nav.titleSearch'),
+    chats: t('nav.titleChats'), contacts: t('nav.titleContacts'),
+  };
+  const panelMap: Record<string, ReactNode> = {
+    trips: <TripsPanel onChanged={onTripsChanged} />,
+    search: <SchedulePanel mode={mode} userLoc={userLoc} onMapTask={onMapTask ?? (() => {})} onTripCreated={onTripCreated}
+      engaged={!!engaged} onCreate={() => { closePanel(); onRouteSheet(); }} onOpenMyTrips={() => openPanel('trips')} />,
+    chats: <div style={{ padding: '12px 16px 24px' }}><ChatsPanel onOpenChat={(peer) => { closePanel(); onOpenChat(peer); }} /></div>,
+    contacts: <ContactsPanel onSelect={selectContact} onOpenChat={onOpenChat} />,
+  };
+
+  const renderCenterButton = (size: number, fab: boolean) => (
+    <button onClick={handleCenter} disabled={routeActive} aria-label={routeActive ? t('push.routeActiveTitle') : t('route.title')} style={{
+      width: size, height: size, borderRadius: '50%',
+      background: routeActive ? T.glassMid : TEAL_GRADIENT,
+      border: `${fab ? 3 : 2.5}px solid ${fab ? T.glass : T.glassSolid}`,
+      cursor: routeActive ? 'not-allowed' : 'pointer',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      boxShadow: routeActive ? 'none' : (fab ? `0 0 24px ${T.tealGlow}, 0 4px 12px rgba(0,0,0,.5)` : `0 0 16px ${T.tealGlow}, 0 4px 10px rgba(0,0,0,.4)`),
+      transform: fab ? 'translateY(-14px)' : 'none',
+      transition: fab ? 'transform .3s cubic-bezier(.34,1.3,.64,1), width .3s, height .3s' : 'transform .2s ease',
+      flexShrink: 0, zIndex: 3, position: 'relative',
+    }}>
+      {routeActive ? (
+        <svg width={fab ? 20 : 17} height={fab ? 20 : 17} viewBox="0 0 22 22" fill="none">
+          <rect x="5" y="10" width="12" height="9" rx="2" stroke={T.muted} strokeWidth="2" />
+          <path d="M8 10 V7 a3 3 0 0 1 6 0 V10" stroke={T.muted} strokeWidth="2" />
+        </svg>
+      ) : (
+        <svg width={fab ? 22 : 18} height={fab ? 22 : 18} viewBox="0 0 22 22" fill="none">
+          <circle cx="11" cy="9" r="5" stroke="white" strokeWidth="2" />
+          <path d="M11 15L11 20" stroke="white" strokeWidth="2" strokeLinecap="round" />
+          <path d="M7 20H15" stroke="white" strokeWidth="2" strokeLinecap="round" />
+        </svg>
+      )}
+    </button>
+  );
+
+  const renderTab = (tab: TabDef, isPanel: boolean) => {
+    const isAct = active === tab.id;
+    const disabled = false;
+    const color = isAct ? T.teal : T.muted;
+    return (
+      <button key={tab.id} onClick={disabled ? undefined : () => openPanel(tab.id)}
+        disabled={disabled} aria-disabled={disabled} style={{
+        flex: 1, background: 'transparent', border: 'none',
+        cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.45 : 1,
+        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
+        padding: isPanel ? '6px 0' : '10px 0 8px', fontFamily: 'DM Sans,sans-serif',
+        color,
+        transition: 'color .2s ease, opacity .2s ease',
+      }}>
+        <span style={{ position: 'relative', display: 'flex' }}>
+          {tab.icon?.(color)}
+          {tab.id === 'chats' && unreadTotal > 0 && (
+            <span aria-label={t('push.newMessage')} style={{ position: 'absolute', top: -5, right: -9, minWidth: 16, height: 16,
+              borderRadius: 8, padding: '0 4px', background: T.red, color: '#fff', fontSize: 9.5, fontWeight: 700,
+              display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{unreadTotal > 9 ? '9+' : unreadTotal}</span>
+          )}
+        </span>
+        <span style={{ fontSize: 11, fontWeight: isAct ? 700 : 500, letterSpacing: .2 }}>
+          {tab.label}
+        </span>
+        <div style={{ width: isAct ? 16 : 0, height: 2, borderRadius: 1,
+          background: T.teal, transition: 'width .25s cubic-bezier(.34,1.3,.64,1)' }} />
+      </button>
+    );
+  };
+
+  return (
+    <div style={{
+      position: 'absolute', bottom: 0, left: 0, right: 0,
+      pointerEvents: 'auto', zIndex: 5,
+      display: hidden ? 'none' : 'block',
+    }}>
+      {/* ── Full-width panel ── */}
+      {panelShown && (selectedContact ? (
+        <ContactMinimized contact={selectedContact} onBack={clearContactFocus}
+          onCall={(c) => onContactCall?.(c)}
+          onSms={(c) => onContactSms?.(c)} />
+      ) : (
+        <div className="otw-sheet" style={{
+          position: 'absolute', bottom: 0, left: 0, right: 0,
+          maxHeight: '760px',
+          background: T.glassSolid, backdropFilter: 'blur(28px)',
+          borderRadius: '24px 24px 0 0',
+          border: `1px solid ${T.border}`,
+          borderBottom: 'none',
+          overflow: 'hidden',
+          paddingBottom: 'env(safe-area-inset-bottom,0px)',
+          animation: panelState === 'closing'
+            ? `nb-panel-out ${CLOSE_DUR}ms cubic-bezier(.4,0,.6,1) forwards`
+            : `nb-panel-in ${OPEN_DUR}ms cubic-bezier(.22,1,.36,1) forwards`,
+          display: 'flex', flexDirection: 'column',
+        }}>
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            padding: '20px 20px 14px',
+            borderBottom: `1px solid ${T.border}`, flexShrink: 0,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ width: 4, height: 20, borderRadius: 2, background: T.teal }} />
+              <span style={{ fontSize: 16, fontWeight: 600, color: T.text }}>
+                {active ? panelTitles[active] : ''}
+              </span>
+            </div>
+            <button onClick={closePanel} aria-label={t('common.close')} style={{
+              width: 32, height: 32, borderRadius: 10,
+              border: `1px solid ${T.border}`, background: T.hover,
+              color: T.muted, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              transition: 'background .15s ease',
+            }}>
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                <path d="M1 1l10 10M11 1L1 11" stroke={T.muted} strokeWidth="1.8" strokeLinecap="round" />
+              </svg>
+            </button>
+          </div>
+          <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+            {/* A failing panel closes itself instead of taking the whole app down. */}
+            <ErrorBoundary onReset={closePanel}>{active && panelMap[active]}</ErrorBoundary>
+          </div>
+          <div style={{
+            display: 'flex', alignItems: 'center',
+            padding: '8px 16px 28px',
+            borderTop: `1px solid ${T.border}`,
+            gap: 4, flexShrink: 0,
+          }}>
+            {TABS.map((tab) => tab.id === 'center' ? (
+              <div key="center" style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
+                {renderCenterButton(46, false)}
+              </div>
+            ) : renderTab(tab, true))}
+          </div>
+        </div>
+      ))}
+
+      {/* ── Nav bar (hidden when panel open) ── */}
+      <div className="otw-navbar" style={{
+        margin: '0 16px 20px',
+        background: T.glass, backdropFilter: 'blur(20px)',
+        borderRadius: 24,
+        border: `1px solid ${T.border}`,
+        position: 'relative',
+        paddingBottom: 4,
+        animation: panelState === 'opening'
+          ? `nb-bar-out ${CLOSE_DUR}ms cubic-bezier(.4,0,.6,1) forwards`
+          : panelState === 'closing'
+            ? `nb-bar-in ${OPEN_DUR}ms cubic-bezier(.22,1,.36,1) forwards`
+            : 'none',
+        opacity: (panelState === 'open') ? 0 : 1,
+        visibility: (panelState === 'open') ? 'hidden' : 'visible',
+        pointerEvents: panelShown ? 'none' : 'auto',
+      }}>
+        <svg style={{ position: 'absolute', top: -1, left: 0, width: '100%',
+          overflow: 'visible', pointerEvents: 'none', zIndex: 2 }}
+          height="36" viewBox="0 0 358 36" preserveAspectRatio="none">
+          <defs>
+            <linearGradient id="arcGrad2" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0%" stopColor={T.teal} stopOpacity="0.3" />
+              <stop offset="40%" stopColor={T.teal} stopOpacity="0.9" />
+              <stop offset="60%" stopColor={T.teal} stopOpacity="0.9" />
+              <stop offset="100%" stopColor={T.teal} stopOpacity="0.3" />
+            </linearGradient>
+          </defs>
+          <path d="M0,1 L132,1 Q179,-30 226,1 L358,1"
+            stroke="url(#arcGrad2)" strokeWidth="1.5" fill="none"
+            style={{ filter: `drop-shadow(0 0 5px ${T.teal}88)` }} />
+        </svg>
+
+        <div style={{ display: 'flex', alignItems: 'flex-end', paddingTop: 6 }}>
+          {TABS.map((tab) => tab.id === 'center' ? (
+            <div key="center" style={{ flex: 1, display: 'flex', justifyContent: 'center',
+              alignItems: 'flex-end', paddingBottom: 4 }}>
+              {renderCenterButton(56, true)}
+            </div>
+          ) : renderTab(tab, false))}
+        </div>
+      </div>
+    </div>
+  );
+}

@@ -8,14 +8,15 @@
    attempt (socket, then REST): the server stores a message once per id, so a
    retry after a lost acknowledgement can never post it twice (Telegram's
    random_id, Matrix's transaction id). Outcomes are announced to the open
-   chat through `on('settled' | 'failed')`.
+   chat through `on('settled' | 'failed')`; 'failed' carries the refusal
+   (e.g. `user_blocked` — one of the two blocked the other), which is final.
    ════════════════════════════════════════════════════════════════ */
 
 import { chatApi } from '@/api/chatApi';
 import type { ChatMessageDto } from '@/api/chatApi';
 import { chatClient } from '@/services/realtime/chatClient';
 import { createEmitter } from '@/services/realtime/hubConnection';
-import { isConflict, isNetworkError } from '@/utils/errors';
+import { isConflict, isNetworkError, isUserBlocked } from '@/utils/errors';
 import { newClientId } from '@/utils/ids';
 import { readJson, writeJson } from '@/utils/storage';
 
@@ -50,7 +51,8 @@ async function deliver(item: OutboxItem): Promise<void> {
     let saved: ChatMessageDto | null;
     try {
       saved = await chatClient.sendMessage(item.toUserId, item.text, item.clientId);
-    } catch {
+    } catch (e) {
+      if (isUserBlocked(e)) throw e; // a refusal, not a transport problem: REST would say the same
       saved = await chatApi.send(item.toUserId, item.text, item.clientId);
     }
     remove(item.clientId);
@@ -62,7 +64,7 @@ async function deliver(item: OutboxItem): Promise<void> {
       events.emit('settled', item, null);
     } else if (!isNetworkError(e)) {
       markFailed(item.clientId);
-      events.emit('failed', item);
+      events.emit('failed', item, e); // e.g. `user_blocked` → errorMessage(e) explains it
     } // offline: stays queued for the next flush
   } finally {
     inFlight.delete(item.clientId);

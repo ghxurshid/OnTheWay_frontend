@@ -11,6 +11,7 @@ import { tripApi } from '@/api/tripApi';
 import { presenceClient } from '@/services/realtime';
 import { walkerStateStore } from '@/services/walkerStateStore';
 import { tripOutbox } from '@/services/tripOutbox';
+import { blockStore } from '@/services/blockStore';
 import type { OsrmRoute } from '@/services/routeService';
 import type { LatLng, PartyType } from '@/models';
 import { readJson, writeJson } from '@/utils/storage';
@@ -18,16 +19,55 @@ import { readJson, writeJson } from '@/utils/storage';
 // People the walker agreed to ride with during this journey ("ride together"
 // accepted by both in a call). Recorded as the trip's companions when it is
 // completed — the source of the partner's history, ratings and statistics.
+// Each entry carries when it was agreed: a journey is a matter of hours, so one
+// older than COMPANION_LIFETIME_MS (an agreement whose end this device never
+// heard about) never lands on a later trip.
 const COMPANIONS_KEY = 'ontheway_ride_companions_v1';
+export const COMPANION_LIFETIME_MS = 24 * 60 * 60 * 1000;
+
+interface CompanionEntry { peerId: string; at: number }
+
+/** The stored list, current entries only. Older builds stored bare ids: those
+    count as agreed now (better a companion kept a day than one lost). */
+function readCompanions(): CompanionEntry[] {
+  const raw = readJson<unknown[]>(COMPANIONS_KEY, []);
+  const list = Array.isArray(raw) ? raw : [];
+  const now = Date.now();
+  const entries = list
+    .map((item): CompanionEntry | null => {
+      if (typeof item === 'string') return { peerId: item, at: now };
+      const e = item as Partial<CompanionEntry> | null;
+      return e && typeof e.peerId === 'string' && typeof e.at === 'number' ? { peerId: e.peerId, at: e.at } : null;
+    })
+    .filter((e): e is CompanionEntry => !!e && now - e.at < COMPANION_LIFETIME_MS);
+  // Stamp the old format once, so its entries expire like any other.
+  if (list.some((item) => typeof item === 'string')) writeCompanions(entries);
+  return entries;
+}
+
+function writeCompanions(entries: CompanionEntry[]): void {
+  writeJson(COMPANIONS_KEY, entries.length ? entries : null);
+}
 
 /** Remember an agreed companion for the current journey. */
 export function recordCompanion(userId: string): void {
-  const ids = readJson<string[]>(COMPANIONS_KEY, []);
-  if (!ids.includes(userId)) writeJson(COMPANIONS_KEY, [...ids, userId]);
+  const entries = readCompanions().filter((e) => e.peerId !== userId);
+  writeCompanions([...entries, { peerId: userId, at: Date.now() }]);
+}
+
+/** The companions recorded so far (read before the trip is closed). Someone
+    blocked since, or agreed with too long ago, is not one any more. */
+export const recordedCompanions = (): string[] =>
+  readCompanions().map((e) => e.peerId).filter((id) => !blockStore.has(id));
+
+/** They are not riding with me after all (agreement called off, journey over). */
+export function forgetCompanion(userId: string): void {
+  const entries = readCompanions();
+  if (entries.some((e) => e.peerId === userId)) writeCompanions(entries.filter((e) => e.peerId !== userId));
 }
 
 const takeCompanions = (): string[] => {
-  const ids = readJson<string[]>(COMPANIONS_KEY, []);
+  const ids = recordedCompanions();
   writeJson(COMPANIONS_KEY, null);
   return ids;
 };

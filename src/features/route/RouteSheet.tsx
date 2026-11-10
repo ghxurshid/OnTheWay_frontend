@@ -7,10 +7,21 @@ import type { PlaceSuggestion } from '@/services/geocodingService';
 import { getRoute } from '@/services/routeService';
 import type { OsrmRoute } from '@/services/routeService';
 import { InlineSpinner } from '@/components/ui/Spinner';
+import { Segmented } from '@/components/ui/Segmented';
+import { PrimaryButton } from '@/components/ui/PrimaryButton';
+import { WhenField } from '@/components/form/WhenField';
+import { SeatsField } from '@/components/form/SeatsField';
+import { NotesField } from '@/components/form/NotesField';
+import { submitTrip } from '@/services/walkerService';
+import { prefsStore } from '@/services/prefsStore';
+import { haptic } from '@/services/telegram';
+import { useMainButton } from '@/hooks/useMainButton';
+import { isoDaysFromToday, todayIso } from '@/utils/datetime';
+import { fieldErrors, isConflict } from '@/utils/errors';
 import { useBackHandler } from '@/hooks/useBackHandler';
 import { errorMessage } from '@/utils/errors';
 import { MapPickOverlay } from './MapPickOverlay';
-import type { LatLng, Place } from '@/models';
+import type { LatLng, PartyType, Place } from '@/models';
 import type { MapHook } from '@/hooks/mapHook';
 
 interface Waypoint { value: string; latlng: LatLng | null; placeholder: string }
@@ -20,16 +31,41 @@ interface RouteSheetProps {
   onShowRoute: (route: OsrmRoute, waypoints: Waypoint[]) => void;
   mapHook: MapHook;
   userLoc: LatLng | null;
+  /** The user's role — a planned trip is published in it. */
+  mode: PartyType;
+  /** A planned ("later") trip was published. */
+  onPlanned?: (tripId: unknown) => void;
+  /** Open My trips after publishing. */
+  onOpenMyTrips?: () => void;
+  /** Prefill (e.g. "Same route again" after a trip). */
+  initial?: { from?: Place | null; to?: Place | null } | null;
+}
+
+/** The next whole hour (a departure must be in the future). */
+const nextHour = (): number => new Date().getHours() + 1;
+function defaultSlot(): { date: string; tStart: number; tEnd: number } {
+  const start = Math.max(8, nextHour());
+  return start <= 21 ? { date: todayIso(), tStart: start, tEnd: Math.min(23, start + 2) } : { date: isoDaysFromToday(1), tStart: 8, tEnd: 10 };
 }
 
 const ROUTE_ICONS = ['🏁', '🔀', '🛣️'];
 
-/** Multi-waypoint route planner sheet: input → calculate → choose route. */
-export function RouteSheet({ onClose, onShowRoute, mapHook, userLoc }: RouteSheetProps) {
+/** The one "create a trip" sheet: where from / where to, then either
+    "Now" (calculate → pick a route → go live) or "Later" (day, time window,
+    seats, note → publish to the planned-trips board). */
+export function RouteSheet({ onClose, onShowRoute, mapHook, userLoc, mode, onPlanned, onOpenMyTrips, initial }: RouteSheetProps) {
   const [waypoints, setWaypoints] = useState<Waypoint[]>([
-    { value: '', latlng: userLoc || TASHKENT, placeholder: t('route.startPlaceholder') },
-    { value: '', latlng: null, placeholder: t('route.where') },
+    { value: initial?.from?.label || '', latlng: initial?.from?.latlng || userLoc || TASHKENT, placeholder: t('route.startPlaceholder') },
+    { value: initial?.to?.label || '', latlng: initial?.to?.latlng || null, placeholder: t('route.where') },
   ]);
+  const [when, setWhen] = useState<'now' | 'later'>('now');
+  const [slot, setSlot] = useState(defaultSlot);
+  const [seats, setSeats] = useState(String(prefsStore.get().vehicle?.seats || 1));
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [publishedId, setPublishedId] = useState<unknown>(null);
+  const inflightRef = useRef(false);
   const [activeIdx, setActiveIdx] = useState(1);
   const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([]);
   const [searching, setSearching] = useState(false);
@@ -44,6 +80,7 @@ export function RouteSheet({ onClose, onShowRoute, mapHook, userLoc }: RouteShee
   // Label the start point with the user's current address.
   useEffect(() => {
     let alive = true;
+    if (initial?.from) return () => { alive = false; };
     const loc = userLoc || TASHKENT;
     reverseGeocode(loc).then((label) => {
       if (alive) setWaypoints((wp) => wp.map((w, i) => (i === 0 ? { ...w, value: label, latlng: loc } : w)));
@@ -144,6 +181,40 @@ export function RouteSheet({ onClose, onShowRoute, mapHook, userLoc }: RouteShee
   };
 
   const canCalc = waypoints.every((w) => w.latlng);
+  const isPast = slot.date === todayIso() && slot.tStart < nextHour();
+  const canPublish = canCalc && !isPast;
+
+  const publish = async () => {
+    const from = waypoints[0];
+    const to = waypoints[waypoints.length - 1];
+    if (inflightRef.current || !from.latlng || !to.latlng) return;
+    inflightRef.current = true;
+    setBusy(true);
+    setSubmitError(null);
+    try {
+      const created = await submitTrip({ type: mode, from: { latlng: from.latlng, label: from.value }, to: { latlng: to.latlng, label: to.value },
+        date: slot.date, tStart: slot.tStart, tEnd: slot.tEnd, seats, note });
+      const id = created?.id ?? true;
+      setPublishedId(id);
+      haptic('success');
+      onPlanned?.(id);
+    } catch (e) {
+      haptic('error');
+      setSubmitError(isConflict(e) ? t('form.duplicate') : fieldErrors(e).departuretimeutc ? t('form.pastTime') : errorMessage(e, 'errors.sendFailed'));
+    } finally {
+      inflightRef.current = false;
+      setBusy(false);
+    }
+  };
+
+  // Telegram: the step's primary action goes on the native bottom button.
+  const primary = publishedId != null ? null
+    : step === 'input' ? (when === 'later'
+      ? { text: t('create.publish'), run: publish, enabled: canPublish && !busy }
+      : { text: t('route.show'), run: calcRoute, enabled: canCalc })
+      : step === 'routes' && routeOptions.length > 0 ? { text: t('route.start'), run: () => startSelectedRoute(), enabled: true } : null;
+  const nativeMain = useMainButton(primary?.text || '', () => primary?.enabled && primary.run(),
+    { visible: !!primary && pickingIdx === null, enabled: !!primary?.enabled, busy });
   const picking = pickingIdx !== null;
   const pickLabel = pickingIdx === 0 ? t('route.pickStart')
     : pickingIdx === waypoints.length - 1 ? t('route.pickDest') : t('route.pickMid');
@@ -179,7 +250,7 @@ export function RouteSheet({ onClose, onShowRoute, mapHook, userLoc }: RouteShee
 
           <div style={{ padding: '14px 20px 12px', display: 'flex', alignItems: 'center', gap: 12,
             borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
-            <button onClick={goBack} aria-label={t('common.back')} style={{ width: 32, height: 32, borderRadius: 10,
+            <button onClick={goBack} aria-label={t('common.back')} style={{ width: 44, height: 44, borderRadius: 12, flexShrink: 0,
               border: `1px solid ${T.border}`, background: 'transparent',
               display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
               <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
@@ -187,13 +258,30 @@ export function RouteSheet({ onClose, onShowRoute, mapHook, userLoc }: RouteShee
               </svg>
             </button>
             <div>
-              <div style={{ fontSize: 16, fontWeight: 600, color: T.text }}>{t('route.title')}</div>
-              <div style={{ fontSize: 12, color: T.muted }}>{t('route.subtitle')}</div>
+              <div style={{ fontSize: 17, fontWeight: 700, color: T.text }}>{t('create.title')}</div>
+              <div style={{ fontSize: 12.5, color: T.muted }}>{t('create.subtitle')}</div>
             </div>
           </div>
 
           <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px' }}>
-            {step === 'input' && <>
+            {publishedId != null && (
+              <div role="status" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, textAlign: 'center', padding: '28px 8px' }}>
+                <div aria-hidden="true" style={{ width: 56, height: 56, borderRadius: 20, background: T.tealDim, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28 }}>✅</div>
+                <div style={{ fontSize: 17, fontWeight: 700, color: T.text }}>{t('schedule.addedTitle')}</div>
+                <div style={{ fontSize: 13.5, color: T.muted, lineHeight: 1.55, maxWidth: 320 }}>{t('schedule.addedBody')}</div>
+                <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+                  <button onClick={onClose} style={{ minHeight: 44, padding: '0 18px', borderRadius: 12, border: `1px solid ${T.border}`,
+                    background: 'transparent', color: T.text, fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans,sans-serif' }}>{t('common.close')}</button>
+                  {onOpenMyTrips && (
+                    <button onClick={() => { onClose(); onOpenMyTrips(); }} style={{ minHeight: 44, padding: '0 20px', borderRadius: 12, border: `1px solid ${T.teal}55`,
+                      background: T.tealDim, color: T.teal, fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: 'DM Sans,sans-serif' }}>{t('myTrips.title')}</button>
+                  )}
+                </div>
+              </div>
+            )}
+            {step === 'input' && publishedId == null && <>
+              <Segmented value={when} onChange={(v) => setWhen(v as 'now' | 'later')} pad={11} style={{ marginBottom: 14 }}
+                options={[{ id: 'now', label: t('create.now') }, { id: 'later', label: t('create.later') }]} />
               <div style={{ display: 'flex', gap: 12 }}>
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: 14, flexShrink: 0 }}>
                   <div style={{ width: 10, height: 10, borderRadius: 5, background: T.teal,
@@ -217,14 +305,14 @@ export function RouteSheet({ onClose, onShowRoute, mapHook, userLoc }: RouteShee
                         placeholder={wp.placeholder}
                         onChange={(e) => handleInput(idx, e.target.value)}
                         onFocus={() => { setActiveIdx(idx); setSuggestions([]); }}
-                        style={{ width: '100%', padding: '12px 68px 12px 14px', borderRadius: 12,
+                        style={{ width: '100%', minHeight: 46, padding: '12px 76px 12px 14px', borderRadius: 12,
                           background: activeIdx === idx ? T.surface2 : T.bg,
                           border: `1.5px solid ${activeIdx === idx ? T.teal + '60' : T.border}`,
                           color: T.text, fontSize: 14, outline: 'none',
                           transition: 'all .2s ease', fontFamily: 'DM Sans,sans-serif' }} />
                       {wp.value && (
                         <button onClick={() => handleInput(idx, '')}
-                          style={{ position: 'absolute', right: 36, top: '50%', transform: 'translateY(-50%)',
+                          style={{ position: 'absolute', right: 44, top: '50%', transform: 'translateY(-50%)',
                             background: 'transparent', border: 'none', color: T.muted, cursor: 'pointer', padding: 4, fontSize: 13 }}>
                           ✕
                         </button>
@@ -232,7 +320,7 @@ export function RouteSheet({ onClose, onShowRoute, mapHook, userLoc }: RouteShee
                       <button onClick={() => enterMapPick(idx)}
                         title={t('form.pickOnMap')}
                         style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
-                          width: 24, height: 24, borderRadius: 7, border: 'none', cursor: 'pointer',
+                          width: 32, height: 32, borderRadius: 9, border: 'none', cursor: 'pointer',
                           background: T.surface2,
                           display: 'flex', alignItems: 'center', justifyContent: 'center',
                           transition: 'background .15s ease' }}>
@@ -284,7 +372,21 @@ export function RouteSheet({ onClose, onShowRoute, mapHook, userLoc }: RouteShee
                 </div>
               )}
 
-              <button onClick={calcRoute} disabled={!canCalc}
+              {when === 'later' && (
+                <div style={{ marginTop: 14, animation: 'fadeUp .2s ease both' }}>
+                  <WhenField date={slot.date} onDate={(v) => setSlot((x) => ({ ...x, date: v }))} tStart={slot.tStart} tEnd={slot.tEnd}
+                    minHourToday={nextHour()} onTime={(a, b) => setSlot((x) => ({ ...x, tStart: a, tEnd: b }))} />
+                  {isPast && <div role="alert" style={{ margin: '-4px 0 12px', fontSize: 12.5, color: T.amber }}>{t('form.pastTime')}</div>}
+                  {mode === 'driver' && <SeatsField value={seats} onChange={setSeats} />}
+                  <NotesField value={note} onChange={setNote} />
+                  {submitError && (
+                    <div role="alert" style={{ marginBottom: 12, padding: '10px 12px', borderRadius: 12, fontSize: 12.5, lineHeight: 1.45,
+                      color: T.red, background: `${T.red}14`, border: `1px solid ${T.red}40` }}>{submitError}</div>
+                  )}
+                  {!nativeMain && <PrimaryButton enabled={canPublish} busy={busy} onClick={publish}>{t('create.publish')}</PrimaryButton>}
+                </div>
+              )}
+              {when === 'now' && !nativeMain && <button onClick={calcRoute} disabled={!canCalc}
                 style={{ width: '100%', marginTop: 14, padding: '15px', borderRadius: 14,
                   background: canCalc ? TEAL_GRADIENT : T.surface2,
                   border: 'none', color: canCalc ? 'white' : T.muted,
@@ -292,7 +394,7 @@ export function RouteSheet({ onClose, onShowRoute, mapHook, userLoc }: RouteShee
                   boxShadow: canCalc ? `0 4px 20px ${T.tealGlow}` : 'none',
                   transition: 'all .2s ease', fontFamily: 'DM Sans,sans-serif' }}>
                 {t('route.show')}
-              </button>
+              </button>}
             </>}
 
             {step === 'calculating' && (
@@ -386,7 +488,7 @@ export function RouteSheet({ onClose, onShowRoute, mapHook, userLoc }: RouteShee
                   );
                 })}
 
-                {routeOptions.length > 0 && (
+                {routeOptions.length > 0 && !nativeMain && (
                   <button onClick={startSelectedRoute}
                     style={{ width: '100%', marginTop: 6, padding: '15px', borderRadius: 14, border: 'none',
                       background: TEAL_GRADIENT,

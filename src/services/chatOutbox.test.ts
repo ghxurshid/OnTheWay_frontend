@@ -76,7 +76,7 @@ describe('chat outbox', () => {
 
     const item = outbox.send('7', 'Salom');
     await tick();
-    expect(failed).toHaveBeenCalledWith(item);
+    expect(failed).toHaveBeenCalledWith(item, expect.objectContaining({ status: 400 }));
     await outbox.flush(); // refused messages wait for the user's "resend"
     expect(rest.send).toHaveBeenCalledTimes(1);
 
@@ -99,5 +99,22 @@ describe('chat outbox', () => {
 
     expect(settled).toHaveBeenCalledWith(item, null);
     expect(outbox.pendingFor('7')).toEqual([]);
+  });
+
+  it('a send across a block fails at once with the reason — no REST retry, no auto-resend', async () => {
+    const blocked = new Error("An unexpected error occurred invoking 'SendMessageWithId' on the server. HubException: user_blocked");
+    hub.sendMessage.mockRejectedValue(blocked);
+    const outbox = await load();
+    const failed = vi.fn();
+    outbox.on('failed', failed);
+
+    const item = outbox.send('7', 'Salom');
+    await tick();
+    await outbox.flush();
+
+    expect(failed).toHaveBeenCalledWith(item, blocked);
+    expect(rest.send).not.toHaveBeenCalled();
+    expect(hub.sendMessage).toHaveBeenCalledTimes(1);
+    expect(outbox.pendingFor('7')).toMatchObject([{ clientId: item.clientId, failed: true }]);
   });
 });

@@ -34,8 +34,12 @@ export const chatClient = {
       : Promise.reject(new Error('Chat hub not connected'));
   },
 
-  sendTyping(toUserId: string, isTyping: boolean) {
-    return hub.connected()?.invoke('SendTyping', toUserId, isTyping) ?? Promise.resolve();
+  /** "Typing…" is a momentary hint: not sent while the socket is down, and a send
+      that fails (the socket dropping mid-way) is ignored — never an error per key. */
+  sendTyping(toUserId: string, isTyping: boolean): Promise<void> {
+    const c = hub.connected();
+    if (!c) return Promise.resolve();
+    return c.invoke('SendTyping', toUserId, isTyping).then(() => undefined, () => undefined);
   },
 
   /** Acknowledge that this device received `fromUserId`'s messages up to

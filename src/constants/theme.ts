@@ -27,7 +27,7 @@ export const THEMES: Record<ThemeMode, Theme> = {
   dark: {
     ...ACCENTS,
     bg: '#0f1117', surface: '#171b24', surface2: '#1e2330',
-    border: 'rgba(255,255,255,0.07)', text: '#f0f2f7', muted: '#8892a4',
+    border: 'rgba(255,255,255,0.08)', text: '#f0f2f7', muted: '#9ba4b6',
     tealDim: 'rgba(31,200,192,0.15)', amberDim: 'rgba(240,168,50,0.15)',
     glass: 'rgba(23,27,36,0.92)', glassSolid: 'rgba(15,17,23,0.98)',
     glass2: 'rgba(20,24,32,0.95)', glassMid: 'rgba(40,46,58,0.98)',
@@ -38,7 +38,7 @@ export const THEMES: Record<ThemeMode, Theme> = {
   light: {
     ...ACCENTS,
     bg: '#eef1f6', surface: '#ffffff', surface2: '#f3f5f9',
-    border: 'rgba(18,22,30,0.10)', text: '#161b24', muted: '#677085',
+    border: 'rgba(18,22,30,0.10)', text: '#161b24', muted: '#5a6378',
     tealDim: 'rgba(31,200,192,0.16)', amberDim: 'rgba(240,168,50,0.18)',
     glass: 'rgba(255,255,255,0.94)', glassSolid: 'rgba(255,255,255,0.985)',
     glass2: 'rgba(246,248,252,0.96)', glassMid: 'rgba(224,229,238,0.98)',

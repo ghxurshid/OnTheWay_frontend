@@ -2,8 +2,8 @@ import { useState, useRef, useEffect } from 'react';
 import type { ReactNode } from 'react';
 import { T, TEAL_GRADIENT } from '@/constants/theme';
 import { t } from '@/i18n';
-import { SavedPanel } from '@/features/saved/SavedPanel';
-import { HistoryPanel } from '@/features/history/HistoryPanel';
+import { TripsPanel } from '@/features/trips/TripsPanel';
+import { ChatsPanel } from '@/features/contacts/ChatsPanel';
 import { SchedulePanel } from '@/features/schedule/SchedulePanel';
 import { ContactsPanel } from '@/features/contacts/ContactsPanel';
 import { ContactMinimized } from '@/features/contacts/ContactMinimized';
@@ -32,14 +32,17 @@ interface BottomNavBarProps {
   onTripCreated?: (trip: unknown) => void;
   /** Open the chat with someone from the inbox. */
   onOpenChat: (peer: ChatPeer) => void;
-  /** Open "My trips" (own published trips). */
-  onOpenMyTrips: () => void;
   /** A bottom panel opened/closed (the map chrome steps aside while open). */
   onPanelChange?: (open: boolean) => void;
+  /** Ask the bar to open a panel from outside (e.g. an empty-map notice). */
+  request?: { id: string; n: number } | null;
+  /** How many of my published trips are still open (engagement follows it). */
+  onTripsChanged?: (openCount: number) => void;
 }
 
-/** Bottom navigation bar + expanding panel host (saved/history/schedule/contacts). */
-export function BottomNavBar({ onRouteSheet, mode, routeActive, userLoc, onMapTask, hidden, onContactCall, onContactSms, engaged, onTripCreated, onOpenChat, onOpenMyTrips, onPanelChange }: BottomNavBarProps) {
+/** Bottom navigation bar + expanding panel host:
+ *  My trips · Search (planned trips) · ⊕ create · Chats · Contacts. */
+export function BottomNavBar({ onRouteSheet, mode, routeActive, userLoc, onMapTask, hidden, onContactCall, onContactSms, engaged, onTripCreated, onOpenChat, onPanelChange, request, onTripsChanged }: BottomNavBarProps) {
   const [panelState, setPanelState] = useState<PanelState>('idle');
   const [active, setActive] = useState<string | null>(null);
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
@@ -83,11 +86,10 @@ export function BottomNavBar({ onRouteSheet, mode, routeActive, userLoc, onMapTa
     }, CLOSE_DUR);
   };
 
-  // Once the viewer is engaged the Planned Trips board is hidden (spec §17); if it
-  // was open when engagement flips on, close it.
+  // Outside requests (e.g. "See planned trips" on an empty map).
   useEffect(() => {
-    if (engaged && active === 'schedule') closePanel();
-  }, [engaged, active]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (request && !(active === request.id && panelState !== 'idle')) openPanel(request.id);
+  }, [request?.n]); // eslint-disable-line react-hooks/exhaustive-deps -- act on each new request only
 
   const handleCenter = () => {
     if (routeActive) return;
@@ -103,23 +105,23 @@ export function BottomNavBar({ onRouteSheet, mode, routeActive, userLoc, onMapTa
   const unreadTotal = Object.values(unread).reduce((a, b) => a + b, 0);
 
   const TABS: TabDef[] = [
-    { id: 'saved', label: t('nav.saved'),
-      icon: (c) => <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-        <path d="M5 3h10a1 1 0 011 1v13l-6-3-6 3V4a1 1 0 011-1z" stroke={c} strokeWidth="1.6" strokeLinejoin="round" />
+    { id: 'trips', label: t('nav.trips'),
+      icon: (c) => <svg width="22" height="22" viewBox="0 0 20 20" fill="none">
+        <path d="M5 16.5a2 2 0 100-4 2 2 0 000 4zM15 7.5a2 2 0 100-4 2 2 0 000 4z" stroke={c} strokeWidth="1.6" />
+        <path d="M6.5 13.2 13.5 6.8M7 14.5h6.5a2 2 0 002-2v-1" stroke={c} strokeWidth="1.6" strokeLinecap="round" />
       </svg> },
-    { id: 'history', label: t('nav.history'),
-      icon: (c) => <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-        <circle cx="10" cy="10" r="7" stroke={c} strokeWidth="1.6" />
-        <path d="M10 6v4l3 2" stroke={c} strokeWidth="1.6" strokeLinecap="round" />
+    { id: 'search', label: t('nav.search'),
+      icon: (c) => <svg width="22" height="22" viewBox="0 0 20 20" fill="none">
+        <circle cx="9" cy="9" r="5.5" stroke={c} strokeWidth="1.6" />
+        <path d="M13.2 13.2 17 17" stroke={c} strokeWidth="1.6" strokeLinecap="round" />
       </svg> },
     { id: 'center', label: t('nav.new'), icon: null },
-    { id: 'schedule', label: t('nav.schedule'),
-      icon: (c) => <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-        <rect x="3" y="4" width="14" height="13" rx="2" stroke={c} strokeWidth="1.6" />
-        <path d="M7 2v3M13 2v3M3 9h14" stroke={c} strokeWidth="1.6" strokeLinecap="round" />
+    { id: 'chats', label: t('nav.chats'),
+      icon: (c) => <svg width="22" height="22" viewBox="0 0 20 20" fill="none">
+        <path d="M4 4.5h12a1 1 0 011 1v7.5a1 1 0 01-1 1H9l-4 3v-3H4a1 1 0 01-1-1V5.5a1 1 0 011-1z" stroke={c} strokeWidth="1.6" strokeLinejoin="round" />
       </svg> },
     { id: 'contacts', label: t('nav.contacts'),
-      icon: (c) => <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+      icon: (c) => <svg width="22" height="22" viewBox="0 0 20 20" fill="none">
         <circle cx="7.5" cy="7" r="3" stroke={c} strokeWidth="1.6" />
         <path d="M2.5 16.5c0-2.8 2.2-4.6 5-4.6s5 1.8 5 4.6" stroke={c} strokeWidth="1.6" strokeLinecap="round" />
         <path d="M13.4 5.3a2.6 2.6 0 010 5M14.6 16.5c0-2.4-1.3-4.1-3-4.5" stroke={c} strokeWidth="1.6" strokeLinecap="round" />
@@ -127,13 +129,14 @@ export function BottomNavBar({ onRouteSheet, mode, routeActive, userLoc, onMapTa
   ];
 
   const panelTitles: Record<string, string> = {
-    saved: t('nav.titleSaved'), history: t('nav.titleHistory'),
-    schedule: t('nav.titleSchedule'), contacts: t('nav.titleContacts'),
+    trips: t('nav.titleTrips'), search: t('nav.titleSearch'),
+    chats: t('nav.titleChats'), contacts: t('nav.titleContacts'),
   };
   const panelMap: Record<string, ReactNode> = {
-    saved: <SavedPanel onOpenChat={(peer) => { closePanel(); onOpenChat(peer); }} />, history: <HistoryPanel />,
-    schedule: <SchedulePanel mode={mode} userLoc={userLoc} onMapTask={onMapTask ?? (() => {})} onTripCreated={onTripCreated}
-      onClose={closePanel} onOpenMyTrips={() => { closePanel(); onOpenMyTrips(); }} />,
+    trips: <TripsPanel onChanged={onTripsChanged} />,
+    search: <SchedulePanel mode={mode} userLoc={userLoc} onMapTask={onMapTask ?? (() => {})} onTripCreated={onTripCreated}
+      engaged={!!engaged} onCreate={() => { closePanel(); onRouteSheet(); }} onOpenMyTrips={() => openPanel('trips')} />,
+    chats: <div style={{ padding: '12px 16px 24px' }}><ChatsPanel onOpenChat={(peer) => { closePanel(); onOpenChat(peer); }} /></div>,
     contacts: <ContactsPanel onSelect={selectContact} onOpenChat={onOpenChat} />,
   };
 
@@ -166,10 +169,8 @@ export function BottomNavBar({ onRouteSheet, mode, routeActive, userLoc, onMapTa
 
   const renderTab = (tab: TabDef, isPanel: boolean) => {
     const isAct = active === tab.id;
-    // Planned Trips ("schedule") is disabled (not removed, so the bar layout is
-    // preserved) once the viewer is Engaged (spec §17).
-    const disabled = tab.id === 'schedule' && engaged;
-    const color = disabled ? T.border : (isAct ? T.teal : T.muted);
+    const disabled = false;
+    const color = isAct ? T.teal : T.muted;
     return (
       <button key={tab.id} onClick={disabled ? undefined : () => openPanel(tab.id)}
         disabled={disabled} aria-disabled={disabled} style={{
@@ -182,13 +183,13 @@ export function BottomNavBar({ onRouteSheet, mode, routeActive, userLoc, onMapTa
       }}>
         <span style={{ position: 'relative', display: 'flex' }}>
           {tab.icon?.(color)}
-          {tab.id === 'contacts' && unreadTotal > 0 && (
+          {tab.id === 'chats' && unreadTotal > 0 && (
             <span aria-label={t('push.newMessage')} style={{ position: 'absolute', top: -5, right: -9, minWidth: 16, height: 16,
               borderRadius: 8, padding: '0 4px', background: T.red, color: '#fff', fontSize: 9.5, fontWeight: 700,
               display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{unreadTotal > 9 ? '9+' : unreadTotal}</span>
           )}
         </span>
-        <span style={{ fontSize: 9, fontWeight: isAct ? 600 : 400, letterSpacing: .3 }}>
+        <span style={{ fontSize: 11, fontWeight: isAct ? 700 : 500, letterSpacing: .2 }}>
           {tab.label}
         </span>
         <div style={{ width: isAct ? 16 : 0, height: 2, borderRadius: 1,

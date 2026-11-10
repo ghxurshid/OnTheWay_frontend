@@ -39,13 +39,13 @@ const enc = encodeURIComponent;
 export const geoApi = {
   /** Forward geocode: free-text query → up to five candidate places. */
   search(query: string): Promise<unknown[]> {
-    if (USE_MOCKS) return publicJson(`${NOMINATIM}/search?format=json&q=${enc(query)}&limit=5&accept-language=${langs()}`);
+    if (USE_MOCKS) return publicJson(`${NOMINATIM}/search?format=json&addressdetails=1&q=${enc(query)}&limit=5&accept-language=${langs()}`);
     return http(`/geo/search?q=${enc(query)}&lang=${i18nStore.mode}`, { timeoutMs: TIMEOUT_MS });
   },
 
   /** Reverse geocode: [lat,lng] → Nominatim payload ({ display_name }). */
   reverse([lat, lng]: LatLng): Promise<unknown> {
-    if (USE_MOCKS) return publicJson(`${NOMINATIM}/reverse?format=json&lat=${lat}&lon=${lng}&accept-language=${langs()}`);
+    if (USE_MOCKS) return publicJson(`${NOMINATIM}/reverse?format=json&addressdetails=1&lat=${lat}&lon=${lng}&accept-language=${langs()}`);
     return http(`/geo/reverse?lat=${lat}&lng=${lng}&lang=${i18nStore.mode}`, { timeoutMs: TIMEOUT_MS });
   },
 

@@ -17,6 +17,7 @@ import 'leaflet-ant-path';
 import 'leaflet-rotate'; // patches L.Map with bearing/rotation + two-finger touchRotate
 import { T, partyColor } from '@/constants/theme';
 import { TASHKENT, MAP_STYLES, themeFor } from '@/constants/map';
+import { createVectorBasemap, vectorBasemapSupported } from '@/utils/vectorBasemap';
 import {
   makeMarkerIcon, makeUserDot, makeMatchedIcon, makeAntPath,
   makeWalkerIcon, makeStartIcon, makeDestIcon, makeMeIcon,
@@ -53,7 +54,8 @@ const addRoutePins = (group, coords, color, theme) => ({
 });
 
 const walkerMarker = (pos, w, onSelect) => {
-  const mk = L.marker(pos, { icon: makeWalkerIcon(w.color, w.initials), zIndexOffset: 600 });
+  const mk = L.marker(pos, { icon: makeWalkerIcon(w.color, w.initials, w.type), zIndexOffset: 600 });
+  mk._otw = { color: w.color, initials: w.initials, type: w.type };
   mk.on('click', () => onSelect && onSelect(w.id));
   return mk;
 };
@@ -77,6 +79,24 @@ export function useMap(containerRef, active) {
   const userCircleRef = useRef(null);
   const bearingRafRef = useRef(null);   // rAF id for the eased bearing animation
   const bearingTargetRef = useRef(0);   // heading the rotation is easing toward
+  const vectorRef = useRef(null);       // MapLibre basemap (null = raster only)
+  const styleIdRef = useRef(null);
+
+  // Vector style when available (labels stay upright on a rotated map),
+  // otherwise the raster tiles. Satellite has no vector version.
+  function applyStyle(map, styleId) {
+    const style = MAP_STYLES.find((s) => s.id === styleId);
+    if (!style) return;
+    styleIdRef.current = styleId;
+    if (tileRef.current) { map.removeLayer(tileRef.current); tileRef.current = null; }
+    const vec = vectorRef.current;
+    if (style.vector && vec && !vec.failed && vec.show(style.vector)) return;
+    if (vec) vec.hide();
+    const opts = { maxZoom: 19, className: style.className || '' };
+    if (style.subdomains) opts.subdomains = style.subdomains;
+    tileRef.current = L.tileLayer(style.url, opts).addTo(map);
+    tileRef.current.bringToBack();
+  }
 
   useEffect(() => {
     if (!active || !containerRef.current || mapRef.current) return;
@@ -101,17 +121,24 @@ export function useMap(containerRef, active) {
     gestureRef.current.attach(map, () => { if (flushRef.current) flushRef.current(); });
     headingSyncRef.current = createHeadingSync(map, () => userMarkerRef.current);
 
-    tileRef.current = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-      subdomains: 'abcd', maxZoom: 19,
-    }).addTo(map);
+    // Vector basemap (upright street names when rotated) with raster fallback.
+    if (vectorBasemapSupported()) {
+      vectorRef.current = createVectorBasemap(map, () => {
+        // Style/WebGL failed: put the raster version of the current style back.
+        if (mapRef.current && styleIdRef.current) applyStyle(mapRef.current, styleIdRef.current);
+      });
+    }
+    mapRef.current = map;
+    if (import.meta.env.DEV) window.__otwMap = map; // layout/rotation QA
+    applyStyle(map, MAP_STYLES[0].id);
     const { walkers, userRoute, preview, markers } = layersRef.current;
     [walkers, userRoute, preview, markers].forEach((group) => group.addTo(map));
     // Initialise the vector renderer now, while the map is idle — Leaflet would
     // otherwise add it lazily with the first vector layer, possibly mid-flyTo.
     map.addLayer(renderer);
-    mapRef.current = map;
 
     return () => {
+      if (vectorRef.current) { vectorRef.current.dispose(); vectorRef.current = null; }
       if (bearingRafRef.current) { cancelAnimationFrame(bearingRafRef.current); bearingRafRef.current = null; }
       if (headingSyncRef.current) { headingSyncRef.current.dispose(); headingSyncRef.current = null; }
       if (gestureRef.current) { gestureRef.current.dispose(); gestureRef.current = null; }
@@ -122,13 +149,7 @@ export function useMap(containerRef, active) {
 
   const setMapStyle = useCallback((styleId) => {
     const map = mapRef.current; if (!map) return;
-    const style = MAP_STYLES.find((s) => s.id === styleId);
-    if (!style) return;
-    if (tileRef.current) map.removeLayer(tileRef.current);
-    const opts = { maxZoom: 19 };
-    if (style.subdomains) opts.subdomains = style.subdomains;
-    tileRef.current = L.tileLayer(style.url, opts).addTo(map);
-    tileRef.current.bringToBack();
+    applyStyle(map, styleId);
   }, []);
 
   const flyTo = useCallback((latlng, zoom = 16) => {
@@ -263,6 +284,15 @@ export function useMap(containerRef, active) {
       lm.set(w.id, { ant, trav, mk, ...pins });
     });
     walkerLayersRef.current = lm;
+    applyWalkerBadges();
+  }, [applyWalkerBadges]);
+
+  // Re-draw every walker marker in the current marker style (settings change).
+  const refreshWalkerIcons = useCallback(() => {
+    walkerLayersRef.current.forEach((layer) => {
+      const meta = layer.mk && layer.mk._otw;
+      if (meta) layer.mk.setIcon(makeWalkerIcon(meta.color, meta.initials, meta.type));
+    });
     applyWalkerBadges();
   }, [applyWalkerBadges]);
 
@@ -457,7 +487,7 @@ export function useMap(containerRef, active) {
       addRoutePins(grp, contact.route, color, theme);
     }
     if (contact.latlng) {
-      L.marker(contact.latlng, { icon: makeWalkerIcon(color, contact.initials), zIndexOffset: 800 }).addTo(grp);
+      L.marker(contact.latlng, { icon: makeWalkerIcon(color, contact.initials, contact.type), zIndexOffset: 800 }).addTo(grp);
     }
   }, []);
   const fitPoints = useCallback((pts) => {
@@ -501,7 +531,7 @@ export function useMap(containerRef, active) {
   return useMemo(() => ({
     mapRef, flyTo, setBearing, rotateTo, navFollow, onUserDrag, setRouteLines, setWaypointMarkers,
     startTracking, setMapStyle, setUserLocation, renderWalkers,
-    tickWalkers, clearWalkers, fitWalkers, setWalkersDimmed, highlightWalker, setWalkerBadges,
+    tickWalkers, clearWalkers, fitWalkers, setWalkersDimmed, highlightWalker, setWalkerBadges, refreshWalkerIcons,
     upsertWalkerMarker, removeWalkerMarker, setWalkerRoute, removeWalkerRoute, setWalkerOffline,
     getCenter, onMove, onMoveEnd, renderUserRoute, updateUserRoute, clearUserRoute, recolorUserRoute,
     showPreviewRoute, clearPreviewRoute, fitRoute, clearPlanning, hideWalkers, showContactFocus, fitPoints,

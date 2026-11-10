@@ -16,12 +16,18 @@ export const locale = (): string => LOCALES[i18nStore.mode] || LOCALES.uz;
 /** Build a Date for today at h:m (mock data). */
 export const dt = (h: number, m: number): Date => { const d = new Date(NOW); d.setHours(h, m, 0, 0); return d; };
 
+// Month / weekday names come from the app's own dictionary, not Intl: many
+// WebViews (Telegram on Android included) ship without Uzbek locale data and
+// render "M11" instead of a month name.
+const monthName = (m: number): string => t(`cal.m${m + 1}`);
+const monthShort = (m: number): string => t(`cal.s${m + 1}`);
+
 /** 24h HH:MM. */
 export const fmt12 = (d: Date): string =>
-  d.toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit', hour12: false });
+  `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 
-/** Short "dd mon" date. */
-export const fmtDate = (d: Date): string => d.toLocaleDateString(locale(), { day: '2-digit', month: 'short' });
+/** Short date: "2-noyabr" / "2 нояб." / "2 Nov". */
+export const fmtDate = (d: Date): string => t('cal.dayMonth', { d: d.getDate(), m: monthShort(d.getMonth()), M: monthName(d.getMonth()) });
 
 /** Hour label e.g. "08:00". */
 export const hLabel = (h: number): string => `${String(h).padStart(2, '0')}:00`;
@@ -74,10 +80,7 @@ export function fmtLastSeen(value: string | Date | null | undefined): string | n
 
 /** Localized long month names (January…) and Monday-first short weekdays. */
 export function calendarNames(): { months: string[]; weekdays: string[] } {
-  const months = Array.from({ length: 12 }, (_, m) =>
-    new Date(2024, m, 1).toLocaleDateString(locale(), { month: 'long' }));
-  // 2024-01-01 was a Monday.
-  const weekdays = Array.from({ length: 7 }, (_, i) =>
-    new Date(2024, 0, 1 + i).toLocaleDateString(locale(), { weekday: 'short' }));
+  const months = Array.from({ length: 12 }, (_, m) => monthName(m));
+  const weekdays = Array.from({ length: 7 }, (_, i) => t(`cal.w${i + 1}`));
   return { months: months.map((m) => m.charAt(0).toUpperCase() + m.slice(1)), weekdays };
 }

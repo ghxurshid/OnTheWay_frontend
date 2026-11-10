@@ -1,8 +1,10 @@
 import { T, TEAL_GRADIENT, partyColor } from '@/constants/theme';
 import { t } from '@/i18n';
 import { fmtDayTime } from '@/utils/datetime';
+import { personIdOf } from '@/utils/ids';
 import { useBackHandler } from '@/hooks/useBackHandler';
 import { SaveStar } from '@/features/saved/SaveStar';
+import { walkerFacts } from './format';
 import type { RouteData, Walker } from '@/models';
 
 /** The 'preview' navTask: a walker with their server-loaded route. */
@@ -25,6 +27,8 @@ interface WalkerPreviewCardProps {
 export function WalkerPreviewCard({ task, onBack, onCall, onChat }: WalkerPreviewCardProps) {
   useBackHandler(onBack);
   const w = task.walker;
+  const person = personIdOf(w); // the trip owner — `w.id` is the trip
+  const facts = walkerFacts(w);
   const { loading, data, dist } = task;
   const isDriver = w.type === 'driver';
   const color = partyColor(w.type);
@@ -51,7 +55,8 @@ export function WalkerPreviewCard({ task, onBack, onCall, onChat }: WalkerPrevie
         </div>
       )}
 
-      <div style={{ position: 'absolute', left: 12, right: 12, bottom: 20, pointerEvents: 'auto',
+      <div style={{ position: 'absolute', left: 12, right: 12, bottom: 'calc(20px + env(safe-area-inset-bottom,0px))', pointerEvents: 'auto',
+        maxHeight: 'calc(100% - 132px - env(safe-area-inset-top,0px))', overflowY: 'auto',
         background: T.glass2, backdropFilter: 'blur(20px)', borderRadius: 20,
         border: `1px solid ${color}35`, boxShadow: '0 10px 30px rgba(0,0,0,.55)',
         padding: '14px 16px 16px', animation: 'fadeUp .3s ease both' }}>
@@ -63,14 +68,16 @@ export function WalkerPreviewCard({ task, onBack, onCall, onChat }: WalkerPrevie
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
-              <span style={{ fontSize: 15, fontWeight: 700, color: T.text }}>{w.name}</span>
+              <span style={{ fontSize: 15, fontWeight: 700, color: T.text, flexShrink: 0, maxWidth: '58%',
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{w.name}</span>
               <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 5, background: `${color}20`,
-                color, fontWeight: 600 }}>{isDriver ? '🚗' : '🧑‍✈️'} {isDriver ? (w.vehicle || t('common.driver')) : t('walkerCard.passengerTag')}</span>
+                color, fontWeight: 600, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{isDriver ? '🚗' : '🧑‍✈️'} {isDriver ? (w.vehicle || t('common.driver')) : t('walkerCard.passengerTag')}</span>
             </div>
-            <div style={{ display: 'flex', gap: 10, fontSize: 11, color: T.muted }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px 10px', fontSize: 11, color: T.muted }}>
               <span>🕐 {fmtDayTime(w.when)}</span>
               {w.rating != null && <span style={{ color: T.amber }}>★ {w.rating}</span>}
               {dist != null && isFinite(dist) && <span>📍 {t('common.km', { n: dist.toFixed(1) })}</span>}
+              {facts && <span>{facts}</span>}
             </div>
           </div>
         </div>
@@ -99,8 +106,8 @@ export function WalkerPreviewCard({ task, onBack, onCall, onChat }: WalkerPrevie
             fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans,sans-serif',
             boxShadow: `0 4px 16px ${T.tealGlow}`, display: 'flex', alignItems: 'center',
             justifyContent: 'center', gap: 7 }}>📞 {t('common.call')}</button>
-          <SaveStar place={{ id: 'partner-' + w.id, type: 'partner', label: w.name, initials: w.initials,
-            sub: `${w.from} → ${w.to}`, userId: String(w.id), partyType: w.type }} />
+          <SaveStar place={{ id: 'partner-' + person, type: 'partner', label: w.name, initials: w.initials,
+            sub: `${w.from} → ${w.to}`, userId: person, partyType: w.type }} />
           <button onClick={() => onChat(w)} aria-label={t('common.chat')} style={{ padding: '0 18px', borderRadius: 13,
             border: `1px solid ${T.border}`, background: 'transparent', color: T.text, fontSize: 14,
             fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans,sans-serif' }}>💬</button>

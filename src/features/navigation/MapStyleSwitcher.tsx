@@ -29,7 +29,7 @@ export function MapStyleSwitcher({ current, onChange, appTheme = 'dark', placeme
   return (
     <div style={{ position: 'relative', pointerEvents: 'auto' }}>
       {open && (
-        <div style={{ position: 'absolute', right: 0, ...(down ? { top: 46 } : { bottom: 46 }), width: 184,
+        <div style={{ position: 'absolute', right: 0, ...(down ? { top: 52 } : { bottom: 52 }), width: 184,
           background: T.glassSolid, backdropFilter: 'blur(20px)',
           borderRadius: 14, padding: '8px',
           border: `1px solid ${T.border}`,
@@ -68,7 +68,7 @@ export function MapStyleSwitcher({ current, onChange, appTheme = 'dark', placeme
         </div>
       )}
       <button onClick={() => setOpen((o) => !o)} title={t('mapui.mapStyle')}
-        style={{ width: 36, height: 36, borderRadius: 10,
+        style={{ width: 44, height: 44, borderRadius: 12,
           background: open ? T.tealDim : T.glass,
           backdropFilter: 'blur(12px)',
           border: `1px solid ${open ? T.teal + '60' : T.border}`,

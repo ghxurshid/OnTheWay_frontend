@@ -1,12 +1,15 @@
+import { useState } from 'react';
 import { T } from '@/constants/theme';
 import { t } from '@/i18n';
 import { FIELD_LABEL } from './fieldStyles';
 
 interface SeatsFieldProps { value: string; onChange: (v: string) => void }
 
-/** Free-seat picker (1..4) for a driver's published trip. */
+/** Free-seat picker (1..4, plus the car's own number when it is bigger) for a
+    driver's published trip. */
 export function SeatsField({ value, onChange }: SeatsFieldProps) {
-  const opts = [1, 2, 3, 4].map((n) => ({ v: String(n), l: String(n) }));
+  const [bigCar] = useState(() => (Number(value) > 4 ? Number(value) : null));
+  const opts = [1, 2, 3, 4, ...(bigCar ? [bigCar] : [])].map((n) => ({ v: String(n), l: String(n) }));
   return (
     <div style={{ marginBottom: 14 }}>
       <div style={FIELD_LABEL}>{t('form.seats')}</div>

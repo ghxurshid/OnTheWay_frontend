@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { T } from '@/constants/theme';
 import { t } from '@/i18n';
 import { AppLogo } from '@/components/ui/AppLogo';
+import { RoleGlyph } from '@/components/ui/MapSheet';
 
 type Role = 'passenger' | 'driver';
 
@@ -27,14 +28,15 @@ export function HomeScreen({ onSelect }: { onSelect: (role: Role) => void }) {
         </div>
         <div style={{ textAlign: 'center' }}>
           <div style={{ fontSize: 28, fontWeight: 700, color: T.text, letterSpacing: '-.5px' }}>OnTheWay</div>
-          <div style={{ fontSize: 13, color: T.muted, marginTop: 4 }}>{t('home.tagline')}</div>
+          <div style={{ fontSize: 13.5, color: T.muted, marginTop: 4 }}>{t('home.tagline')}</div>
+          <div style={{ fontSize: 13, color: T.muted, marginTop: 14, maxWidth: 300, lineHeight: 1.5 }}>{t('home.rememberHint')}</div>
         </div>
       </div>
       <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 12,
         opacity: in_ ? 1 : 0, transform: in_ ? 'none' : 'translateY(30px)',
         transition: 'all .6s .2s cubic-bezier(.34,1.56,.64,1)' }}>
-        <RoleBtn icon="🚗" label={t('home.passengerLabel')} sub={t('home.passengerSub')} color={T.teal} onClick={() => onSelect('passenger')} />
-        <RoleBtn icon="🧑‍✈️" label={t('home.driverLabel')} sub={t('home.driverSub')} color={T.amber} onClick={() => onSelect('driver')} />
+        <RoleBtn icon={<RoleGlyph type="passenger" size={22} color={T.teal} />} label={t('home.passengerLabel')} sub={t('home.passengerSub')} color={T.teal} onClick={() => onSelect('passenger')} />
+        <RoleBtn icon={<RoleGlyph type="driver" size={24} color={T.amber} />} label={t('home.driverLabel')} sub={t('home.driverSub')} color={T.amber} onClick={() => onSelect('driver')} />
       </div>
     </div>
   );
@@ -54,7 +56,7 @@ function RoleBtn({ icon, label, sub, color, onClick }: RoleBtnProps) {
         display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{icon}</div>
       <div style={{ textAlign: 'left' }}>
         <div style={{ fontSize: 16, fontWeight: 600, color: T.text }}>{label}</div>
-        <div style={{ fontSize: 12, color: T.muted, marginTop: 2 }}>{sub}</div>
+        <div style={{ fontSize: 13, color: T.muted, marginTop: 2 }}>{sub}</div>
       </div>
       <div style={{ marginLeft: 'auto', color: T.muted }}>
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none">

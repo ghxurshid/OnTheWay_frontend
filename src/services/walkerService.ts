@@ -61,12 +61,12 @@ interface SubmitForm {
   note: string;
 }
 
-/** The trip note the backend stores: the user's text plus the details that
-    have no structured field (free seats for a driver, the departure window). */
+/** The trip note the backend stores: the user's text plus the one detail that
+    has no structured field — the departure window. (A driver's free seats are
+    their own field, `seats`, sent next to the note.) */
 export function composeNotes(form: SubmitForm): string | null {
   const lines = [
     form.note.trim(),
-    form.type === 'driver' && Number(form.seats) > 0 ? t('form.seatsNote', { n: form.seats }) : '',
     form.tEnd > form.tStart ? t('form.windowNote', { from: hLabel(form.tStart), to: hLabel(form.tEnd) }) : '',
   ].filter(Boolean);
   return lines.length ? lines.join('\n') : null;
