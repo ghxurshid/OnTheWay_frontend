@@ -31,6 +31,8 @@ export interface Walker {
   vehicle: string | null;
   /** Completed trips (as owner or confirmed companion). */
   trips?: number;
+  /** The trip's note (owner's text + departure window); null = none. */
+  note?: string | null;
 }
 
 /** A contact the user has saved. */

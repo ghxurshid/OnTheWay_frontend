@@ -23,7 +23,8 @@ export interface MatchFilters {
   tEnd: number;
 }
 
-/** Fetch opposite-role planned trips for the Planned Trips board. */
+/** Fetch planned trips of both roles for the Planned Trips board (each row's
+    `type` says its role; `matchWalkers` filters by it). */
 export function listWalkers(role?: string) {
   return walkerApi.list(role);
 }

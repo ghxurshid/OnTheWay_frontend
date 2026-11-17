@@ -51,7 +51,8 @@ function FilterChip({ on, onClick, children }: { on: boolean; onClick: () => voi
 }
 
 /** Planned trips board: results first, filters as one row of chips (day,
-    time of day, who, route). The viewer's own open trip sits on top. */
+    time of day, who, route). The viewer's own open trip sits on top. The board
+    holds planned trips of BOTH roles; the Driver / Passenger chips filter it. */
 export function SchedulePanel({ mode, userLoc, onMapTask, engaged, onCreate, onOpenMyTrips }: SchedulePanelProps) {
   const { walkers: loaded, loading, error, reload } = useWalkers(mode);
   // The server leaves blocked people out; this also hides someone blocked
@@ -96,7 +97,6 @@ export function SchedulePanel({ mode, userLoc, onMapTask, engaged, onCreate, onO
     try { await tripApi.cancel(own.id); mine.reload(); } catch (e) { setOwnError(errorMessage(e)); } finally { setOwnBusy(false); }
   };
 
-  const roleLabel = mode === 'driver' ? t('common.passenger') : t('common.driver');
   const dayChips: Array<{ id: DayFilter; label: string }> = [
     { id: 'any', label: t('search.anyDay') }, { id: 0, label: t('form.today') },
     { id: 1, label: t('form.tomorrow') }, { id: 2, label: t('form.dayAfter') },
@@ -146,7 +146,7 @@ export function SchedulePanel({ mode, userLoc, onMapTask, engaged, onCreate, onO
       <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '12px 16px 16px' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 10 }}>
           <span style={{ fontSize: 12, fontWeight: 700, color: T.muted, textTransform: 'uppercase', letterSpacing: .6 }}>
-            {filtered ? t('schedule.resultsCount', { n: list.length }) : t('search.nearestOf', { role: roleLabel })}
+            {filtered ? t('schedule.resultsCount', { n: list.length }) : t('search.nearest')}
           </span>
           {filtered && (
             <button onClick={reset} style={{ minHeight: 32, padding: '0 10px', borderRadius: 9, border: `1px solid ${T.border}`,

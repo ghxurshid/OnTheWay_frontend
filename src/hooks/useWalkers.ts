@@ -2,8 +2,8 @@ import { useCallback } from 'react';
 import { useAsync } from './useAsync';
 import { listWalkers } from '@/services/walkerService';
 
-/** Loads the opposite-role planned trips via the service layer. Pass the
-    caller's own search role; reloads if it changes. */
+/** Loads the planned trips of both roles via the service layer. The caller's
+    own search role is still passed (harmless); reloads if it changes. */
 export function useWalkers(role?: string) {
   const loader = useCallback(() => listWalkers(role), [role]);
   const { data, loading, error, reload } = useAsync(loader, [role], []);

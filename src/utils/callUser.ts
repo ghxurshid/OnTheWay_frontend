@@ -7,6 +7,7 @@ import { t } from '@/i18n';
 import { initialsOf } from '@/utils/avatar';
 import { personIdOf } from '@/utils/ids';
 import type { LatLng } from '@/utils/geo';
+import type { PushNotif } from '@/models';
 
 type PartyType = 'driver' | 'passenger';
 
@@ -85,3 +86,20 @@ export const inviteToCallUser = (
   return c ? contactToUser(c)
     : { id, type: 'passenger', initials: '👤', name: t('call.unknownCaller'), sub: '' };
 };
+
+/** The toast for a callee who looks offline. Nobody can answer a closed app:
+    suggest a message instead (the backend also pings them through the
+    Telegram bot) — unless I blocked them, when a message would be refused
+    too. (A block made by THEM is invisible to this client.) Both are the
+    answer to the user's own tap: shown even while the chat it came from closes. */
+export function offlineNotice(user: CallUser, blockedByMe: boolean): PushNotif {
+  if (blockedByMe) return { title: t('call.failedTitle'), body: t('errors.userBlocked'), priority: 'high' };
+  return {
+    title: t('call.offlineTitle', { name: (user.name || '').split(' ')[0] }),
+    body: t('call.offlineBody'),
+    user,
+    chat: true,
+    action: t('common.chat'),
+    priority: 'high',
+  };
+}

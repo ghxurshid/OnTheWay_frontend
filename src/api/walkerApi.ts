@@ -20,6 +20,8 @@ interface BoardRow extends WalkerRow {
   initials?: string;
   seats?: number | null;
   completedTrips?: number;
+  /** The trip's notes as stored (owner's text + the departure-window line). */
+  notes?: string | null;
 }
 
 /** Seats are informational: a whole number 1–8, anything else is "unknown". */
@@ -43,8 +45,9 @@ interface CreateTripForm {
 }
 
 export const walkerApi = {
-  /** GET /walkers — opposite-role planned trips for the separate Planned Trips
-      board (pass the caller's own `role`; the backend returns the opposite). */
+  /** GET /walkers — planned trips of BOTH roles for the separate Planned Trips
+      board (without the caller's own, hidden or blocked ones). `role` is still
+      sent but no longer narrows the result; each row's `type` says its role. */
   list(role?: string) {
     if (USE_MOCKS) return mockResponse(WALKERS_DATA).then((rows) => rows.map(toBoardWalker));
     const qs = role ? `?role=${encodeURIComponent(role)}` : '';
@@ -79,12 +82,15 @@ export const walkerApi = {
 
 /** Map a board WalkerDto into the walker shape: `when` as a Date, string ids
     (trip `id`, owner `userId` — demo rows without one use their own id),
-    initials, a driver's seats and the completed-trip count as `trips`. */
+    initials, a driver's seats, the completed-trip count as `trips` and the
+    trip's `notes` as `note` (trimmed; null when empty). */
 export function toBoardWalker(r: BoardRow) {
   if (!r) return r;
+  const { notes, ...rest } = r;
   const driver = String(r.type || '').toLowerCase() === 'driver';
   return {
-    ...r,
+    ...rest,
+    note: typeof notes === 'string' && notes.trim() ? notes.trim() : null,
     id: String(r.id),
     userId: r.userId != null && r.userId !== '' ? String(r.userId) : String(r.id),
     initials: r.initials || initialsOf(r.name),

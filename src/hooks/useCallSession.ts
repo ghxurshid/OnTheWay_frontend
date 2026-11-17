@@ -28,9 +28,10 @@ import { USE_MOCKS } from '@/api/client';
 import { TASHKENT } from '@/constants/map';
 import { callClient, presenceClient } from '@/services/realtime';
 import { savedStore } from '@/services/savedStore';
+import { blockStore } from '@/services/blockStore';
 import { addContact } from '@/services/contactService';
 import { recordCompanion } from '@/services/liveTripService';
-import { inviteToCallUser } from '@/utils/callUser';
+import { inviteToCallUser, offlineNotice } from '@/utils/callUser';
 import type { CallUser } from '@/utils/callUser';
 import type { LatLng } from '@/utils/geo';
 import { isRealUserId } from '@/utils/ids';
@@ -162,17 +163,7 @@ export function useCallSession({ authReady, notify, mapHook, userLocRef, liveWal
     return () => { offIncoming(); offAccepted(); offEnded(); offRejected(); offOffer(); offAnswer(); };
   }, [authReady]); // eslint-disable-line react-hooks/exhaustive-deps -- refs + notify are stable
 
-  // Nobody can answer a closed app: suggest a message instead (the backend
-  // also pings them through the Telegram bot).
-  const notifyOffline = (user: CallUser) => notify({
-    title: t('call.offlineTitle', { name: firstName(user) }),
-    body: t('call.offlineBody'),
-    user,
-    chat: true,
-    action: t('common.chat'),
-    // The answer to the user's own tap: shown even while the chat it came from closes.
-    priority: 'high',
-  });
+  const notifyOffline = (user: CallUser) => notify(offlineNotice(user, blockStore.has(user.id)));
 
   const handleCall = async (user: CallUser) => {
     dismissSelected?.();

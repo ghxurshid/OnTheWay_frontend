@@ -100,6 +100,11 @@ export function WalkerPreviewCard({ task, onBack, onCall, onChat }: WalkerPrevie
           )}
         </div>
 
+        {w.note && (
+          <div style={{ fontSize: 12, color: T.muted, lineHeight: 1.45, whiteSpace: 'pre-line', overflowWrap: 'anywhere',
+            margin: '-4px 2px 12px' }}>{w.note}</div>
+        )}
+
         <div style={{ display: 'flex', gap: 10 }}>
           <button onClick={() => onCall(w)} style={{ flex: 1, padding: '12px', borderRadius: 13, border: 'none',
             background: TEAL_GRADIENT, color: 'white', fontSize: 14,

@@ -31,6 +31,15 @@ describe('toBoardWalker', () => {
     expect(toBoardWalker({ id: 'w1', type: 'driver', name: 'Aziz' }).userId).toBe('w1');
   });
 
+  it('maps the trip notes to a trimmed note, null when empty or missing', () => {
+    const w = toBoardWalker({ id: '17', type: 'passenger', name: 'Malika', notes: '  No smoking\nDeparture window: 08:00–10:00 \n' });
+    expect(w.note).toBe('No smoking\nDeparture window: 08:00–10:00');
+    expect(w).not.toHaveProperty('notes');
+    expect(toBoardWalker({ id: '18', type: 'driver', name: 'Aziz', notes: '   ' }).note).toBeNull();
+    expect(toBoardWalker({ id: '19', type: 'driver', name: 'Aziz', notes: null }).note).toBeNull();
+    expect(toBoardWalker({ id: '20', type: 'driver', name: 'Aziz' }).note).toBeNull();
+  });
+
   it('a passenger row has no seats; a missing count is zero', () => {
     expect(toBoardWalker({ id: '16', type: 'passenger', name: 'Malika', seats: 1 })).toMatchObject({ seats: null, trips: 0 });
   });

@@ -19,6 +19,15 @@ describe('matchWalkers', () => {
     expect(found.map((w) => w.id)).toEqual(['tomorrow']);
   });
 
+  it('the Driver / Passenger chips filter the mixed board; "all" keeps both roles', () => {
+    const when = new Date(2026, 8, 25, 9);
+    const mixed = [walker('d1', when), { ...walker('p1', when), type: 'passenger' as const }, walker('d2', when)];
+    const base = { date: '', tStart: 0, tEnd: 24 };
+    expect(matchWalkers(mixed, { ...base, type: 'driver' }, [41.3, 69.24]).map((w) => w.id)).toEqual(['d1', 'd2']);
+    expect(matchWalkers(mixed, { ...base, type: 'passenger' }, [41.3, 69.24]).map((w) => w.id)).toEqual(['p1']);
+    expect(matchWalkers(mixed, { ...base, type: 'all' }, [41.3, 69.24])).toHaveLength(3);
+  });
+
   it('any day when no date is chosen', () => {
     const found = matchWalkers([walker('a', new Date(2026, 8, 25, 9)), walker('b', new Date(2026, 8, 27, 9))],
       { type: 'all', date: '', tStart: 8, tEnd: 10 }, [41.3, 69.24]);

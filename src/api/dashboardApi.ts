@@ -3,11 +3,18 @@
 import { USE_MOCKS, mockResponse, http } from './client';
 import { WEEKLY_KM, TOP_DESTINATIONS } from '@/mocks/dashboard';
 
+/** The summary request path. `weekly` is Monday…Sunday of the current week
+    in the device's local time, so the server is told the device's offset
+    (minutes EAST of UTC: local = UTC + offset). */
+export function summaryPath(tzOffsetMinutes = -new Date().getTimezoneOffset()): string {
+  return `/dashboard/summary?tzOffsetMinutes=${Math.round(tzOffsetMinutes)}`;
+}
+
 export const dashboardApi = {
-  /** GET /dashboard/summary */
+  /** GET /dashboard/summary?tzOffsetMinutes=… */
   getSummary() {
     if (USE_MOCKS) return mockResponse({ weekly: WEEKLY_KM, destinations: TOP_DESTINATIONS });
-    return http('/dashboard/summary');
+    return http(summaryPath());
   },
 
   /** GET /dashboard/statistics — full metrics for a reporting period.
