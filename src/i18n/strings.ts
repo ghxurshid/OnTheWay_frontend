@@ -382,7 +382,7 @@ export const STRINGS = {
     search: {
       anyDay:    { uz: 'Istalgan kun', ru: 'Любой день', en: 'Any day' },
       route:     { uz: 'Yoʻnalish', ru: 'Маршрут', en: 'Route' },
-      nearest:   { uz: 'Yaqindagi eʼlonlar', ru: 'Объявления рядом', en: 'Nearby trips' },
+      nearestOf: { uz: 'Yaqindagi eʼlonlar · {role}', ru: 'Объявления рядом · {role}', en: 'Nearby · {role}' },
       yourTrip:  { uz: 'Sizning eʼloningiz', ru: 'Ваше объявление', en: 'Your trip' },
       manage:    { uz: 'Boshqarish', ru: 'Управлять', en: 'Manage' },
       addOwn:    { uz: 'Oʻz eʼloningizni qoʻshing', ru: 'Добавить своё объявление', en: 'Post your own trip' },

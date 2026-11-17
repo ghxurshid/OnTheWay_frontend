@@ -21,7 +21,6 @@ import { LocationField } from '@/components/form/LocationField';
 import { WalkerCard } from '@/features/matching/WalkerCard';
 import type { LatLng, MapTask, PartyType, Place, Walker } from '@/models';
 
-type WalkerFilterType = 'all' | 'driver' | 'passenger';
 type DayFilter = 'any' | 0 | 1 | 2;
 
 interface SchedulePanelProps {
@@ -51,15 +50,15 @@ function FilterChip({ on, onClick, children }: { on: boolean; onClick: () => voi
 }
 
 /** Planned trips board: results first, filters as one row of chips (day,
-    time of day, who, route). The viewer's own open trip sits on top. The board
-    holds planned trips of BOTH roles; the Driver / Passenger chips filter it. */
+    time of day, route). The viewer's own open trip sits on top. The board holds
+    only the OPPOSITE role's trips: a passenger never sees another passenger's
+    trip, nor a driver a driver's (the server sends only those; filtered here too). */
 export function SchedulePanel({ mode, userLoc, onMapTask, engaged, onCreate, onOpenMyTrips }: SchedulePanelProps) {
   const { walkers: loaded, loading, error, reload } = useWalkers(mode);
   // The server leaves blocked people out; this also hides someone blocked
   // after the list loaded. A board row is a trip — test its owner.
   const blocked = useStoreEvent(BLOCK_EVENT, blockStore.list);
-  const walkers = loaded.filter((w: Walker) => !blocked.includes(personIdOf(w)));
-  const [type, setType] = useState<WalkerFilterType>('all');
+  const walkers = loaded.filter((w: Walker) => w.type !== mode && !blocked.includes(personIdOf(w)));
   const [day, setDay] = useState<DayFilter>('any');
   const [slot, setSlot] = useState<string | null>(null);
   const [routeOpen, setRouteOpen] = useState(false);
@@ -74,15 +73,15 @@ export function SchedulePanel({ mode, userLoc, onMapTask, engaged, onCreate, onO
 
   const center = userLoc || TASHKENT;
   const preset = TIME_PRESETS.find((p) => p.id === slot) || null;
-  const filtered = type !== 'all' || day !== 'any' || !!preset || !!from || !!to;
+  const filtered = day !== 'any' || !!preset || !!from || !!to;
   const list = filtered
     ? matchWalkers(walkers, {
-      type, from, to, date: day === 'any' ? '' : isoDaysFromToday(day),
+      type: 'all', from, to, date: day === 'any' ? '' : isoDaysFromToday(day),
       tStart: preset ? preset.s : 0, tEnd: preset ? preset.e : 24,
     }, center)
     : nearestWalkers(walkers, center, 12);
 
-  const reset = () => { setType('all'); setDay('any'); setSlot(null); setFrom(null); setTo(null); };
+  const reset = () => { setDay('any'); setSlot(null); setFrom(null); setTo(null); };
   const openPick = (which: 'from' | 'to', cur: Place | null) => onMapTask({
     type: 'pick', label: which === 'from' ? t('pickField.from') : t('pickField.to'),
     current: cur ? cur.latlng : null, onDone: (p) => (which === 'from' ? setFrom(p) : setTo(p)),
@@ -129,8 +128,6 @@ export function SchedulePanel({ mode, userLoc, onMapTask, engaged, onCreate, onO
         </div>
         <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2 }}>
           {TIME_PRESETS.map((p) => <FilterChip key={p.id} on={slot === p.id} onClick={() => setSlot(slot === p.id ? null : p.id)}>{slotLabel[p.id]}</FilterChip>)}
-          <FilterChip on={type === 'driver'} onClick={() => setType(type === 'driver' ? 'all' : 'driver')}>🚗 {t('schedule.typeDriver')}</FilterChip>
-          <FilterChip on={type === 'passenger'} onClick={() => setType(type === 'passenger' ? 'all' : 'passenger')}>🧍 {t('schedule.typePassenger')}</FilterChip>
           <FilterChip on={routeOpen || !!from || !!to} onClick={() => setRouteOpen((o) => !o)}>{t('search.route')} {routeOpen ? '▴' : '▾'}</FilterChip>
         </div>
         {routeOpen && (
@@ -146,7 +143,7 @@ export function SchedulePanel({ mode, userLoc, onMapTask, engaged, onCreate, onO
       <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '12px 16px 16px' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 10 }}>
           <span style={{ fontSize: 12, fontWeight: 700, color: T.muted, textTransform: 'uppercase', letterSpacing: .6 }}>
-            {filtered ? t('schedule.resultsCount', { n: list.length }) : t('search.nearest')}
+            {filtered ? t('schedule.resultsCount', { n: list.length }) : t('search.nearestOf', { role: mode === 'driver' ? t('common.passenger') : t('common.driver') })}
           </span>
           {filtered && (
             <button onClick={reset} style={{ minHeight: 32, padding: '0 10px', borderRadius: 9, border: `1px solid ${T.border}`,

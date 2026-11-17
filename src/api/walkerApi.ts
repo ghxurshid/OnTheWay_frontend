@@ -45,9 +45,9 @@ interface CreateTripForm {
 }
 
 export const walkerApi = {
-  /** GET /walkers — planned trips of BOTH roles for the separate Planned Trips
-      board (without the caller's own, hidden or blocked ones). `role` is still
-      sent but no longer narrows the result; each row's `type` says its role. */
+  /** GET /walkers — opposite-role planned trips for the separate Planned Trips
+      board (pass the caller's own `role`; the backend returns the opposite —
+      nobody sees trips of their own role). */
   list(role?: string) {
     if (USE_MOCKS) return mockResponse(WALKERS_DATA).then((rows) => rows.map(toBoardWalker));
     const qs = role ? `?role=${encodeURIComponent(role)}` : '';
