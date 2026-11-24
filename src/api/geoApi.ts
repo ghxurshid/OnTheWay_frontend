@@ -15,7 +15,11 @@ const NOMINATIM = 'https://nominatim.openstreetmap.org';
 const OSRM = 'https://router.project-osrm.org';
 const TIMEOUT_MS = 12_000;
 
-const langs = (): string => [i18nStore.mode, ...['uz', 'ru', 'en'].filter((l) => l !== i18nStore.mode)].join(',');
+/** The UI language only, like the backend proxy: with no name in it Nominatim
+    falls back to the place's default OSM name — Uzbek (Latin) in Uzbekistan.
+    Listing the other languages too would make a missing `name:uz` fall
+    through to `name:ru`, which then needs transliterating. */
+const langs = (): string => i18nStore.mode;
 
 /** Direct public call (demo mode only), with a timeout and ApiError on failure. */
 async function publicJson<T>(url: string): Promise<T> {

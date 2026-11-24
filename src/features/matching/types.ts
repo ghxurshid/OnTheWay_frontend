@@ -26,6 +26,9 @@ export interface MapPerson {
   seats?: number | null;
   startLatlng?: LatLng | null;
   destLatlng?: LatLng | null;
+  /** The labels of their route's ends as they shared them (null: not shared). */
+  startLabel?: string | null;
+  destLabel?: string | null;
   note?: string | null;
 }
 

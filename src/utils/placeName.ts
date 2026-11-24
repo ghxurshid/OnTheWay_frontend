@@ -1,9 +1,13 @@
 /* ════════════════════════════════════════════════════════════════
    PLACE NAMES — make geocoder labels read naturally in the UI language.
-   OSM rarely has Uzbek names for Tashkent streets, so the geocoder falls back
-   to the Russian Cyrillic name ("Восита Вахидова улица"). For the Latin-script
-   UI languages (uz, en) such names are transliterated and the street-type
-   word is translated and moved to where the language puts it:
+   The geocoder is asked in the UI language only: in Uzbekistan OSM's default
+   `name` is already Uzbek (Latin) and `name:ru` / `name:en` usually exist, so
+   uz gets "Kichik Halqa yo'li, Chilonzor Tumani", en "Small Ring Road,
+   Chilanzar district", ru "Малая кольцевая дорога, Чиланзарский район" — all
+   kept exactly as given.
+   Last resort, for the rare place known only by a Cyrillic name: in the
+   Latin-script UI languages (uz, en) it is transliterated and its street-type
+   word translated and moved to where the language puts it:
      uz: "Восита Вахидова улица" → "Vosita Vaxidova koʻchasi"
      en: "Восита Вахидова улица" → "Vosita Vakhidova Street"
    Russian UI keeps the original.
@@ -21,40 +25,32 @@ const UZ_MAP: Record<string, string> = {
 const EN_MAP: Record<string, string> = {
   ...UZ_MAP, х: 'kh', ж: 'zh', ц: 'ts', щ: 'shch', ъ: '', ў: 'o', қ: 'q', ғ: 'gh',
 };
+/** An abbreviation keeps "ц" as "ts" in Uzbek too: ЦУМ → TsUM, not "SUM". */
+const UZ_ACRONYM_MAP: Record<string, string> = { ...UZ_MAP, ц: 'ts' };
 
 // Street-type words: [Russian/Uzbek-Cyrillic forms] → uz / en word.
-const TYPES: Array<{ re: RegExp; uz: string; en: string }> = [
+const TYPES: Array<{ re: RegExp; uz: string; en: string; area?: boolean }> = [
   { re: /^(улица|ул\.?|кўчаси|кучаси)$/i, uz: 'koʻchasi', en: 'Street' },
-  { re: /^(проспект|пр-т|просп\.?|шоҳ кўчаси)$/i, uz: 'shoh koʻchasi', en: 'Avenue' },
-  { re: /^(переулок|пер\.?|тор кўчаси)$/i, uz: 'tor koʻchasi', en: 'Lane' },
+  { re: /^(проспект|пр-т|просп\.?)$/i, uz: 'shoh koʻchasi', en: 'Avenue' },
+  { re: /^(переулок|пер\.?)$/i, uz: 'tor koʻchasi', en: 'Lane' },
   { re: /^(проезд)$/i, uz: 'oʻtish yoʻli', en: 'Passage' },
-  { re: /^(тупик|берк кўча)$/i, uz: 'berk koʻcha', en: 'Dead end' },
+  { re: /^(тупик)$/i, uz: 'berk koʻcha', en: 'Dead end' },
   { re: /^(площадь|майдони)$/i, uz: 'maydoni', en: 'Square' },
   { re: /^(махалля|махалла|маҳалла|маҳалласи|мфй)$/i, uz: 'mahallasi', en: 'Mahalla' },
-  { re: /^(район|тумани)$/i, uz: 'tumani', en: 'District' },
+  { re: /^(район|тумани)$/i, uz: 'tumani', en: 'District', area: true },
   { re: /^(массив|мавзеси)$/i, uz: 'massivi', en: 'Estate' },
   { re: /^(квартал|мавзе)$/i, uz: 'mavzesi', en: 'Block' },
   { re: /^(шоссе)$/i, uz: 'shossesi', en: 'Highway' },
 ];
 
-// Tashkent's districts: OSM names them with a Russian adjective ("Юнусабадский
-// район"); transliterating that gives "Yunusabadskiy tumani". Their own names:
-const DISTRICTS: Array<{ re: RegExp; uz: string; en: string }> = [
-  { re: /^бектемирск/i, uz: 'Bektemir', en: 'Bektemir' },
-  { re: /^чиланзарск/i, uz: 'Chilonzor', en: 'Chilonzor' },
-  { re: /^мирабадск/i, uz: 'Mirobod', en: 'Mirobod' },
-  { re: /^мирзо-?улугбекск/i, uz: 'Mirzo Ulugʻbek', en: 'Mirzo Ulugbek' },
-  { re: /^алмазарск/i, uz: 'Olmazor', en: 'Olmazor' },
-  { re: /^сергелийск/i, uz: 'Sergeli', en: 'Sergeli' },
-  { re: /^шайхантахурск/i, uz: 'Shayxontohur', en: 'Shaykhontohur' },
-  { re: /^учтепинск/i, uz: 'Uchtepa', en: 'Uchtepa' },
-  { re: /^яккасарайск/i, uz: 'Yakkasaroy', en: 'Yakkasaroy' },
-  { re: /^яшнабадск/i, uz: 'Yashnobod', en: 'Yashnobod' },
-  { re: /^юнусабадск/i, uz: 'Yunusobod', en: 'Yunusobod' },
-  { re: /^янгиха[её]тск/i, uz: 'Yangihayot', en: 'Yangihayot' },
-];
-/** A Russian place adjective ("Чиназский", "Сергелийский"): the ending to drop. */
-const ADJECTIVE_END = /й?[сц]к(ий|ая|ое|ого|ом)$/i;
+/** A Russian place adjective before "район" ("Чиназский"): the ending to drop.
+    A "й" before it goes only after "и" (Сергелийский → Sergeli, Яккасарайский →
+    Yakkasaray). No lookbehind: older iOS WebViews cannot parse it. */
+const ADJECTIVE_END = /[сц]к(ий|ая|ое|ого|ом)$/i;
+const dropAdjectiveEnd = (word: string): string => word.replace(ADJECTIVE_END, '').replace(/ий$/i, 'и');
+
+/** An abbreviation: Cyrillic capitals only ("ЦУМ", "Ц-1"). */
+const isAcronym = (word: string): boolean => CYR.test(word) && word === word.toUpperCase();
 
 function translit(word: string, map: Record<string, string>): string {
   let out = '';
@@ -70,25 +66,22 @@ function translit(word: string, map: Record<string, string>): string {
   return out;
 }
 
-/** One comma-separated segment of a geocoder label, localized. A known
-    district adjective becomes the district's own name; any other place
-    adjective before "район" loses its ending (Чиназский район → Chinaz tumani). */
+/** One comma-separated Cyrillic segment of a geocoder label, transliterated. A
+    place adjective before "район" loses its ending (Чиназский район → Chinaz tumani). */
 function localizeSegment(seg: string, lang: 'uz' | 'en'): string {
   const map = lang === 'uz' ? UZ_MAP : EN_MAP;
+  const acronymMap = lang === 'uz' ? UZ_ACRONYM_MAP : EN_MAP;
   const words = seg.trim().split(/\s+/);
   let typeWord = '';
-  let district = false;
+  let area = false;
   const rest: string[] = [];
   for (const w of words) {
     const hit = typeWord ? null : TYPES.find((tp) => tp.re.test(w));
-    if (hit) { typeWord = hit[lang]; district = hit.en === 'District'; }
+    if (hit) { typeWord = hit[lang]; area = !!hit.area; }
     else rest.push(w);
   }
-  const name = rest.map((w) => {
-    const known = DISTRICTS.find((d) => d.re.test(w));
-    if (known) return known[lang];
-    return translit(district && ADJECTIVE_END.test(w) ? w.replace(ADJECTIVE_END, '') : w, map);
-  }).join(' ');
+  const name = rest.map((w) => (isAcronym(w) ? translit(w, acronymMap)
+    : translit(area && ADJECTIVE_END.test(w) ? dropAdjectiveEnd(w) : w, map))).join(' ');
   return typeWord ? `${name} ${typeWord}`.trim() : name;
 }
 
@@ -134,7 +127,9 @@ export function shortAddress(a: AddressParts | null | undefined): string | null 
     return near ? localizePlace(`${near}, ${a.house_number}`) : null;
   }
   const area = areaOf(a, WIDE_AREAS);
-  const first = street ? (a.house_number ? `${street} ${a.house_number}` : street) : null;
+  // The street is localized on its own, so a number never lands inside it
+  // ("Vosita Vaxidova koʻchasi 12", not "… 12 koʻchasi").
+  const first = street ? (a.house_number ? `${localizePlace(street)} ${a.house_number}` : street) : null;
   const parts = [first, area].filter((p): p is string => !!p);
   return parts.length ? localizePlace(parts.join(', ')) : null;
 }

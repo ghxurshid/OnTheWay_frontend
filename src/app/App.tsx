@@ -36,7 +36,7 @@ import type { SimWalker, Simulation } from '@/services/simulationService';
 import { SIM_COUNT_EVENT, simStore } from '@/services/simStore';
 import { UNREAD_EVENT, unreadStore } from '@/services/unreadStore';
 import { RouteServer, getRoute, routeCoords, toRoutePublishDto } from '@/services/routeService';
-import type { OsrmRoute } from '@/services/routeService';
+import type { OsrmRoute, RouteEndLabels } from '@/services/routeService';
 import { reverseGeocode } from '@/services/geocodingService';
 import { closeLiveTrip, createLiveTrip, forgetCompanion, publishBanded, recordedCompanions } from '@/services/liveTripService';
 import type { RouteWaypoint } from '@/services/liveTripService';
@@ -317,6 +317,7 @@ export function App() {
       vehicle: w.type === 'driver' ? vehicle : null, seats: w.type === 'driver' ? (w.seats ?? null) : null,
       startLatlng: w.start || (w.route && w.route[0]) || null,
       destLatlng: w.dest || (w.route && w.route[w.route.length - 1]) || null,
+      startLabel: w.startLabel || null, destLabel: w.destLabel || null,
       note: w.note || null,
     };
   }, []);
@@ -612,8 +613,8 @@ export function App() {
 
   // Live mode: share the route over presence so watching walkers see it, and
   // turn on live-location sharing (the Free Mode switch reflects it).
-  const shareRoute = (route: OsrmRoute, coords: LatLng[]) => {
-    presenceClient.publishRoute(toRoutePublishDto(coords, route)).catch(() => {});
+  const shareRoute = (route: OsrmRoute, coords: LatLng[], labels?: RouteEndLabels | null) => {
+    presenceClient.publishRoute(toRoutePublishDto(coords, route, labels)).catch(() => {});
     setFreeMode(true);
   };
 
@@ -631,7 +632,7 @@ export function App() {
       if (!route?.geometry) { notSharing(); return; }
       const coords = routeCoords(route);
       liveTripIdRef.current = String(trip.id);
-      shareRoute(route, coords);
+      shareRoute(route, coords, { from: trip.origin?.address, to: trip.destination?.address });
       driveRoute(route, coords);
     } catch {
       notSharing(); // restore is best-effort; the map still works without it
@@ -647,7 +648,8 @@ export function App() {
     const coords = routeCoords(route);
     const ends = waypoints.filter((w) => w.latlng);
     const asPlace = (w?: RouteWaypoint): Place | null => (w && w.latlng ? { latlng: w.latlng as LatLng, label: (w as { value?: string }).value || '' } : null);
-    lastRouteRef.current = { from: asPlace(ends[0]), to: asPlace(ends[ends.length - 1]) };
+    const picked = { from: asPlace(ends[0]), to: asPlace(ends[ends.length - 1]) };
+    lastRouteRef.current = picked;
 
     if (USE_MOCKS) {
       // Demo: regenerate simulated walkers along the chosen route. A route
@@ -662,7 +664,7 @@ export function App() {
       // journey as a Live trip (restorable on reopen). Creating a route engages
       // the viewer, so the planned-trips board hides.
       mapHook.setWalkersDimmed(false);
-      shareRoute(route, coords);
+      shareRoute(route, coords, { from: picked.from?.label, to: picked.to?.label });
       setHasCreatedTrip(true);
       createLiveTrip(route, coords, waypoints, mode as PartyType).then((id) => { if (id) liveTripIdRef.current = id; });
     }

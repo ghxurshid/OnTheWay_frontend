@@ -6,7 +6,7 @@ import { useAgreement } from '@/hooks/useAgreement';
 import { SaveStar } from '@/features/saved/SaveStar';
 import { RoleGlyph } from '@/components/ui/MapSheet';
 import { reverseGeocode } from '@/services/geocodingService';
-import { labelArea } from '@/utils/placeName';
+import { labelArea, localizePlace } from '@/utils/placeName';
 import type { LatLng } from '@/models';
 import type { MapPerson } from './types';
 
@@ -39,6 +39,11 @@ async function areaOf(p: LatLng): Promise<string> {
   return area;
 }
 
+/** A route end's name: the label its owner shared (in this UI's script), else
+    the area around the point. */
+const endName = (label: string | null | undefined, p: LatLng): Promise<string> =>
+  (label?.trim() ? Promise.resolve(localizePlace(label.trim())) : areaOf(p));
+
 /** Bottom-sheet card of a person on the map: where they are heading, their
     car and free seats, how well the route matches, trust signals — and the
     next step (ride together; call / chat; save; report / block). */
@@ -55,11 +60,11 @@ export function UserPopup({ user, onClose, onCall, onChat, onRide, onAddContact,
     let alive = true;
     setRoute(null);
     if (user.startLatlng && user.destLatlng) {
-      Promise.all([areaOf(user.startLatlng), areaOf(user.destLatlng)])
+      Promise.all([endName(user.startLabel, user.startLatlng), endName(user.destLabel, user.destLatlng)])
         .then(([from, to]) => { if (alive) setRoute({ from, to }); }).catch(() => {});
     }
     return () => { alive = false; };
-  }, [user.id]); // eslint-disable-line react-hooks/exhaustive-deps -- one lookup per person
+  }, [user.id, user.startLabel, user.destLabel]); // eslint-disable-line react-hooks/exhaustive-deps -- one lookup per person (and per shared label)
 
   const stats: [string, string | undefined, string][] = [
     [t('userPopup.distance'), user.dist, T.text],

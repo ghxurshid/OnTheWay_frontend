@@ -27,13 +27,22 @@ export function getRoute(coords: LatLng[], options?: { alternatives?: boolean })
 export const routeCoords = (route: OsrmRoute): LatLng[] =>
   route.geometry ? osrmToLatLngs(route.geometry.coordinates) : [];
 
-/** A drawn route → the PresenceHub RoutePublishDto shared with watchers. */
-export function toRoutePublishDto(coords: LatLng[], route: Partial<OsrmRoute> | null) {
+/** Where a route starts and ends, as the user picked them in the route sheet. */
+export interface RouteEndLabels { from?: string | null; to?: string | null }
+
+/** A label worth sharing: trimmed and not blank. */
+const shareable = (label: string | null | undefined): string | null => label?.trim() || null;
+
+/** A drawn route → the PresenceHub RoutePublishDto shared with watchers. The
+    picked places' labels go along, so a watcher's card can say where the
+    person is heading without reverse-geocoding the ends. */
+export function toRoutePublishDto(coords: LatLng[], route: Partial<OsrmRoute> | null, labels?: RouteEndLabels | null) {
   const points = coords.map(([lat, lng]) => ({ lat, lng }));
   return {
     origin: points[0],
-    originLabel: null,
+    originLabel: shareable(labels?.from),
     destination: points[points.length - 1],
+    destinationLabel: shareable(labels?.to),
     points,
     distanceKm: route?.distance ? route.distance / 1000 : null,
     etaMinutes: route?.duration ? Math.round(route.duration / 60) : null,

@@ -97,7 +97,7 @@ describe('shortPlaceName', () => {
       expect(labels).toEqual(['Chilonzor 9 kvartal, 13/1', 'Чиланзар-10, 13/1', 'Чиланзар-20, 13/1']);
     });
 
-    it('localized', () => {
+    it('a Cyrillic-only name falls back to transliteration', () => {
       i18nStore.set('uz');
       expect(label(BUILDING_BLOCK_10)).toBe('Chilanzar-10, 13/1');
     });
@@ -128,41 +128,90 @@ describe('shortAddress', () => {
   });
 });
 
-describe('district names in uz / en (QA samples, 2026-11-06)', () => {
-  it('Tashkent districts read as their own names, not transliterated Russian adjectives', () => {
+// Nominatim asked in the UI language only (namedetails, 2026-11-24): OSM's default
+// `name` is Uzbek, `name:ru` / `name:en` usually exist, `name:uz` usually not.
+const KICHIK_HALQA = {
+  uz: { road: "Kichik Halqa yo'li", district: 'Chilonzor Tumani', city: 'Toshkent' },
+  ru: { road: 'Малая кольцевая дорога', district: 'Чиланзарский район', city: 'Ташкент' },
+  en: { road: 'Small Ring Road', district: 'Chilanzar district', city: 'Tashkent' },
+} satisfies Record<'uz' | 'ru' | 'en', AddressParts>;
+const QATORTOL = {
+  uz: { road: "Qatortol ko'chasi", house_number: '12', district: 'Chilonzor Tumani' },
+  ru: { road: 'Катартал улица', house_number: '12', district: 'Чиланзарский район' },
+  en: { road: 'Katartal Street', house_number: '12', district: 'Chilanzar district' },
+} satisfies Record<'uz' | 'ru' | 'en', AddressParts>;
+const AMIR_TEMUR_AVENUE = {
+  uz: { road: "Amir Temur shoh ko'chasi", district: 'Yunusobod Tumani' },
+  en: { road: 'Amir Timur Avenue', district: 'Yunusabad district' },
+} satisfies Record<'uz' | 'en', AddressParts>;
+
+describe('names in the UI language are kept exactly as the geocoder gives them', () => {
+  it('uz: the Uzbek default name', () => {
     i18nStore.set('uz');
-    expect(localizePlace('Srkver, Юнусабадский район')).toBe('Srkver, Yunusobod tumani');
-    expect(localizePlace('Шота Руставели улица, Яккасарайский район')).toBe('Shota Rustaveli koʻchasi, Yakkasaroy tumani');
-    expect(localizePlace('Amir Temur, Мирзо-Улугбекский район')).toBe('Amir Temur, Mirzo Ulugʻbek tumani');
-    expect(localizePlace('Шайхантахурский район')).toBe('Shayxontohur tumani');
+    expect(shortAddress(KICHIK_HALQA.uz)).toBe("Kichik Halqa yo'li, Chilonzor Tumani");
+    expect(shortAddress(QATORTOL.uz)).toBe("Qatortol ko'chasi 12, Chilonzor Tumani");
+    expect(shortAddress(AMIR_TEMUR_AVENUE.uz)).toBe("Amir Temur shoh ko'chasi, Yunusobod Tumani");
+  });
+
+  it('en: the English name', () => {
     i18nStore.set('en');
-    expect(localizePlace('Srkver, Юнусабадский район')).toBe('Srkver, Yunusobod District');
-    expect(localizePlace('Amir Temur, Мирзо-Улугбекский район')).toBe('Amir Temur, Mirzo Ulugbek District');
+    expect(shortAddress(KICHIK_HALQA.en)).toBe('Small Ring Road, Chilanzar district');
+    expect(shortAddress(QATORTOL.en)).toBe('Katartal Street 12, Chilanzar district');
+    expect(shortAddress(AMIR_TEMUR_AVENUE.en)).toBe('Amir Timur Avenue, Yunusabad district');
   });
 
-  it('every one of the twelve', () => {
+  it('ru: the Russian name', () => {
+    i18nStore.set('ru');
+    expect(shortAddress(KICHIK_HALQA.ru)).toBe('Малая кольцевая дорога, Чиланзарский район');
+    expect(shortAddress(QATORTOL.ru)).toBe('Катартал улица 12, Чиланзарский район');
+  });
+
+  it('a Latin label is never re-processed', () => {
     i18nStore.set('uz');
-    const ru = ['Бектемирский', 'Чиланзарский', 'Мирабадский', 'Мирзо-Улугбекский', 'Алмазарский', 'Сергелийский',
-      'Шайхантахурский', 'Учтепинский', 'Яккасарайский', 'Яшнабадский', 'Юнусабадский', 'Янгихаётский'];
-    expect(ru.map((d) => localizePlace(`${d} район`))).toEqual(['Bektemir', 'Chilonzor', 'Mirobod', 'Mirzo Ulugʻbek', 'Olmazor', 'Sergeli',
-      'Shayxontohur', 'Uchtepa', 'Yakkasaroy', 'Yashnobod', 'Yunusobod', 'Yangihayot'].map((d) => `${d} tumani`));
+    expect(localizePlace("Kichik Halqa yo'li, Chilonzor Tumani")).toBe("Kichik Halqa yo'li, Chilonzor Tumani");
+    i18nStore.set('en');
+    expect(localizePlace('Kichik Halqa Ring Road, Chilanzar district')).toBe('Kichik Halqa Ring Road, Chilanzar district');
+  });
+});
+
+describe('last resort: a place known only by a Cyrillic name', () => {
+  it('is transliterated, its street type translated and placed', () => {
+    i18nStore.set('uz');
+    expect(localizePlace('Шота Руставели улица, Яккасарайский район')).toBe('Shota Rustaveli koʻchasi, Yakkasaray tumani');
+    i18nStore.set('en');
+    expect(localizePlace('Шота Руставели улица, Яккасарайский район')).toBe('Shota Rustaveli Street, Yakkasaray District');
   });
 
-  it('another district: the adjective ending goes, not "-skiy"', () => {
+  it('a building number stays after the street type', () => {
+    i18nStore.set('uz');
+    expect(shortAddress({ road: 'Восита Вахидова улица', house_number: '12', district: 'Мирабадский район' }))
+      .toBe('Vosita Vaxidova koʻchasi 12, Mirabad tumani');
+    i18nStore.set('en');
+    expect(shortAddress({ road: 'Восита Вахидова улица', house_number: '12', district: 'Мирабадский район' }))
+      .toBe('Vosita Vakhidova Street 12, Mirabad District');
+  });
+
+  it('a district adjective loses its ending, not "-skiy"', () => {
     i18nStore.set('uz');
     expect(localizePlace('Amir Temur, Чиназский район')).toBe('Amir Temur, Chinaz tumani');
     i18nStore.set('en');
     expect(localizePlace('Amir Temur, Чиназский район')).toBe('Amir Temur, Chinaz District');
   });
 
-  it('a district adjective in a place name is the district too ("Сергелийский ЦУМ")', () => {
-    i18nStore.set('en');
-    expect(localizePlace('Сергелийский ЦУМ, Сергелийский район')).toBe('Sergeli TsUM, Sergeli District');
+  it('TsUM is never "SUM" (an abbreviation keeps ц as ts)', () => {
+    for (const lang of ['uz', 'en'] as const) {
+      i18nStore.set(lang);
+      const out = localizePlace('Сергели ЦУМ, Сергелийский район');
+      expect(out).toMatch(/^Sergeli TsUM, Sergeli /);
+      expect(out).not.toMatch(/\bSUM\b/);
+    }
+    i18nStore.set('uz');
+    expect(localizePlace('Буюк Ипак Йули (Ц-1)')).toBe('Buyuk Ipak Yuli (Ts-1)');
   });
 
   it('Russian stays as it is', () => {
     i18nStore.set('ru');
-    expect(localizePlace('Srkver, Юнусабадский район')).toBe('Srkver, Юнусабадский район');
+    expect(localizePlace('Сергели ЦУМ, Юнусабадский район')).toBe('Сергели ЦУМ, Юнусабадский район');
   });
 });
 
