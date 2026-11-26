@@ -14,8 +14,10 @@
 import type { HubConnection } from '@microsoft/signalr';
 import { createEmitter, createHubClient } from './hubConnection';
 import { createMediaRecovery } from './mediaRecovery';
+import { createBackoff, isRateLimited } from './retry';
 import { callApi } from '@/api/callApi';
 import { appError } from '@/utils/errors';
+import { idOf } from '@/utils/ids';
 
 const FALLBACK_ICE_SERVERS: RTCIceServer[] = [{ urls: 'stun:stun.l.google.com:19302' }];
 
@@ -41,8 +43,10 @@ const pendingIce: RTCIceCandidateInit[] = []; // ICE that arrived before remote 
 
 // A hang-up / decline made while signaling is down would never reach the other
 // side (it would keep ringing) nor close the server's session: it is sent as soon
-// as the socket is back (see reconcile).
+// as the socket is back (see reconcile) — or, when the server asked us to slow
+// down (rate_limited), again a little later.
 const unsentEnds = new Map<string, 'Hangup' | 'RejectCall'>();
+const endRetry = createBackoff(() => { sendUnsentEnds(); });
 
 /** Tell the server this call is over from our side — now, or on reconnect. */
 async function sendEnd(method: 'Hangup' | 'RejectCall', callId: string): Promise<void> {
@@ -50,9 +54,19 @@ async function sendEnd(method: 'Hangup' | 'RejectCall', callId: string): Promise
   if (!conn) { unsentEnds.set(callId, method); return; }
   try {
     await conn.invoke(method, callId);
-  } catch {
-    if (!hub.isConnected()) unsentEnds.set(callId, method); // lost mid-call; a refusal is final
+  } catch (e) {
+    if (!hub.isConnected()) { unsentEnds.set(callId, method); return; } // lost mid-call
+    if (isRateLimited(e)) { unsentEnds.set(callId, method); endRetry.schedule(); } // any other refusal is final
   }
+}
+
+/** Send every hang-up / decline that has not reached the server yet. */
+async function sendUnsentEnds(): Promise<void> {
+  for (const [callId, method] of [...unsentEnds]) {
+    unsentEnds.delete(callId);
+    await sendEnd(method, callId); // queues itself again if it does not get through
+  }
+  if (!unsentEnds.size) endRetry.reset();
 }
 
 /** Fire-and-forget: tell the server the call is over. */
@@ -60,6 +74,9 @@ const hangupOnServer = (callId: string): void => { sendEnd('Hangup', callId); };
 
 /** True when a server event belongs to the call in progress. */
 const isCurrent = (callId: string): boolean => !!call && call.callId === callId;
+
+/** True when `userId` is the other side of the call in progress. */
+const isPeer = (userId: unknown): boolean => !!call && idOf(userId) === idOf(call.peerId);
 
 function clearRingTimer() {
   if (ringTimer) { clearTimeout(ringTimer); ringTimer = null; }
@@ -95,10 +112,7 @@ async function onAccepted(callId: string, byUserId: string) {
 /** Signaling is back after a loss: bring the call in line with the server's
     persisted session — whatever was sent while we were away never arrived. */
 async function reconcile(conn: HubConnection) {
-  for (const [callId, method] of [...unsentEnds]) {
-    unsentEnds.delete(callId);
-    await conn.invoke(method, callId).catch(() => { /* already over on the server */ });
-  }
+  await sendUnsentEnds(); // a refused one is already over on the server
   const c = call;
   if (!c) return;
   let session: { status?: string } | null;
@@ -188,12 +202,18 @@ function wireHandlers(conn: HubConnection) {
     else pendingIce.push(candidate);
   });
 
-  // "Ride together" offer during the call, and the answer to ours.
+  // "Ride together" offer during the call, and the answer to ours — from the
+  // person on the other end of THIS call only; whoever else names the call is ignored.
   conn.on('RideOffer', (callId: string, fromUserId: string) => {
-    if (isCurrent(callId)) emit('rideOffer', { callId, fromUserId });
+    if (isCurrent(callId) && isPeer(fromUserId)) emit('rideOffer', { callId, fromUserId });
   });
   conn.on('RideOfferAnswered', (callId: string, byUserId: string, accepted: boolean) => {
-    if (isCurrent(callId)) emit('rideOfferAnswered', { callId, byUserId, accepted });
+    if (isCurrent(callId) && isPeer(byUserId)) emit('rideOfferAnswered', { callId, byUserId, accepted });
+  });
+  // They accepted ours after the server stopped holding it (expired, lost in a restart). The
+  // server sends it just before a plain "not accepted" — which older apps read as "declined".
+  conn.on('RideOfferExpired', (callId: string, byUserId: string) => {
+    if (isCurrent(callId) && isPeer(byUserId)) emit('rideOfferExpired', { callId, byUserId });
   });
   // No onclose teardown: the P2P audio may outlive a signaling blip. Ringing is
   // bounded by the ring timers, a live call by mediaRecovery, and `reconcile`
@@ -388,7 +408,8 @@ export const callClient = {
     await sendEnd('Hangup', callId);
   },
 
-  /** Offer the peer to ride together (answered via 'rideOfferAnswered'). */
+  /** Offer the peer to ride together (answered via 'rideOfferAnswered' — or 'rideOfferExpired'
+      when their accept came after the server stopped holding the offer). */
   sendRideOffer(): Promise<void> {
     const c = call;
     const conn = hub.connected();

@@ -11,6 +11,7 @@
    ════════════════════════════════════════════════════════════════ */
 
 import { authApi } from '@/api/authApi';
+import { ApiError } from '@/api/client';
 import { appError } from '@/utils/errors';
 import { authStore } from './authStore';
 import type { AuthSession } from './authStore';
@@ -30,6 +31,12 @@ async function loginSession(): Promise<AuthSession> {
   return session;
 }
 
+/** The refresh token could not be checked right now — offline, timed out, or the
+    server asked us to slow down. A fresh Telegram sign-in would hit the same wall,
+    and the token may well still be good: try again later instead. */
+const renewalOutOfReach = (e: unknown): boolean =>
+  e instanceof ApiError && (e.code === 'network' || e.code === 'timeout' || e.status === 429);
+
 authStore.setRefresher(async () => {
   const token = authStore.getRefreshToken();
   if (token) {
@@ -37,8 +44,9 @@ authStore.setRefresher(async () => {
       const session = await authApi.refresh(token);
       authStore.set(session);
       return session;
-    } catch {
-      /* rotated/expired refresh token → fall back to a fresh Telegram login */
+    } catch (e) {
+      if (renewalOutOfReach(e)) throw e;
+      /* rotated/expired refresh token (or server trouble) → fall back to a fresh Telegram login */
     }
   }
   return loginSession();

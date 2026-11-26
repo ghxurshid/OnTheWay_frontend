@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { http, send, ApiError } from './client';
 
 // Minimal Response stub matching what parse() reads (status, ok, text()).
@@ -94,5 +94,74 @@ describe('transport failures', () => {
     await expect(http('/thing', { auth: false })).rejects.toMatchObject({
       status: 400, message: 'One or more validation errors occurred.', errors: ['name: Required'],
     });
+  });
+});
+
+describe('an expired session (401)', () => {
+  /** A fresh module graph: the client and the session store it renews through. */
+  async function load() {
+    vi.resetModules();
+    const client = await import('./client');
+    const { authStore } = await import('@/services/authStore');
+    return { ...client, authStore };
+  }
+
+  const expired = () => res(401, { success: false, message: 'Unauthorized' });
+
+  beforeEach(() => { localStorage.clear(); });
+
+  it('renews once and replays the request with the new token', async () => {
+    const { http: fresh, authStore } = await load();
+    authStore.set({ accessToken: 'old', refreshToken: 'r1' });
+    authStore.setRefresher(async () => {
+      authStore.set({ accessToken: 'new', refreshToken: 'r2' });
+      return authStore.get()!;
+    });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(expired())
+      .mockResolvedValueOnce(res(200, { success: true, data: { ok: 1 } }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(fresh('/trips/mine')).resolves.toEqual({ ok: 1 });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[1][1].headers.Authorization).toBe('Bearer new');
+  });
+
+  it.each([
+    ['asked to slow down (429)', 429, undefined],
+    ['offline', 0, 'network'],
+    ['timed out', 0, 'timeout'],
+    ['server trouble (503)', 503, undefined],
+  ] as const)('keeps the session when renewal is only out of reach: %s', async (_name, status, code) => {
+    const { http: fresh, authStore, ApiError: FreshApiError, SESSION_LOST_EVENT } = await load();
+    authStore.set({ accessToken: 'old', refreshToken: 'r1' });
+    const failure = new FreshApiError(status, 'renewal failed', [], code);
+    authStore.setRefresher(async () => { throw failure; });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(expired()));
+    const lost = vi.fn();
+    window.addEventListener(SESSION_LOST_EVENT, lost);
+    try {
+      await expect(fresh('/trips/mine')).rejects.toBe(failure); // transient: retried later, session kept
+      expect(authStore.getRefreshToken()).toBe('r1');
+      expect(lost).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener(SESSION_LOST_EVENT, lost);
+    }
+  });
+
+  it('ends the session when the server refuses the renewal', async () => {
+    const { http: fresh, authStore, ApiError: FreshApiError, SESSION_LOST_EVENT } = await load();
+    authStore.set({ accessToken: 'old', refreshToken: 'r1' });
+    authStore.setRefresher(async () => { throw new FreshApiError(401, 'Invalid Telegram initData.'); });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(expired()));
+    const lost = vi.fn();
+    window.addEventListener(SESSION_LOST_EVENT, lost);
+    try {
+      await expect(fresh('/trips/mine')).rejects.toMatchObject({ status: 401, code: 'session' });
+      expect(authStore.get()).toBeNull();
+      expect(lost).toHaveBeenCalledTimes(1);
+    } finally {
+      window.removeEventListener(SESSION_LOST_EVENT, lost);
+    }
   });
 });

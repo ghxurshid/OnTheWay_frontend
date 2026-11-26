@@ -18,7 +18,7 @@
    real data flow rather than hiding it.
    ════════════════════════════════════════════════════════════════ */
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import type { MutableRefObject } from 'react';
 import { t } from '@/i18n';
 import { USE_MOCKS } from '@/api/client';
@@ -36,6 +36,9 @@ import type { MapHook } from './mapHook';
 
 type Any = any;
 
+/** A journey of mine to redraw once the map is up — in the role it is travelled in. */
+export interface PendingRestore { trip: Any; role: string }
+
 interface UsePresenceArgs {
   screen: string;
   mode: string | null;
@@ -45,7 +48,7 @@ interface UsePresenceArgs {
   openWalker: (id: string) => void;
   notify: (n: { title: string; body: string }) => void;
   restoreLiveRoute: (trip: Any) => void;
-  pendingRestoreRef: MutableRefObject<Any>;
+  pendingRestoreRef: MutableRefObject<PendingRestore | null>;
   /** The device location could not be read (the map is not centred on the user). */
   onLocationUnknown: () => void;
   /** The device location is known (the "you" marker is placed). */
@@ -62,6 +65,11 @@ const NEARBY_KM = 20;
     this long: the server sends WalkerAlertFired right after WalkerJoined, and when
     this walker set the alert off, its toast says it already. */
 const JOINED_TOAST_DEFER_MS = 400;
+
+/** A walker's arrival is announced at most once in this long: someone who closes
+    and reopens the app joins again on the server (WalkerJoined) — it is still the
+    same person. Kept in memory only. */
+export const JOINED_TOAST_EVERY_MS = 10 * 60_000;
 
 /** Where a walker's shared route starts and ends (ActiveRouteDto endpoints), and the
     line between them (null when too short to be one), which the route match reads. */
@@ -87,6 +95,10 @@ export function usePresence({
   screen, mode, mapHook, liveWalkersRef, userLocRef, openWalker, notify,
   restoreLiveRoute, pendingRestoreRef, onLocationUnknown, onLocated, onWalkerCount,
 }: UsePresenceArgs) {
+  // userId → when their arrival was last announced. Outlives the map effect, so
+  // leaving the map (or switching role) and coming back does not announce again.
+  const announcedRef = useRef(new Map<string, number>());
+
   useEffect(() => {
     if (USE_MOCKS || screen !== 'map' || !mode) return undefined;
     let alive = true;
@@ -213,8 +225,18 @@ export function usePresence({
       mapHook.removeWalkerRoute(id);
     };
 
+    /** Whether `uid`'s arrival may be announced now — if so, it counts as announced. */
+    const announceOnce = (uid: string): boolean => {
+      const now = Date.now();
+      const last = announcedRef.current.get(uid);
+      if (last != null && now - last < JOINED_TOAST_EVERY_MS) return false;
+      announcedRef.current.set(uid, now);
+      return true;
+    };
+
     // A new opposite-role walker just joined — place the marker and surface a
-    // one-off "joined" notification (spec §17 walker-joined rule).
+    // one-off "joined" notification (spec §17 walker-joined rule): once per walker
+    // in JOINED_TOAST_EVERY_MS. The alert they set off announced them already.
     const onJoined = (pos: Any) => {
       if (!alive || blockStore.has(pos?.userId)) return;
       onMoved(pos); // add/refresh the marker (schedules a profile refresh if new)
@@ -226,7 +248,10 @@ export function usePresence({
       const km = loc && pos.lat != null ? haversineKm(loc, [pos.lat, pos.lng]) : null;
       if (km != null && km > NEARBY_KM) return; // far away: on the map, but no toast
       const body = km != null ? `${name} • ${t('common.km', { n: km.toFixed(1) })}` : name;
-      const toast = () => { if (alive && !walkerAlertService.firedFor(pos.userId)) notify({ title: t('push.walkerJoinedTitle'), body }); };
+      const toast = () => {
+        if (!alive || !announceOnce(String(pos.userId))) return;
+        if (!walkerAlertService.firedFor(pos.userId)) notify({ title: t('push.walkerJoinedTitle'), body });
+      };
       if (walkerAlertService.isOn()) setTimeout(toast, JOINED_TOAST_DEFER_MS); // one toast per arrival, not two
       else toast();
     };
@@ -273,16 +298,20 @@ export function usePresence({
         mapHook.flyTo(TASHKENT, 12);
       }
       await refresh();
-      if (!alive || !userLoc) return;
-      const nearby = [...liveWalkersRef.current.values()]
-        .map((w) => w.position)
-        .filter((p) => p && haversineKm(userLoc, p) <= NEARBY_KM);
-      if (nearby.length) mapHook.fitPoints([userLoc, ...nearby]);
-      // Auto-resume: redraw the retained session's live route once per boot.
-      const restoreTrip = pendingRestoreRef.current;
-      if (restoreTrip) {
+      if (!alive) return;
+      if (userLoc) {
+        const nearby = [...liveWalkersRef.current.values()]
+          .map((w) => w.position)
+          .filter((p) => p && haversineKm(userLoc, p) <= NEARBY_KM);
+        if (nearby.length) mapHook.fitPoints([userLoc, ...nearby]);
+      }
+      // Auto-resume: redraw a journey of mine once the map is up in its role — with
+      // or without a location fix (navigation waits for the GPS by itself). Asked
+      // for in another role, it waits for the map of that one.
+      const pending = pendingRestoreRef.current;
+      if (pending && pending.role === mode) {
         pendingRestoreRef.current = null;
-        await restoreLiveRoute(restoreTrip);
+        await restoreLiveRoute(pending.trip);
       }
     })();
 

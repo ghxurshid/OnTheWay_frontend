@@ -31,20 +31,23 @@ vi.mock('@/services/walkerAlertService', () => ({
   },
 }));
 
-import { usePresence } from '@/hooks/usePresence';
+import { JOINED_TOAST_EVERY_MS, usePresence } from '@/hooks/usePresence';
 import type { LatLng } from '@/utils/geo';
 
 const emit = (ev: string, p: any) => act(() => { (h.handlers.get(ev) || []).forEach((fn) => fn(p)); });
 const flush = (ms = 0) => act(async () => { await new Promise((r) => setTimeout(r, ms)); });
 
+const argsFor = (notify: (n: any) => void, screen = 'map') => ({
+  screen, mode: 'passenger', mapHook: new Proxy({}, { get: () => () => {} }) as any,
+  liveWalkersRef: { current: new Map() }, userLocRef: { current: [41.3, 69.2] as LatLng },
+  openWalker: () => {}, notify, restoreLiveRoute: () => {}, pendingRestoreRef: { current: null },
+  onLocationUnknown: () => {}, onLocated: () => {}, onWalkerCount: () => {},
+});
+
 async function mount(notify: (n: any) => void) {
-  renderHook(() => usePresence({
-    screen: 'map', mode: 'passenger', mapHook: new Proxy({}, { get: () => () => {} }) as any,
-    liveWalkersRef: { current: new Map() }, userLocRef: { current: [41.3, 69.2] as LatLng },
-    openWalker: () => {}, notify, restoreLiveRoute: () => {}, pendingRestoreRef: { current: null },
-    onLocationUnknown: () => {}, onLocated: () => {}, onWalkerCount: () => {},
-  }));
+  const view = renderHook(({ screen }: { screen: string }) => usePresence(argsFor(notify, screen)), { initialProps: { screen: 'map' } });
   await flush();
+  return view;
 }
 
 const near = { userId: '7', lat: 41.31, lng: 69.21, role: 'driver' };
@@ -86,6 +89,75 @@ describe('usePresence toasts', () => {
     emit('WalkerJoined', near);
     expect(notify).not.toHaveBeenCalled();
     await flush(500);
+    expect(notify).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('usePresence "joined" toast: once per walker in 10 minutes', () => {
+  const T0 = Date.parse('2026-11-25T08:00:00Z');
+  const at = (ms: number) => vi.setSystemTime(new Date(T0 + ms));
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] }); // the clock only: the hook's timers stay real
+    at(0);
+    h.positions.set('7', near);
+  });
+
+  it('someone who closes and reopens the app is not announced again within 10 minutes, then is', async () => {
+    const notify = vi.fn();
+    await mount(notify);
+
+    emit('WalkerJoined', near);
+    emit('WalkerGone', '7'); // closed the app …
+    at(JOINED_TOAST_EVERY_MS - 1);
+    emit('WalkerJoined', near); // … and opened it again: the server announces them again
+    expect(notify).toHaveBeenCalledTimes(1);
+
+    at(JOINED_TOAST_EVERY_MS);
+    emit('WalkerJoined', near);
+    expect(notify).toHaveBeenCalledTimes(2);
+  });
+
+  it('is kept per walker: someone else is announced meanwhile', async () => {
+    const notify = vi.fn();
+    await mount(notify);
+    const other = { ...near, userId: '8' };
+    h.positions.set('8', other);
+
+    emit('WalkerJoined', near);
+    at(60_000);
+    emit('WalkerJoined', other);
+    emit('WalkerJoined', near);
+
+    expect(notify).toHaveBeenCalledTimes(2);
+  });
+
+  it('the alert a walker set off counts as their announcement', async () => {
+    const notify = vi.fn();
+    await mount(notify);
+    h.alert.on = true;
+
+    emit('WalkerJoined', near);
+    h.alert.firedFor = '7'; // the alert spoke for them (and is off now)
+    await flush(500);
+    h.alert.on = false;
+    h.alert.firedFor = '';
+    at(2 * 60_000);
+    emit('WalkerGone', '7');
+    emit('WalkerJoined', near);
+
+    expect(notify).not.toHaveBeenCalled();
+  });
+
+  it('leaving the map and coming back does not announce them again', async () => {
+    const notify = vi.fn();
+    const view = await mount(notify);
+
+    emit('WalkerJoined', near);
+    view.rerender({ screen: 'home' });
+    view.rerender({ screen: 'map' });
+    await flush();
+    emit('WalkerJoined', near);
+
     expect(notify).toHaveBeenCalledTimes(1);
   });
 });

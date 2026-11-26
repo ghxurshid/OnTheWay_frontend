@@ -89,6 +89,69 @@ describe('hub client — staying in sync across connection loss', () => {
     expect(onConnected).toHaveBeenCalledTimes(2);
   });
 
+  it('a connection that keeps dropping right after connecting backs off instead of looping', async () => {
+    const { fake, client } = setup();
+    await client.connect();
+
+    fake.drop();
+    await flush(); // the first drop reconnects at once
+    expect(fake.starts).toBe(2);
+
+    fake.drop(); // dropped again straight away (e.g. the server refuses the replay)
+    await flush();
+    expect(fake.starts).toBe(2);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(fake.starts).toBe(3);
+
+    fake.drop();
+    await vi.advanceTimersByTimeAsync(4000);
+    expect(fake.starts).toBe(3); // 5 s now
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(fake.starts).toBe(4);
+    expect(client.status()).toBe('connected');
+  });
+
+  it('a connection the server closes during the replay backs off instead of looping', async () => {
+    const fake = new FakeConnection();
+    let refuseReplay = false;
+    const client = createHubClient('/hubs/test', () => {}, {
+      // The server closes the socket over something the replay sends (e.g. an oversized route).
+      onConnected: async () => { if (refuseReplay) fake.drop(); },
+      build: () => fake as unknown as HubConnection,
+    });
+    await client.connect();
+    refuseReplay = true;
+
+    fake.drop();
+    await flush(); // reconnects at once; the replay closes it again
+    expect(fake.starts).toBe(2);
+    expect(client.status()).toBe('reconnecting');
+
+    await vi.advanceTimersByTimeAsync(1999);
+    expect(fake.starts).toBe(2); // no tight loop: the next try waits 2 s
+    await vi.advanceTimersByTimeAsync(1);
+    expect(fake.starts).toBe(3);
+    await vi.advanceTimersByTimeAsync(4999);
+    expect(fake.starts).toBe(3); // then 5 s
+    await vi.advanceTimersByTimeAsync(1);
+    expect(fake.starts).toBe(4);
+  });
+
+  it('a connection that stayed up resets the backoff', async () => {
+    const { fake, client } = setup();
+    await client.connect();
+    fake.drop();
+    await flush();
+    fake.drop();
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(fake.starts).toBe(3);
+
+    await vi.advanceTimersByTimeAsync(10_000); // up and healthy for a while
+    fake.drop();
+    await flush();
+    expect(fake.starts).toBe(4);
+  });
+
   it('a first connect that failed counts as a recovery once it succeeds', async () => {
     const { fake, client, reconnected } = setup();
     fake.failNextStarts = 1;

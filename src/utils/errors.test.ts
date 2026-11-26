@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { ApiError } from '@/api/client';
 import { i18nStore, t } from '@/i18n';
-import { appError, errorMessage, fieldErrors, isConflict, isUserBlocked, isUserOffline } from './errors';
+import { MAX_OPEN_PLANS } from '@/constants/app';
+import { appError, errorMessage, fieldErrors, isConflict, isOpenPlanLimit, isRateLimited, isUserBlocked, isUserOffline } from './errors';
 
 beforeEach(() => i18nStore.set('en'));
 
@@ -44,6 +45,32 @@ describe('errorMessage', () => {
 
   it('falls back to the given key', () => {
     expect(errorMessage(new Error('weird'), 'errors.sendFailed')).toBe(t('errors.sendFailed'));
+  });
+
+  it('asks to wait a moment when the server says slow down (REST 429 or hub rate_limited)', () => {
+    const rest = new ApiError(429, 'Too many requests. Please slow down.');
+    const hub = new Error("An unexpected error occurred invoking 'InitiateCall' on the server. HubException: rate_limited");
+    expect(errorMessage(rest)).toBe(t('errors.rateLimited'));
+    expect(errorMessage(hub, 'call.failedTitle')).toBe(t('errors.rateLimited'));
+    expect(isRateLimited(rest)).toBe(true);
+    expect(isRateLimited(hub)).toBe(true);
+    expect(isRateLimited(new ApiError(409, 'Conflict'))).toBe(false);
+    expect(isRateLimited(null)).toBe(false);
+  });
+
+  it('explains the open-plan limit — not as "already done" like other 409s', () => {
+    // The backend's coded 409: { success: false, message, errors: ["open_plan_limit"] }.
+    const rest = new ApiError(409, 'You already have 10 upcoming planned trips. Cancel one before publishing another.', ['open_plan_limit']);
+    const limit = t('errors.openPlanLimit', { n: MAX_OPEN_PLANS });
+    expect(limit).toContain(String(MAX_OPEN_PLANS));
+    expect(errorMessage(rest)).toBe(limit);
+    expect(errorMessage(appError('OPEN_PLAN_LIMIT'))).toBe(limit);
+    expect(isOpenPlanLimit(rest)).toBe(true);
+    expect(isOpenPlanLimit(appError('OPEN_PLAN_LIMIT'))).toBe(true);
+    expect(isConflict(appError('OPEN_PLAN_LIMIT'))).toBe(false);
+    expect(isOpenPlanLimit(new ApiError(409, 'You have already published this trip.', ['duplicate_trip']))).toBe(false);
+    expect(isOpenPlanLimit(new ApiError(400, 'x', ['open_plan_limit']))).toBe(false);
+    expect(errorMessage(new ApiError(409, 'dup', ['duplicate_trip']))).toBe(t('errors.conflict'));
   });
 });
 

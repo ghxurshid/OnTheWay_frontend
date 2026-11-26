@@ -5,7 +5,7 @@
    All data flows through services/hooks; no mock import lives here.
    ════════════════════════════════════════════════════════════════ */
 
-import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from 'react';
 import { T, themeStore, partyColor } from '@/constants/theme';
 import { t } from '@/i18n';
 import { TASHKENT } from '@/constants/map';
@@ -25,10 +25,12 @@ import { useCallSession } from '@/hooks/useCallSession';
 import { useWalkerAlert } from '@/hooks/useWalkerAlert';
 import { useCompanionRating } from '@/hooks/useCompanionRating';
 import { usePresence } from '@/hooks/usePresence';
+import type { PendingRestore } from '@/hooks/usePresence';
 import { useTripNavigation } from '@/hooks/useTripNavigation';
 import type { NavRoute } from '@/hooks/useTripNavigation';
 import { useToastQueue } from '@/hooks/useToastQueue';
 import { useRealtimeStatus } from '@/hooks/useRealtimeStatus';
+import { useTripStarted } from '@/hooks/useTripStarted';
 import {
   createSimulation, generateWalkers, generateWalkersForRoute, randomUserLocation,
 } from '@/services/simulationService';
@@ -38,7 +40,7 @@ import { UNREAD_EVENT, unreadStore } from '@/services/unreadStore';
 import { RouteServer, getRoute, routeCoords, toRoutePublishDto } from '@/services/routeService';
 import type { OsrmRoute, RouteEndLabels } from '@/services/routeService';
 import { reverseGeocode } from '@/services/geocodingService';
-import { closeLiveTrip, createLiveTrip, forgetCompanion, publishBanded, recordedCompanions } from '@/services/liveTripService';
+import { closeLiveTrip, createLiveTrip, createRouteStarts, forgetCompanion, publishBanded, recordedCompanions } from '@/services/liveTripService';
 import type { RouteWaypoint } from '@/services/liveTripService';
 import { getCurrentLatLng } from '@/services/geolocation';
 import { addContact, CONTACTS_EVENT, contactRoster } from '@/services/contactService';
@@ -58,7 +60,11 @@ import { savedStore } from '@/services/savedStore';
 import { readJson, writeJson } from '@/utils/storage';
 import { fmt12 } from '@/utils/datetime';
 import { usePrefs } from '@/hooks/usePrefs';
-import { takeDeepLink } from '@/services/deepLink';
+import { peekDeepLink, takeDeepLink } from '@/services/deepLink';
+import {
+  bandPlanIdOf, bandTargets, isInProgress, onMyTrips, planLaunch, readOpenTrips, settleLate, tripRole,
+} from '@/services/tripResume';
+import type { LaunchPlan, TripDto } from '@/services/tripResume';
 import { startLocationReporting, stopLocationReporting, callClient, chatClient, presenceClient } from '@/services/realtime';
 import { walkerStateStore } from '@/services/walkerStateStore';
 import { chatApi, markMockRead, recordMockIncoming } from '@/api/chatApi';
@@ -209,8 +215,11 @@ export function App() {
   const [locationOff, setLocationOff] = useState(false);
   const [areaName, setAreaName] = useState<string | null>(null);
   const [walkerCount, setWalkerCount] = useState<number | null>(null);
-  const pendingRestoreRef = useRef<any>(null);            // active trip to redraw once the map is up
-  const liveTripIdRef = useRef<string | null>(null);      // persisted Live trip backing the on-map route
+  const pendingRestoreRef = useRef<PendingRestore | null>(null); // journey to redraw once the map is up in its role
+  const liveTripIdRef = useRef<string | null>(null);      // the journey on the map: the trip behind the route
+  const plannedTripIdRef = useRef<string | null>(null);   // my plan "band" acts on (never the session's trip)
+  const lateSettleRef = useRef(false);                    // the launch could not read my trips: the first read settles them
+  const myTripsRef = useRef<TripDto[] | null>(null);      // my open trips as last read (null: not read yet)
   const mapContainerRef = useRef<HTMLDivElement>(null);
 
   const userLocRef = useRef<LatLng | null>(null);
@@ -223,29 +232,31 @@ export function App() {
   const mapHook: MapHook = useMap(mapContainerRef, screen === 'map');
 
   // One-time auth + realtime + session-restore boot (owns readiness/error state).
-  const { authReady, sessionReady, authError, restoredSessionRef, contactsRef, retry: retryBoot } = useBootstrap();
+  const { authReady, sessionReady, authError, restoredSessionRef, openTripsRef, contactsRef, retry: retryBoot } = useBootstrap();
   const contactIds = useStoreEvent(CONTACTS_EVENT, contactRoster.ids); // "Add to contacts" follows it live
 
-  // Leave the splash once the loader bar, auth AND the session snapshot are
-  // ready. A retained session with an active (Scheduled/InProgress) trip resumes
-  // STRAIGHT onto the map in the stored role — no mode-selection screen — and
-  // queues the trip so its route is redrawn once the map is up.
+  // Leave the splash once the loader bar, auth AND the session snapshot (with my
+  // open trips) are ready. A journey of mine under way (see services/tripResume:
+  // the session's, a bot link's, or a plan the server started) resumes STRAIGHT
+  // onto the map in its role — no mode-selection screen — and is queued so its
+  // route is redrawn once the map is up. A plan still waiting on the board is
+  // never the session's trip; it only keeps the viewer engaged.
   useEffect(() => {
     if (screen !== 'loading' || !loaderDone || !authReady || !sessionReady || authError) return;
-    const snap = restoredSessionRef.current;
-    const trip = snap?.activeTrip;
-    const role = snap?.state?.role;
-    const status = trip ? String(trip.status || '').toLowerCase() : '';
-    const resume = !USE_MOCKS && trip && role && (status === 'scheduled' || status === 'inprogress');
-    if (!USE_MOCKS) settleRestoredSession(resume ? trip : null);
+    const link = peekDeepLink();
     // Otherwise open straight onto the map in the role picked last time (the
     // top bar switches it); only a first run sees the role choice.
     const last = prefsStore.get().onboarded ? prefsStore.get().lastRole : null;
-    if (resume) {
-      pendingRestoreRef.current = trip;
-      setMode(role);
-      setHasCreatedTrip(true);
-      setScreen('map');
+    const plan = planLaunch({
+      sessionTrip: restoredSessionRef.current?.activeTrip, open: openTripsRef.current,
+      engaged: walkerStateStore.get().engaged, linkedTripId: link?.kind === 'trip' ? link.tripId : null,
+      role: last, agreement: !!agreementStore.get(),
+    });
+    if (!USE_MOCKS) settleRestoredSession(plan);
+    setHasCreatedTrip(plan.hasOpenTrip);
+    plannedTripIdRef.current = plan.plannedTripId;
+    if (plan.resume) {
+      resumeJourney(plan.resume);
     } else if (last) {
       setMode(last);
       walkerStateStore.patch({ role: last });
@@ -253,27 +264,47 @@ export function App() {
     } else {
       setScreen('home');
     }
-  }, [screen, loaderDone, authReady, sessionReady, authError]); // eslint-disable-line react-hooks/exhaustive-deps -- restoredSessionRef is a stable ref
+    // "Your trip has started" for a plan the server started; one that waits for its
+    // turn is remembered; unknown trips are read again later (see useTripStarted).
+    if (!USE_MOCKS) tripStarted.launched(plan);
+    if (plan.openMyTrips) setOverlayPanel('myTrips');
+  }, [screen, loaderDone, authReady, sessionReady, authError]); // eslint-disable-line react-hooks/exhaustive-deps -- restoredSessionRef / openTripsRef are stable refs
 
   // The server retained this walker's presence from before the app was closed.
-  // Decide now what of it still holds, so it matches what the app shows:
-  // resuming a trip keeps "band" (from the server's snapshot) and — for a Live
-  // trip, whose route is redrawn and re-shared — the live location; anything
-  // else is dropped, or the old position would linger on others' maps.
-  const settleRestoredSession = (resumedTrip: any) => {
-    const engagedNow = !!resumedTrip && walkerStateStore.get().engaged;
-    setBanded(engagedNow);
-    if (engagedNow) presenceClient.markEngaged().catch(() => {});
-    else publishBanded(false, null);
-    if (!resumedTrip) {
-      presenceClient.clearRoute().catch(() => {});
-      if (walkerStateStore.get().activeTripId) walkerStateStore.patch({ clearActiveTrip: true });
+  // Decide now what of it still holds, so it matches what the app shows: "band"
+  // as planLaunch decided (left as the session has it while my trips are unknown —
+  // then the first read of them settles it, see onMyTrips below); only a journey
+  // under way — its route is redrawn and re-shared — keeps the session's trip and
+  // the live location; anything else is dropped, or the old position would linger
+  // on others' maps.
+  const settleRestoredSession = ({ resume, banded: bandedNow, showPlanId }: LaunchPlan) => {
+    if (bandedNow === null) {
+      setBanded(walkerStateStore.get().engaged);
+      lateSettleRef.current = true;
+    } else {
+      setBanded(bandedNow);
+      publishBanded(bandedNow, showPlanId);
     }
-    if (String(resumedTrip?.category || '').toLowerCase() !== 'live') {
-      walkerStateStore.patch({ freeMode: false });
-      presenceClient.stopSharing().catch(() => {});
-    }
+    if (resume) return;
+    presenceClient.clearRoute().catch(() => {});
+    if (walkerStateStore.get().activeTripId) walkerStateStore.patch({ clearActiveTrip: true });
+    walkerStateStore.patch({ freeMode: false });
+    presenceClient.stopSharing().catch(() => {});
   };
+
+  // Every read of my open trips (the launch, a catch-up, My trips, the board):
+  // "band" acts on the plan it lists, and going live asks about the plans it
+  // replaces from it. After a launch that could not read them, the first read
+  // settles what that launch left open.
+  useEffect(() => onMyTrips((trips) => {
+    myTripsRef.current = trips;
+    plannedTripIdRef.current = bandPlanIdOf(trips);
+    if (!lateSettleRef.current) return;
+    lateSettleRef.current = false;
+    const late = settleLate(trips, { journey: !!(activeRouteRef.current || liveTripIdRef.current), banded: walkerStateStore.get().engaged });
+    setHasCreatedTrip(late.hasOpenTrip);
+    if (late.unband) { setBanded(false); publishBanded(false, null); }
+  }), []);
 
   // A session that could not be renewed: stop and ask the user to sign in
   // again, instead of every screen quietly showing empty data.
@@ -592,11 +623,15 @@ export function App() {
       notify({ title: t('push.routeActiveTitle'), body: t('push.routeActiveBody') });
       return;
     }
+    // Going live replaces my plans departing around now: read my trips while the
+    // route is being set up, so that starting it can ask about them at once.
+    routeStarts.opened(USE_MOCKS ? null : readOpenTrips());
     simRef.current?.stop();
     mapHook.setWalkersDimmed(true);
     setShowSheet(true);
   };
   const closeRouteSheet = () => {
+    routeStarts.closed(); // a start still waiting in it starts nothing
     setShowSheet(false);
     mapHook.setWalkersDimmed(false);
     if (!activeRouteRef.current) mapHook.clearPlanning();
@@ -618,13 +653,14 @@ export function App() {
     setFreeMode(true);
   };
 
-  // Auto-resume: redraw the retained session's Live trip on reopen — recompute
-  // the road between its persisted origin/destination, draw it, re-share it over
-  // presence and resume navigation. Planned trips restore the map/mode only.
+  // Auto-resume: redraw a journey of mine under way (a Live route, or a plan the
+  // server started) — recompute the road between its persisted origin/destination,
+  // draw it, re-share it over presence and resume navigation. A plan still
+  // waiting for its departure is never drawn as a journey.
   const restoreLiveRoute = async (trip: any) => {
     const notSharing = () => { presenceClient.stopSharing().catch(() => {}); };
     try {
-      if (String(trip.category || '').toLowerCase() !== 'live') return;
+      if (!isInProgress(trip)) return;
       const from = [trip.origin?.latitude, trip.origin?.longitude];
       const to = [trip.destination?.latitude, trip.destination?.longitude];
       if (from.some((v) => v == null) || to.some((v) => v == null)) { notSharing(); return; }
@@ -641,10 +677,72 @@ export function App() {
   // Expose the latest restoreLiveRoute to usePresence (declared above it).
   restoreLiveRouteRef.current = restoreLiveRoute;
 
-  const handleRouteSelected = async (route: OsrmRoute | null, waypoints: RouteWaypoint[]) => {
+  // A journey of mine under way goes on the map in its role: from now on it is the
+  // journey (the session's active trip; a role switch asks first and calls it
+  // off), and its route is drawn, shared and navigated — at once when the map is
+  // up in that role, else by usePresence once it is.
+  const resumeJourney = (trip: TripDto) => {
+    const role = tripRole(trip);
+    liveTripIdRef.current = idOf(trip.id);
+    walkerStateStore.patch({ role, activeTripId: idOf(trip.id) });
+    setHasCreatedTrip(true);
+    if (screen === 'map' && mode === role) { restoreLiveRoute(trip); return; }
+    if (mode && mode !== role) { walkerAlertService.disable(); setSelectedUser(null); } // set for the role being left
+    pendingRestoreRef.current = { trip, role };
+    setMode(role);
+    setScreen('map');
+  };
+
+  // A journey of mine the server started (its departure time came): on the map,
+  // or told and kept until nothing is in its way any more (see useTripStarted).
+  const tripStarted = useTripStarted({
+    authReady,
+    ready: screen !== 'loading',
+    now: () => ({
+      activeTripId: liveTripIdRef.current || walkerStateStore.get().activeTripId,
+      routeOnMap: !!activeRouteRef.current,
+      busy: showSheet || !!navTask || !!callStateRef.current,
+      mode, agreement: !!agreementStore.get(),
+    }),
+    blockers: [screen, mode, showSheet, !!activeRoute, !!navTask, !!callState].join('|'),
+    resume: resumeJourney,
+    notify,
+  });
+
+  // "Start" in the route sheet (createRouteStarts): it waits for the read of my
+  // trips the sheet started and asks from my trips as last read by then; a start
+  // the user walked away from meanwhile (Back, another route picked, the sheet
+  // closed, the map left, the role switched) starts nothing.
+  const [routeStarts] = useState(() => createRouteStarts({
+    trips: () => (USE_MOCKS ? null : myTripsRef.current),
+    waiting: () => tripStarted.waiting(),
+    role: () => modeRef.current,
+  }));
+  // The sheet draws its route options through this: when they change (Back to
+  // the address form, another one picked), a start still waiting is void.
+  const sheetMapHook = useMemo<MapHook>(() => ({
+    ...mapHook,
+    setRouteLines: (routes: OsrmRoute[], primaryIdx?: number) => {
+      routeStarts.routesChanged();
+      mapHook.setRouteLines(routes, primaryIdx);
+    },
+  }), [mapHook, routeStarts]);
+
+  const startRoute = async (route: OsrmRoute | null, waypoints: RouteWaypoint[]) => {
+    // A new route ends whatever journey of mine is under way and replaces my plans
+    // departing around now (the server calls them off): a journey that started
+    // meanwhile and waits for its turn, and such plans, are asked about first — once.
+    const outcome = await routeStarts.start(!!route?.geometry);
+    if (outcome.kind === 'void') return; // walked away meanwhile, or one is under way
+    if (outcome.kind === 'kept') {
+      if (outcome.journey) { closeRouteSheet(); setCreateInitial(null); } // kept: it goes on the map now
+      return; // nothing starts (a kept plan leaves the sheet as it was)
+    }
+    if (outcome.replaces) tripStarted.drop();
     setShowSheet(false);
     setCreateInitial(null);
     if (!route?.geometry) return;
+    const { role } = outcome;
     const coords = routeCoords(route);
     const ends = waypoints.filter((w) => w.latlng);
     const asPlace = (w?: RouteWaypoint): Place | null => (w && w.latlng ? { latlng: w.latlng as LatLng, label: (w as { value?: string }).value || '' } : null);
@@ -658,7 +756,7 @@ export function App() {
       userLocRef.current = userLoc;
       setFreeMode(true);
       setHasCreatedTrip(true);
-      await runSimulation(userLoc, () => generateWalkersForRoute(coords, opposite(mode), simStore.get()), 'push.routeMatchTitle');
+      await runSimulation(userLoc, () => generateWalkersForRoute(coords, opposite(role), simStore.get()), 'push.routeMatchTitle');
     } else {
       // Live: keep real walkers on the map, share the route and persist the
       // journey as a Live trip (restorable on reopen). Creating a route engages
@@ -666,9 +764,22 @@ export function App() {
       mapHook.setWalkersDimmed(false);
       shareRoute(route, coords, { from: picked.from?.label, to: picked.to?.label });
       setHasCreatedTrip(true);
-      createLiveTrip(route, coords, waypoints, mode as PartyType).then((id) => { if (id) liveTripIdRef.current = id; });
+      createLiveTrip(route, coords, waypoints, role as PartyType).then((id) => {
+        if (!id) return;
+        liveTripIdRef.current = id;
+        // The server called off my plans departing around now with it: read my
+        // trips again, so "band" and the board's "your trip" let them go.
+        void readOpenTrips();
+      });
     }
     driveRoute(route, coords);
+  };
+
+  // One start at a time (routeStarts: a second tap while one waits or asks starts
+  // nothing); once a route is on the map (the sheet may not be gone yet), nothing more.
+  const handleRouteSelected = (route: OsrmRoute | null, waypoints: RouteWaypoint[]) => {
+    if (activeRouteRef.current) return;
+    void startRoute(route, waypoints);
   };
 
   // Finishing a trip shows its summary (distance, time, saving) and asks to
@@ -815,11 +926,12 @@ export function App() {
   const openChat = (peer: ChatPeer | CallUser) => setChatUser(peer);
 
   // A bot "open in the app" button lands on its screen once the app is ready:
-  // a chat (named from the walker's public profile) or My trips.
+  // a chat (named from the walker's public profile) or My trips. A link to one
+  // trip was settled by the launch already (planLaunch).
   useEffect(() => {
     if (screen === 'loading') return;
     const link = takeDeepLink();
-    if (!link) return;
+    if (!link || link.kind === 'trip') return;
     if (link.kind === 'trips') {
       setOverlayPanel('myTrips');
       return;
@@ -848,20 +960,31 @@ export function App() {
   const toggleBanded = () => {
     const next = !banded;
     setBanded(next);
-    publishBanded(next, liveTripIdRef.current || walkerStateStore.get().activeTripId);
+    publishBanded(next, bandTargets(next, liveTripIdRef.current || walkerStateStore.get().activeTripId, plannedTripIdRef.current));
+  };
+
+  // A plan published now waits on the board. It is NOT the session's trip (the
+  // server's sweeper cancels that one with an abandoned session): it engages the
+  // viewer, and "band" acts on it unless it acts on another plan already (one I
+  // hid stays the one; the next read of my trips settles it).
+  const planPublished = (tripId: unknown) => {
+    setHasCreatedTrip(true);
+    if (tripId && tripId !== true && !plannedTripIdRef.current) plannedTripIdRef.current = idOf(tripId);
   };
 
   const exitToHome = () => {
     setScreen('home'); setShowSheet(false);
+    routeStarts.closed(); // a route start still waiting in the sheet starts nothing
     clearToasts(); // drop any queued arrival toasts from the session we're leaving
     stopNav();
     // Leaving the map abandons the journey deliberately: withdraw the shared
     // route and call off the backing Live trip (it is simply closed).
     closeLiveTrip(liveTripIdRef.current, 'cancel');
     liveTripIdRef.current = null;
+    pendingRestoreRef.current = null; // a journey not drawn yet is left with the map
     setFreeMode(false); // stop sharing our live location when leaving the map
     setHasCreatedTrip(false); // reset engagement when leaving the map
-    if (banded) { setBanded(false); publishBanded(false, null); }
+    if (banded) { setBanded(false); publishBanded(false, plannedTripIdRef.current); } // my hidden plan shows again
     activeRouteRef.current = null; setActiveRoute(null); setNavProgress(0);
     mapHook.clearUserRoute(); mapHook.clearPlanning();
     stopSim();
@@ -888,6 +1011,7 @@ export function App() {
     setMode(next);
     walkerStateStore.patch({ role: next });
     prefsStore.patch({ lastRole: next });
+    tripStarted.roleChosen(next); // a started trip of the role left waits for that role
     setScreen('map');
     haptic('success');
     notify({ title: t('role.switchedTitle'), body: next === 'driver' ? t('role.nowDriver') : t('role.nowPassenger'), priority: 'high' });
@@ -1004,10 +1128,7 @@ export function App() {
             follow={followMe}
             onToggleFollow={() => setFollowMe((f) => !f)}
             engaged={engaged}
-            onTripCreated={(tripId) => {
-              setHasCreatedTrip(true);
-              if (tripId && tripId !== true) walkerStateStore.patch({ activeTripId: String(tripId) });
-            }}
+            onTripCreated={planPublished}
             areaName={areaName}
             locationOff={locationOff}
             onRetryLocation={retryLocation}
@@ -1054,16 +1175,13 @@ export function App() {
           {showSheet && (
             <div style={{ position: 'absolute', inset: 0, zIndex: 20, pointerEvents: 'none' }}>
               <RouteSheet
-                mapHook={mapHook}
+                mapHook={sheetMapHook}
                 userLoc={userLocRef.current}
                 onClose={() => { closeRouteSheet(); setCreateInitial(null); }}
                 onShowRoute={handleRouteSelected}
                 mode={mode as PartyType}
                 initial={createInitial}
-                onPlanned={(tripId) => {
-                  setHasCreatedTrip(true);
-                  if (tripId && tripId !== true) walkerStateStore.patch({ activeTripId: String(tripId) });
-                }}
+                onPlanned={planPublished}
                 onOpenMyTrips={() => setOverlayPanel('myTrips')}
               />
             </div>

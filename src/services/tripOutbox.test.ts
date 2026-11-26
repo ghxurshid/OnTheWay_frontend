@@ -81,6 +81,41 @@ describe('trip outbox', () => {
     expect(api.hide).toHaveBeenCalledWith('6');
   });
 
+  it('a close the server asks to slow down on (429) is kept and sent once the budget refills', async () => {
+    vi.useFakeTimers();
+    try {
+      const outbox = await load();
+      api.complete.mockRejectedValueOnce(new Api(429, 'Too many requests. Please slow down.'));
+
+      await outbox.enqueue({ kind: 'complete', tripId: '5', companionIds: ['9'] });
+      expect(outbox.pending()).toMatchObject([{ kind: 'complete', tripId: '5' }]); // not dropped as a refusal
+
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(api.complete).toHaveBeenCalledTimes(2);
+      expect(outbox.pending()).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('time offline does not use up the tries: a server fault after a long cut is retried, not dropped', async () => {
+    vi.useFakeTimers();
+    try {
+      const outbox = await load();
+      for (let i = 0; i < 5; i += 1) api.complete.mockRejectedValueOnce(offline());
+      api.complete.mockRejectedValueOnce(new Api(503, 'down')); // the first answer once back
+      // then it goes through (the default mock)
+
+      await outbox.enqueue({ kind: 'complete', tripId: '5', companionIds: ['9'] });
+      await vi.advanceTimersByTimeAsync(200_000); // backoff 2 + 5 + 15 + 30 + 60 + 60 s
+
+      expect(api.complete).toHaveBeenCalledTimes(7);
+      expect(outbox.pending()).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('a newer command queued while the older one is in flight is not lost', async () => {
     let finishHide!: () => void;
     api.hide.mockImplementationOnce(() => new Promise<void>((r) => { finishHide = r; }));

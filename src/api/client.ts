@@ -48,6 +48,12 @@ export class ApiError extends Error {
   }
 }
 
+/** A failure worth trying again later rather than a refusal: the request never
+    reached the server (offline, timed out), the server asked us to slow down
+    (429), or the server is in trouble (5xx). */
+export const isTransientFailure = (e: unknown): boolean =>
+  e instanceof ApiError && (e.code === 'network' || e.code === 'timeout' || e.status === 429 || e.status >= 500);
+
 /** Window event fired when the session is gone and could not be renewed — the
     app shows its "sign in again" screen instead of failing silently. */
 export const SESSION_LOST_EVENT = 'ontheway:session-lost';
@@ -83,7 +89,12 @@ export async function http<T = any>(path: string, options: HttpOptions = {}): Pr
   if (res.status === 401 && auth && !_retried) {
     try {
       await authStore.refresh();
-    } catch {
+    } catch (e) {
+      // Renewal is only out of reach right now (offline, timed out, asked to slow
+      // down, server trouble): the session stays — this request fails like any
+      // transient one, and the next attempt renews again. Only a renewal the
+      // server refused ends the session.
+      if (isTransientFailure(e)) throw e;
       authStore.clear();
       if (typeof window !== 'undefined') window.dispatchEvent(new Event(SESSION_LOST_EVENT));
       throw new ApiError(401, 'Session expired.', [], 'session');

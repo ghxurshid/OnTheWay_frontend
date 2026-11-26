@@ -28,6 +28,11 @@ const HUB_BASE = (env.VITE_HUB_BASE_URL || '').replace(/\/$/, '');
 
 /** Reconnect delays (ms) after consecutive failures; the last one repeats forever (with jitter). */
 const RETRY_DELAYS = [0, 2000, 5000, 10000, 20000];
+
+/** A connection that drops sooner than this after connecting did not really come
+    back (e.g. the server closes it over something the replay sends): reconnecting
+    at once again would loop several times a second, so it backs off like a failed start. */
+const STABLE_CONNECTION_MS = 10_000;
 export const retryDelay = (attempt: number): number =>
   (RETRY_DELAYS[attempt] ?? RETRY_DELAYS[RETRY_DELAYS.length - 1]) + (attempt >= RETRY_DELAYS.length ? Math.random() * 5000 : 0);
 
@@ -94,6 +99,8 @@ export function createHubClient(path: string, configure: (connection: HubConnect
   let connection: HubConnection | null = null;
   let wanted = false;         // connect() called and not disconnected since
   let attempt = 0;            // consecutive failed starts
+  let unstable = 0;           // connections in a row that dropped within STABLE_CONNECTION_MS
+  let connectedAt = 0;
   let everConnected = false;  // a later connect is a REconnect (state to resync)
   let restartTimer: ReturnType<typeof setTimeout> | null = null;
   let status: HubStatus = 'disconnected';
@@ -121,6 +128,7 @@ export function createHubClient(path: string, configure: (connection: HubConnect
     }
     attempt = 0;
     everConnected = true;
+    connectedAt = Date.now();
     try {
       await onConnected?.(c);
     } catch (err) {
@@ -156,6 +164,10 @@ export function createHubClient(path: string, configure: (connection: HubConnect
       c.onclose(() => {
         if (connection !== c) return; // an old, replaced connection
         if (!wanted) { setStatus('disconnected'); return; }
+        // A connection that had been up drops: reconnect at once. One that keeps
+        // dropping right after connecting backs off like a failed start.
+        unstable = Date.now() - connectedAt < STABLE_CONNECTION_MS ? unstable + 1 : 0;
+        attempt = Math.max(0, unstable - 1);
         setStatus('reconnecting');
         scheduleRestart();
       });
@@ -199,6 +211,7 @@ export function createHubClient(path: string, configure: (connection: HubConnect
       connection = null;
       everConnected = false;
       attempt = 0;
+      unstable = 0;
       if (c) { try { await c.stop(); } catch { /* ignore */ } }
       setStatus('disconnected');
     },

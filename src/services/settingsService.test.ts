@@ -172,6 +172,21 @@ describe('saving', () => {
     expect(api.get).toHaveBeenCalledTimes(1);
   });
 
+  it('a change the server asked to slow down on (429) waits for the next sync — it is not dropped', async () => {
+    let { settingsService, themeStore } = await load({ theme: 'light' });
+    const { ApiError } = await import('@/api/client'); // the same module graph as the service
+    await settingsService.sync();
+    api.update.mockRejectedValueOnce(new ApiError(429, 'Too many requests. Please slow down.'));
+    settingsService.setTheme(true);
+    await settled();
+    expect(server.theme).toBe('Light');
+
+    ({ settingsService, themeStore } = await load()); // the next launch
+    await settingsService.sync();
+    expect(server.theme).toBe('Dark');
+    expect(themeStore.mode).toBe('dark');
+  });
+
   it('a change made offline survives until the server has it', async () => {
     api.update.mockRejectedValueOnce(new TypeError('Failed to fetch'));
     let { settingsService, themeStore } = await load({ theme: 'light' });

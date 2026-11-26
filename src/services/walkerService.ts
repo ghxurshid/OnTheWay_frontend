@@ -6,6 +6,7 @@
 import { walkerApi } from '@/api/walkerApi';
 import { t } from '@/i18n';
 import { hLabel, isoDate } from '@/utils/datetime';
+import { appError, isOpenPlanLimit } from '@/utils/errors';
 import { RouteServer } from './routeService';
 import { haversineKm } from '@/utils/geo';
 import type { LatLng } from '@/utils/geo';
@@ -72,9 +73,17 @@ export function composeNotes(form: SubmitForm): string | null {
   return lines.length ? lines.join('\n') : null;
 }
 
-/** Submit the current user's own trip; precomputes its route on the server. */
+/** Submit the current user's own trip; precomputes its route on the server. A plan
+    over the open-plan limit is refused with an error of its own (OPEN_PLAN_LIMIT)
+    rather than as a plain 409, which reads as "already published". */
 export async function submitTrip(form: SubmitForm) {
-  const created = await walkerApi.create({ ...form, note: composeNotes(form) });
+  let created;
+  try {
+    created = await walkerApi.create({ ...form, note: composeNotes(form) });
+  } catch (e) {
+    if (isOpenPlanLimit(e)) throw appError('OPEN_PLAN_LIMIT');
+    throw e;
+  }
   if (created && form.from && form.to) RouteServer.save(created.id, form.from.latlng, form.to.latlng);
   return created;
 }

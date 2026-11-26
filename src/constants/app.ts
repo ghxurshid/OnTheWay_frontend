@@ -3,6 +3,16 @@
    Label keys that get translated at render time via t(...).
    ════════════════════════════════════════════════════════════════ */
 
+// The most upcoming plans one owner may have open (the server's default for
+// TripOptions.MaxOpenPlannedPerOwner — the server enforces it; this is only the
+// number its refusal is explained with).
+export const MAX_OPEN_PLANS = 10;
+
+// How close to a plan's departure, before or after it, going live is travelling
+// that plan (the server's default for TripOptions.StartGraceMinutes). The server
+// cancels such a plan when a Live trip is created; the app only asks first.
+export const START_GRACE_MINUTES = 60;
+
 // Time-of-day presets for the schedule "when" field.
 export const TIME_PRESETS = [
   { id: 'morning', s: 7, e: 10 },

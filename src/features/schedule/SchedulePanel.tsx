@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { T } from '@/constants/theme';
 import { t } from '@/i18n';
@@ -14,6 +14,7 @@ import { useStoreEvent } from '@/hooks/useStoreEvent';
 import { BLOCK_EVENT, blockStore } from '@/services/blockStore';
 import { matchWalkers, nearestWalkers } from '@/services/walkerService';
 import { confirmAction } from '@/services/confirm';
+import { isInProgress, onMyTrips, reportMyTrips } from '@/services/tripResume';
 import { tripApi } from '@/api/tripApi';
 import { Spinner } from '@/components/ui/Spinner';
 import { ErrorState } from '@/components/ui/StatusStates';
@@ -37,7 +38,7 @@ interface SchedulePanelProps {
   onOpenMyTrips: () => void;
 }
 
-interface OwnTrip { id: string; origin?: { address?: string }; destination?: { address?: string }; departureTimeUtc: string; category: string }
+interface OwnTrip { id: string; origin?: { address?: string }; destination?: { address?: string }; departureTimeUtc: string; category: string; status?: string; isVisible?: boolean }
 
 /** A tappable filter chip. */
 function FilterChip({ on, onClick, children }: { on: boolean; onClick: () => void; children: ReactNode }) {
@@ -65,9 +66,16 @@ export function SchedulePanel({ mode, userLoc, onMapTask, engaged, onCreate, onO
   const [from, setFrom] = useState<Place | null>(null);
   const [to, setTo] = useState<Place | null>(null);
 
-  const mineLoader = useCallback(() => (engaged ? tripApi.mine() as Promise<OwnTrip[]> : Promise.resolve([] as OwnTrip[])), [engaged]);
+  const mineLoader = useCallback(() => (engaged
+    ? (tripApi.mine() as Promise<OwnTrip[]>).then((rows) => { reportMyTrips(rows); return rows; })
+    : Promise.resolve([] as OwnTrip[])), [engaged]);
   const mine = useAsync<OwnTrip[]>(mineLoader, [engaged], []);
-  const own = (mine.data || [])[0] || null;
+  // Any later read of my trips counts too (going live, say, called my plan off).
+  const [mineRead, setMineRead] = useState<OwnTrip[] | null>(null);
+  useEffect(() => onMyTrips((trips) => setMineRead(trips as OwnTrip[])), []);
+  const own = ((mineRead ?? mine.data) || [])[0] || null;
+  // A journey under way (a live route, or a plan the server started) is closed from the map.
+  const ownUnderWay = !!own && (own.category.toLowerCase() === 'live' || isInProgress(own));
   const [ownBusy, setOwnBusy] = useState(false);
   const [ownError, setOwnError] = useState<string | null>(null);
 
@@ -111,11 +119,12 @@ export function SchedulePanel({ mode, userLoc, onMapTask, engaged, onCreate, onO
             <div style={{ fontSize: 14, color: T.text, lineHeight: 1.4 }}>
               <b>{fmtDayTime(new Date(own.departureTimeUtc))}</b> · {own.origin?.address || '—'} → {own.destination?.address || '—'}
             </div>
+            {ownUnderWay && <div style={{ fontSize: 12, color: T.muted }}>{t('myTrips.liveHint')}</div>}
             {ownError && <div role="alert" style={{ fontSize: 12.5, color: T.red }}>{ownError}</div>}
             <div style={{ display: 'flex', gap: 8 }}>
               <button onClick={onOpenMyTrips} style={{ flex: 1, minHeight: 44, borderRadius: 12, border: `1px solid ${T.teal}55`,
                 background: 'transparent', color: T.teal, fontSize: 13.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'DM Sans,sans-serif' }}>{t('search.manage')}</button>
-              {own.category.toLowerCase() !== 'live' && (
+              {!ownUnderWay && (
                 <button onClick={cancelOwn} disabled={ownBusy} style={{ flex: 1, minHeight: 44, borderRadius: 12, border: `1px solid ${T.red}55`,
                   background: `${T.red}12`, color: T.red, fontSize: 13.5, fontWeight: 700, cursor: ownBusy ? 'progress' : 'pointer',
                   fontFamily: 'DM Sans,sans-serif' }}>{ownBusy ? t('common.sending') : t('myTrips.cancel')}</button>

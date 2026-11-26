@@ -4,9 +4,11 @@
 
 import { ApiError } from '@/api/client';
 import { t } from '@/i18n';
+import { MAX_OPEN_PLANS } from '@/constants/app';
 
-/** Error codes raised by the app itself (not by the HTTP client). */
-export type AppErrorCode = 'NO_INIT_DATA' | 'USER_OFFLINE' | 'REALTIME_OFFLINE';
+/** Error codes raised by the app itself (not by the HTTP client). OPEN_PLAN_LIMIT:
+    the server refused a plan over the open-plan limit (see `submitTrip`). */
+export type AppErrorCode = 'NO_INIT_DATA' | 'USER_OFFLINE' | 'REALTIME_OFFLINE' | 'OPEN_PLAN_LIMIT';
 
 /** An Error carrying an AppErrorCode, so errorMessage() can localize it. */
 export const appError = (code: AppErrorCode, message = code): Error =>
@@ -17,6 +19,8 @@ const codeOf = (e: unknown): string | undefined => (e as { code?: string } | nul
 /** A localized, actionable message for `e`; `fallbackKey` when nothing specific fits. */
 export function errorMessage(e: unknown, fallbackKey = 'errors.generic'): string {
   if (isUserBlocked(e)) return t('errors.userBlocked');
+  if (isOpenPlanLimit(e)) return t('errors.openPlanLimit', { n: MAX_OPEN_PLANS });
+  if (isRateLimited(e)) return t('errors.rateLimited');
   if (e instanceof ApiError) {
     if (e.code === 'network') return t('errors.network');
     if (e.code === 'timeout') return t('errors.timeout');
@@ -50,6 +54,17 @@ export const isNetworkError = (e: unknown): boolean =>
 
 /** True for a 409 — the request conflicts with what already exists. */
 export const isConflict = (e: unknown): boolean => e instanceof ApiError && e.status === 409;
+
+/** True when the server asked us to slow down — a hub method past its per-user budget
+    (`HubException: rate_limited`) or an HTTP 429. Not a refusal of the request itself:
+    the same request goes through a little later. */
+export const isRateLimited = (e: unknown): boolean =>
+  /\brate_limited\b/.test((e as Error | null)?.message || '') || (e as { status?: unknown } | null)?.status === 429;
+
+/** True when a plan was refused because its owner already has the most upcoming
+    plans the server allows (coded 409 `open_plan_limit`, or the app's own code). */
+export const isOpenPlanLimit = (e: unknown): boolean =>
+  codeOf(e) === 'OPEN_PLAN_LIMIT' || (isConflict(e) && (e as ApiError).errors[0] === 'open_plan_limit');
 
 /** True when the server refused because one of the two blocked the other
     (REST 403 / hub error carrying the code `user_blocked`). */

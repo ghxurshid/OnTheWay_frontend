@@ -56,6 +56,14 @@ export function CallScreen({ callee, phase, onAccept, onDecline, onEnd, offer, o
 
   const status = phase === 'active' ? fmt(secs) : onCaller ? t('call.calling') : t('call.incoming');
 
+  // Their offer waits for my answer (again, when my accept did not get through).
+  const answering = offer === 'received' || offer === 'unsent';
+  // Why the offer button is back — said here: a toast would sit under this screen.
+  const why = offer === 'declined' ? t('call.offerDeclined', { name: firstName })
+    : offer === 'expired' ? t('call.offerExpired')
+      : typeof offer === 'object' ? offer.failed
+        : null;
+
   return (
     <div className="otw-screen" role="dialog" aria-modal="true" aria-label={callee.name} style={{ position: 'absolute', inset: 0, zIndex: 50,
       background: T.isDark
@@ -126,10 +134,13 @@ export function CallScreen({ callee, phase, onAccept, onDecline, onEnd, offer, o
                     <div style={{ fontSize: 11, color: T.muted, marginTop: 1 }}>{t('call.agreedSub', { name: firstName })}</div>
                   </div>
                 </div>
-              : offer === 'received'
+              : answering
                 ? <div role="status" style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10,
                     animation: 'fadeUp .3s ease both' }}>
                     <div style={{ fontSize: 14, fontWeight: 600, color: T.text, textAlign: 'center' }}>🤝 {t('call.offerIncoming', { name: firstName })}</div>
+                    {offer === 'unsent' && (
+                      <div style={{ fontSize: 12, color: T.amber, textAlign: 'center' }}>{t('call.offerUnsent')}</div>
+                    )}
                     <div style={{ display: 'flex', gap: 10, width: '100%' }}>
                       <button onClick={() => onRespondOffer(false)} style={{ flex: 1, padding: '13px', borderRadius: 14,
                         border: `1px solid ${T.border}`, background: T.surface2, color: T.text, fontSize: 14, fontWeight: 600,
@@ -149,9 +160,7 @@ export function CallScreen({ callee, phase, onAccept, onDecline, onEnd, offer, o
                   </div>
                 : <div style={{ width: '100%', display: 'flex', flexDirection: 'column',
                     alignItems: 'center', gap: 9, animation: 'fadeUp .3s ease both' }}>
-                    {offer === 'declined' && (
-                      <div role="status" style={{ fontSize: 12, color: T.amber }}>{t('call.offerDeclined', { name: firstName })}</div>
-                    )}
+                    {why && <div role="status" style={{ fontSize: 12, color: T.amber, textAlign: 'center' }}>{why}</div>}
                     <button onClick={onOffer}
                       style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 9,
                         background: T.green, border: 'none', borderRadius: 15, padding: '15px 18px',

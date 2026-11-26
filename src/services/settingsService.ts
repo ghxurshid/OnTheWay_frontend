@@ -104,8 +104,9 @@ async function flushPending(): Promise<void> {
   try {
     latest = (await settingsApi.update(next as unknown as Record<string, unknown>) as UserSettings | null) ?? next;
   } catch (e) {
-    // Refused for good (a bad value): nothing more to do. Otherwise it waits for the next sync.
-    const refused = e instanceof ApiError && e.status >= 400 && e.status < 500 && e.code !== 'session';
+    // Refused for good (a bad value): nothing more to do. Otherwise — offline, a session
+    // being renewed, asked to slow down (429), server trouble — it waits for the next sync.
+    const refused = e instanceof ApiError && e.status >= 400 && e.status < 500 && e.status !== 429 && e.code !== 'session';
     if (!refused) throw e;
   }
   if (pending === sent) setPending(null);

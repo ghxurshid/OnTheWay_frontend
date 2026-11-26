@@ -2,7 +2,9 @@
    useBootstrap — one-time auth + realtime + session-restore boot.
    ────────────────────────────────────────────────────────────────
    Owns the readiness flags (auth / session) and the boot error, plus
-   the retained-session snapshot and the contacts list. The app reads
+   the retained-session snapshot, my open trips (GET /trips/mine — a
+   published plan waits there, not in the session) and the contacts
+   list. The app reads
    these to drive its splash → home/map routing; the hook itself makes
    no routing decisions.
 
@@ -17,6 +19,8 @@ import { connectRealtime } from '@/services/realtime';
 import { walkerStateStore } from '@/services/walkerStateStore';
 import { chatOutbox } from '@/services/chatOutbox';
 import { tripOutbox } from '@/services/tripOutbox';
+import { readOpenTrips } from '@/services/tripResume';
+import type { OpenTrips } from '@/services/tripResume';
 import { CONTACTS_EVENT, contactRoster, listContacts } from '@/services/contactService';
 import { blockStore } from '@/services/blockStore';
 import { syncProfileMirror } from '@/services/profileService';
@@ -30,6 +34,7 @@ export function useBootstrap() {
   const [bootNonce, setBootNonce] = useState(0);
   const bootRef = useRef(false);
   const restoredSessionRef = useRef<any>(null); // server session snapshot fetched on boot
+  const openTripsRef = useRef<OpenTrips | null>(null); // my open trips as of this boot (null in demo mode)
   const contactsRef = useRef<any[]>([]);        // address book (used by the push-message sim)
 
   // One-time auth + realtime bootstrap (skipped entirely in mock mode).
@@ -41,6 +46,8 @@ export function useBootstrap() {
       try {
         await ensureAuth();
         setAuthReady(true);
+        // Read alongside the realtime connect and the session restore (never rejects).
+        const openTrips = readOpenTrips();
         await connectRealtime();
         // Whatever the last session could not deliver (offline, app closed):
         // the messages written and the trips closed / banded.
@@ -49,6 +56,7 @@ export function useBootstrap() {
         // Restore the retained session (role, free mode, engaged, active trip)
         // so a reopened app resumes its pre-close state.
         restoredSessionRef.current = await walkerStateStore.restoreFromServer();
+        openTripsRef.current = await openTrips;
         setSessionReady(true); // splash may proceed (and possibly auto-resume)
       } catch (e) {
         setAuthError(e ?? new Error('Boot failed'));
@@ -85,5 +93,5 @@ export function useBootstrap() {
     setBootNonce((n) => n + 1);
   }, []);
 
-  return { authReady, sessionReady, authError, restoredSessionRef, contactsRef, retry };
+  return { authReady, sessionReady, authError, restoredSessionRef, openTripsRef, contactsRef, retry };
 }

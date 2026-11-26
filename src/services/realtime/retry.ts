@@ -1,13 +1,22 @@
 /* ════════════════════════════════════════════════════════════════
-   Shared by the outboxes (agreement, walker alert, trip): which failures
-   are final, and a backoff for the rest.
+   Shared by the outboxes (agreement, walker alert, trip, chat): which
+   failures are final, and a backoff for the rest.
    ════════════════════════════════════════════════════════════════ */
+
+import { isRateLimited } from '@/utils/errors';
+
+const messageOf = (e: unknown): string => (e as Error | null)?.message || '';
+
+/** Being asked to slow down (hub `rate_limited` / HTTP 429) — defined with the other
+    error checks in `utils/errors` (screens explain it too); re-exported for the outboxes. */
+export { isRateLimited };
 
 /** True when the server answered the invocation with a refusal (a HubException, an
     unknown method, arguments it cannot bind) — final, sending it again changes nothing.
-    Anything else while the socket is up (a server fault, a timeout) is worth a retry. */
+    Anything else while the socket is up (a server fault, a timeout, being asked to slow
+    down) is worth a retry. */
 export const isHubRefusal = (e: unknown): boolean =>
-  /HubException|Failed to invoke/.test((e as Error | null)?.message || '');
+  /HubException|Failed to invoke/.test(messageOf(e)) && !isRateLimited(e);
 
 const DELAYS_MS = [2_000, 5_000, 15_000, 30_000, 60_000];
 

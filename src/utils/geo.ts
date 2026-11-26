@@ -98,6 +98,112 @@ export function projectOnRoute(route: LatLng[], point: LatLng, legs: number[] = 
   };
 }
 
+/** Metres per degree of latitude (of longitude: times the cosine of the latitude). */
+const M_PER_DEG_LAT = 111320;
+
+/** A span of a polyline being simplified: its ends, and the interior point farthest
+    from the chord between them (squared metres; index -1 when it has no interior). */
+interface Span { first: number; last: number; index: number; d2: number }
+
+/** The interior point of route[first..last] farthest from the segment first→last.
+    Point-to-segment distance in planar metres, in an equirectangular projection local
+    to the span; clamped to the segment, so a point past an end is as far as that end
+    is (a spur that doubles back along the line must not vanish), and a closed span
+    (first and last at the same place) measures plain distance. */
+function farthestPoint(route: LatLng[], first: number, last: number): Span {
+  const [aLat, aLng] = route[first];
+  const [bLat, bLng] = route[last];
+  const mPerDegLng = M_PER_DEG_LAT * Math.cos(toRad((aLat + bLat) / 2));
+  const abx = (bLng - aLng) * mPerDegLng;
+  const aby = (bLat - aLat) * M_PER_DEG_LAT;
+  const len2 = abx * abx + aby * aby;
+  let index = -1;
+  let d2max = -1;
+  for (let i = first + 1; i < last; i++) {
+    const px = (route[i][1] - aLng) * mPerDegLng;
+    const py = (route[i][0] - aLat) * M_PER_DEG_LAT;
+    const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, (px * abx + py * aby) / len2));
+    const dx = px - abx * t;
+    const dy = py - aby * t;
+    const d2 = dx * dx + dy * dy;
+    if (d2 > d2max) { d2max = d2; index = i; }
+  }
+  return { first, last, index, d2: d2max };
+}
+
+/** Binary max-heap of spans by `d2` — the span with the worst error on top. */
+function heapPush(heap: Span[], span: Span): void {
+  heap.push(span);
+  for (let i = heap.length - 1; i > 0;) {
+    const parent = (i - 1) >> 1;
+    if (heap[parent].d2 >= heap[i].d2) break;
+    [heap[parent], heap[i]] = [heap[i], heap[parent]];
+    i = parent;
+  }
+}
+
+function heapPop(heap: Span[]): Span {
+  const top = heap[0];
+  const last = heap.pop()!;
+  if (heap.length) {
+    heap[0] = last;
+    for (let i = 0; ;) {
+      const l = 2 * i + 1;
+      const r = l + 1;
+      let max = i;
+      if (l < heap.length && heap[l].d2 > heap[max].d2) max = l;
+      if (r < heap.length && heap[r].d2 > heap[max].d2) max = r;
+      if (max === i) break;
+      [heap[max], heap[i]] = [heap[i], heap[max]];
+      i = max;
+    }
+  }
+  return top;
+}
+
+/** Douglas–Peucker with a point budget: the polyline reduced to at most `maxPoints`
+    points, refined worst-first — the span whose farthest point is farthest from its
+    chord is always split next — so whatever the budget, the line kept is the best that
+    budget allows (big detours survive, small wiggles go first). It stops early once
+    every dropped point lies within `toleranceM` metres. The first and the last point
+    always stay (two or more points never come back as fewer than two); the input is
+    not modified.
+
+    Iterative (an inter-city route has 10,000+ points; a recursion that deep can
+    overflow the call stack). */
+export function simplifyPolylineToBudget(route: LatLng[], maxPoints: number, toleranceM: number): LatLng[] {
+  if (!route || route.length < 3) return route ? route.slice() : [];
+  const budget = Math.max(2, Math.floor(maxPoints));
+  // A tolerance that is no positive number drops only what lies exactly on the line.
+  const tolerance2 = toleranceM > 0 ? toleranceM * toleranceM : 0;
+  const keep = new Uint8Array(route.length);
+  keep[0] = keep[route.length - 1] = 1;
+  let kept = 2;
+
+  const spans: Span[] = [];
+  const consider = (first: number, last: number) => {
+    if (last - first < 2) return;
+    heapPush(spans, farthestPoint(route, first, last));
+  };
+  consider(0, route.length - 1);
+  while (kept < budget && spans.length) {
+    const worst = heapPop(spans);
+    // The heap's top is the worst error left: within the tolerance, so is everything else.
+    if (worst.d2 <= tolerance2) break;
+    keep[worst.index] = 1;
+    kept += 1;
+    consider(worst.first, worst.index);
+    consider(worst.index, worst.last);
+  }
+  return route.filter((_, i) => keep[i] === 1);
+}
+
+/** Douglas–Peucker: the polyline without the points that lie within `toleranceM` metres
+    of the line through the points kept on either side of them (no point budget). */
+export function simplifyPolyline(route: LatLng[], toleranceM: number): LatLng[] {
+  return simplifyPolylineToBudget(route, Infinity, toleranceM);
+}
+
 /** How far from the other route a point may lie and still be "on the way", in km.
     Ride-matching products describe this as a short walk to the route ("a few blocks",
     "a few minutes") without publishing a figure; 300 m is about four minutes on foot

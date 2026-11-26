@@ -1,6 +1,63 @@
 import { describe, it, expect } from 'vitest';
-import { ROUTE_MATCH_CORRIDOR_KM, bearing, haversineKm, osrmToLatLngs, projectOnRoute, routeLength, routeMatchPercent, splitRoute } from './geo';
+import { ROUTE_MATCH_CORRIDOR_KM, bearing, haversineKm, osrmToLatLngs, projectOnRoute, routeLength, routeMatchPercent, simplifyPolyline, simplifyPolylineToBudget, splitRoute } from './geo';
 import type { LatLng } from './geo';
+
+/** Degrees of latitude in `m` metres. */
+const north = (m: number): number => m / 111320;
+
+describe('simplifyPolyline', () => {
+  it('hands back fewer than three points as a copy', () => {
+    const two: LatLng[] = [[41.3, 69.2], [41.31, 69.21]];
+    const out = simplifyPolyline(two, 10);
+    expect(out).toEqual(two);
+    expect(out).not.toBe(two);
+    expect(simplifyPolyline([], 10)).toEqual([]);
+  });
+
+  it('drops points on the line and keeps both ends', () => {
+    expect(simplifyPolyline([[41.3, 69.2], [41.3, 69.201], [41.3, 69.202], [41.3, 69.203]], 10))
+      .toEqual([[41.3, 69.2], [41.3, 69.203]]);
+  });
+
+  it('keeps a point farther off the line than the tolerance, drops a nearer one', () => {
+    const bent: LatLng[] = [[41.3, 69.2], [41.3 + north(20), 69.205], [41.3, 69.21]];
+    expect(simplifyPolyline(bent, 10)).toHaveLength(3);
+    expect(simplifyPolyline(bent, 30)).toEqual([[41.3, 69.2], [41.3, 69.21]]);
+  });
+
+  it('keeps a spur that doubles back past the end (distance to the segment, not the infinite line)', () => {
+    // The middle point lies on the line through the ends, ~420 m beyond the last one.
+    expect(simplifyPolyline([[41.3, 69.2], [41.3, 69.21], [41.3, 69.205]], 10)).toHaveLength(3);
+  });
+
+  it('does not modify its input', () => {
+    const route: LatLng[] = [[41.3, 69.2], [41.3, 69.201], [41.3 + north(50), 69.202], [41.3, 69.203]];
+    const before = JSON.stringify(route);
+    simplifyPolyline(route, 10);
+    expect(JSON.stringify(route)).toBe(before);
+  });
+
+  it('with a point budget: never more points than the budget, and the same line as without one when it is ample', () => {
+    const route: LatLng[] = Array.from({ length: 2000 }, (_, i) => [41.3 + north(i % 2 ? 40 : -40), 69.2 - i * 0.0005]);
+    expect(simplifyPolylineToBudget(route, 50, 10)).toHaveLength(50);
+    expect(simplifyPolylineToBudget(route, 5000, 10)).toEqual(simplifyPolyline(route, 10));
+    expect(simplifyPolylineToBudget(route, 1, 10)).toEqual([route[0], route[1999]]); // the ends, whatever the budget
+  });
+
+  it('with a point budget: the worst deviation is kept first (a big detour survives, a small wiggle goes)', () => {
+    const route: LatLng[] = [[41.3, 69.2], [41.3 + north(20), 69.21], [41.3, 69.22], [41.3 + north(500), 69.23], [41.3, 69.24]];
+    expect(simplifyPolylineToBudget(route, 3, 10)).toEqual([route[0], route[3], route[4]]);
+  });
+
+  it('copes with an inter-city sized route (iterative, no deep recursion)', () => {
+    const route: LatLng[] = Array.from({ length: 20000 }, (_, i) =>
+      [41.3 - i * 0.00008 + north(30 * Math.sin(i / 7)), 69.2 - i * 0.0001]);
+    const out = simplifyPolyline(route, 10);
+    expect(out[0]).toEqual(route[0]);
+    expect(out[out.length - 1]).toEqual(route[route.length - 1]);
+    expect(out.length).toBeLessThan(route.length);
+  });
+});
 
 describe('haversineKm', () => {
   it('is zero for identical points', () => {

@@ -4,6 +4,7 @@ import { t } from '@/i18n';
 import { tripApi } from '@/api/tripApi';
 import { useAsync } from '@/hooks/useAsync';
 import { confirmAction } from '@/services/confirm';
+import { isInProgress, isScheduled, reportMyTrips } from '@/services/tripResume';
 import { FullScreenPanel } from '@/components/ui/FullScreenPanel';
 import { Spinner } from '@/components/ui/Spinner';
 import { EmptyState, ErrorState } from '@/components/ui/StatusStates';
@@ -40,9 +41,11 @@ export function MyTripsScreen({ onClose, onChanged }: MyTripsScreenProps) {
   );
 }
 
-/** The caller's own open trips: review them and cancel a planned one. */
+/** The caller's own open trips: review them and cancel a planned one. A journey
+    under way (a live route, or a plan the server started) is closed from the map —
+    calling it off here would drop its companions and ratings. */
 export function MyTripsList({ onChanged }: { onChanged?: (openCount: number) => void }) {
-  const loader = useCallback(() => tripApi.mine() as Promise<OwnTrip[]>, []);
+  const loader = useCallback(() => (tripApi.mine() as Promise<OwnTrip[]>).then((rows) => { reportMyTrips(rows); return rows; }), []);
   const { data, loading, error, reload } = useAsync<OwnTrip[]>(loader, [], []);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -74,17 +77,18 @@ export function MyTripsList({ onChanged }: { onChanged?: (openCount: number) => 
     if (trips.length === 0) return <EmptyState icon="🗓️" title={t('myTrips.emptyTitle')} body={t('myTrips.emptyBody')} />;
     return trips.map((trip) => {
       const live = trip.category.toLowerCase() === 'live';
+      const underWay = live || isInProgress(trip);
       const driver = trip.role.toLowerCase() === 'driver';
       return (
         <div key={trip.id} style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: 16,
           padding: '14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 8px', borderRadius: 7,
-              color: live ? T.green : T.amber, background: live ? `${T.green}1c` : T.amberDim }}>
-              {live ? t('myTrips.live') : t('myTrips.planned')}
+              color: underWay ? T.green : T.amber, background: underWay ? `${T.green}1c` : T.amberDim }}>
+              {live ? t('myTrips.live') : underWay ? t('myTrips.underWay') : t('myTrips.planned')}
             </span>
             <span style={{ fontSize: 11.5, color: T.muted }}>{driver ? t('myTrips.driverRole') : t('myTrips.passengerRole')}</span>
-            {!trip.isVisible && !live && <span style={{ fontSize: 11.5, color: T.red }}>{t('myTrips.hidden')}</span>}
+            {!trip.isVisible && isScheduled(trip) && <span style={{ fontSize: 11.5, color: T.red }}>{t('myTrips.hidden')}</span>}
           </div>
           <div style={{ fontSize: 13.5, color: T.text, lineHeight: 1.45, overflowWrap: 'anywhere' }}>
             <div>📍 {trip.origin?.address || '—'}</div>
@@ -93,7 +97,7 @@ export function MyTripsList({ onChanged }: { onChanged?: (openCount: number) => 
           <div style={{ fontSize: 12.5, color: T.text, fontWeight: 600 }}>🕐 {fmtDayTime(new Date(trip.departureTimeUtc))}
             {driver && trip.seats ? <span style={{ color: T.muted, fontWeight: 500 }}> · {t('popup.seatsFree', { n: trip.seats })}</span> : null}</div>
           {trip.notes && <div style={{ fontSize: 12, color: T.muted, whiteSpace: 'pre-line', overflowWrap: 'anywhere' }}>{trip.notes}</div>}
-          {live ? (
+          {underWay ? (
             <div style={{ fontSize: 12, color: T.muted }}>{t('myTrips.liveHint')}</div>
           ) : (
             <button onClick={() => cancel(trip)} disabled={busyId === trip.id} style={{ alignSelf: 'flex-start', marginTop: 2,

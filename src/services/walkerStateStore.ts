@@ -1,9 +1,12 @@
 /* ════════════════════════════════════════════════════════════════
    SERVICE — walker session state (the client's local model).
    The single client-side source of truth for the walker's live session:
-   role, free mode, active trip, watched walkers, last location. Mutations are
+   role, free mode, active trip, last location. Mutations are
    client-authoritative and synced to the server over SignalR; on app reopen the
    store is rehydrated from the server snapshot so the session is restored.
+   The watched walkers are NOT this store's to sync: the watch list has one
+   owner, presenceClient.watchRoute / unwatchRoute (replayed after every
+   reconnect); `watchedWalkerIds` here only mirrors the server's snapshot.
    ════════════════════════════════════════════════════════════════ */
 
 import { presenceClient } from '@/services/realtime';
@@ -40,11 +43,13 @@ const DEFAULT: WalkerState = {
   updatedAt: null,
 };
 
-/** Fields a local patch may change (version/updatedAt are store-managed). */
-const PATCHABLE = ['role', 'freeMode', 'engaged', 'activeTripId', 'watchedWalkerIds', 'lat', 'lng', 'heading'] as const;
+/** Fields a local patch may change (version/updatedAt are store-managed; the watch list
+    belongs to presenceClient — see the header). */
+const PATCHABLE = ['role', 'freeMode', 'engaged', 'activeTripId', 'lat', 'lng', 'heading'] as const;
 // Only these fields are client-owned and pushed to the server. `role` rides the
-// existing SetRole channel; `lat/lng` ride UpdateLocation — so neither is here.
-const WIRE_FIELDS = ['freeMode', 'engaged', 'activeTripId', 'clearActiveTrip', 'watchedWalkerIds'] as const;
+// existing SetRole channel; `lat/lng` ride UpdateLocation; the watch list rides
+// WatchRoute / UnwatchRoute (a copy sent from here could be stale) — so none is here.
+const WIRE_FIELDS = ['freeMode', 'engaged', 'activeTripId', 'clearActiveTrip'] as const;
 
 let state: WalkerState = { ...DEFAULT, ...readJson<Partial<WalkerState>>(KEY, {}) };
 const listeners = new Set<(s: WalkerState) => void>();
@@ -84,8 +89,8 @@ export const walkerStateStore = {
       have missed patches made while the socket was down (including a cleared
       active trip, which a missing field could not express). */
   resync(): void {
-    const { freeMode, engaged, activeTripId, watchedWalkerIds } = state;
-    const wire: Record<string, unknown> = { freeMode, engaged, watchedWalkerIds };
+    const { freeMode, engaged, activeTripId } = state;
+    const wire: Record<string, unknown> = { freeMode, engaged };
     const n = Number(activeTripId);
     if (activeTripId != null && Number.isFinite(n)) wire.activeTripId = n;
     else wire.clearActiveTrip = true;

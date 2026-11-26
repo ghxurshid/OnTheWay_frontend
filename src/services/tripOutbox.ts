@@ -50,12 +50,13 @@ function run(c: TripCommand): Promise<unknown> {
 }
 
 /** Worth sending again later: it never reached the server, the session must be
-    renewed first, or the server failed (a few times at most). A refusal (4xx —
-    e.g. the trip is closed already, a rating already given (409) or not allowed
-    (403/404)) is final. */
+    renewed first, the server asked us to slow down (429 — the same request goes
+    through once its budget refills), or the server failed (a few times at most).
+    A refusal (other 4xx — e.g. the trip is closed already, a rating already given
+    (409) or not allowed (403/404)) is final. */
 const keepForRetry = (e: unknown, attempts: number): boolean =>
   e instanceof ApiError
-  && (e.status === 0 || e.code === 'session' || (e.status >= 500 && attempts < MAX_ATTEMPTS));
+  && (e.status === 0 || e.code === 'session' || e.status === 429 || (e.status >= 500 && attempts < MAX_ATTEMPTS));
 
 /** Where `command` goes: replacing what it supersedes, and always ahead of the
     trip's ratings (a rating needs the trip closed first). */
@@ -92,7 +93,9 @@ export const tripOutbox = {
         try {
           await run(head);
         } catch (e) {
-          const attempts = (head.attempts || 0) + 1;
+          // Only server faults use up the command's tries: time offline, a session
+          // being renewed or being asked to slow down never do.
+          const attempts = (head.attempts || 0) + (e instanceof ApiError && e.status >= 500 ? 1 : 0);
           if (keepForRetry(e, attempts)) {
             queue = queue.map((q) => (q === head ? { ...head, attempts } : q));
             save();

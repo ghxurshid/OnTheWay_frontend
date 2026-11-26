@@ -7,19 +7,29 @@ import { START_PARAM_KEYS, getStartParam } from '@/services/telegram';
 
 export type DeepLink =
   | { kind: 'chat'; userId: string }   // chat_<userId>
+  | { kind: 'trip'; tripId: string }   // trip_<tripId> — one trip of mine ("your trip has started")
   | { kind: 'trips' };                 // trips — "My trips"
 
 const CHAT_LINK = /^chat_(\d+)$/;
+const TRIP_LINK = /^trip_(\d+)$/;
 
 /** Reads a start parameter; anything unknown is ignored (null). */
 export function parseDeepLink(value: string | null | undefined): DeepLink | null {
   const raw = (value ?? '').trim();
   if (raw === 'trips') return { kind: 'trips' };
+  const trip = TRIP_LINK.exec(raw);
+  if (trip) return { kind: 'trip', tripId: trip[1] };
   const chat = CHAT_LINK.exec(raw);
   return chat ? { kind: 'chat', userId: chat[1] } : null;
 }
 
 let taken = false;
+
+/** This launch's deep link without taking it — the launch reads a trip link
+    before any screen is up (see App); null once it was taken. */
+export function peekDeepLink(): DeepLink | null {
+  return taken ? null : parseDeepLink(getStartParam());
+}
 
 /** This launch's deep link — the first call only; null afterwards or when there is none. */
 export function takeDeepLink(): DeepLink | null {

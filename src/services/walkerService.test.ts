@@ -1,9 +1,20 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { i18nStore } from '@/i18n';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { ApiError } from '@/api/client';
+import { i18nStore, t } from '@/i18n';
 import type { Walker } from '@/models';
-import { composeNotes, matchWalkers } from './walkerService';
+import { errorMessage, isConflict, isOpenPlanLimit } from '@/utils/errors';
+import { composeNotes, matchWalkers, submitTrip } from './walkerService';
 
-beforeEach(() => i18nStore.set('en'));
+const api = vi.hoisted(() => ({ create: vi.fn() }));
+vi.mock('@/api/walkerApi', () => ({ walkerApi: api }));
+const route = vi.hoisted(() => ({ save: vi.fn() }));
+vi.mock('@/services/routeService', () => ({ RouteServer: route }));
+
+beforeEach(() => {
+  i18nStore.set('en');
+  api.create.mockReset();
+  route.save.mockReset();
+});
 
 const walker = (id: string, when: Date): Walker => ({
   id, type: 'driver', name: id, initials: 'W', from: 'A', to: 'B',
@@ -48,5 +59,37 @@ describe('composeNotes', () => {
   it('returns null when there is nothing to say', () => {
     expect(composeNotes({ ...base, note: '  ', tEnd: 8 })).toBeNull();
     expect(composeNotes({ ...base, type: 'passenger', note: '', tEnd: 8 })).toBeNull();
+  });
+});
+
+describe('submitTrip', () => {
+  const form = {
+    type: 'driver' as const, from: { latlng: [41.3, 69.24] as [number, number], label: 'A' },
+    to: { latlng: [41.35, 69.29] as [number, number], label: 'B' }, date: '2026-09-26', tStart: 8, tEnd: 10, seats: '3', note: '',
+  };
+
+  it('publishes the plan and precomputes its route', async () => {
+    api.create.mockResolvedValue({ id: '77' });
+
+    await expect(submitTrip(form)).resolves.toEqual({ id: '77' });
+    expect(route.save).toHaveBeenCalledWith('77', form.from.latlng, form.to.latlng);
+  });
+
+  it('a plan over the open-plan limit fails with its own error — never as "already published"', async () => {
+    api.create.mockRejectedValue(new ApiError(409, 'You already have 10 upcoming planned trips.', ['open_plan_limit']));
+
+    const e = await submitTrip(form).catch((err: unknown) => err);
+
+    expect(isConflict(e)).toBe(false); // the form's "already published" branch is for duplicates only
+    expect(isOpenPlanLimit(e)).toBe(true);
+    expect(errorMessage(e, 'errors.sendFailed')).toBe(t('errors.openPlanLimit', { n: 10 }));
+    expect(route.save).not.toHaveBeenCalled();
+  });
+
+  it('a duplicate stays the 409 it is', async () => {
+    const dup = new ApiError(409, 'You have already published this trip.', ['duplicate_trip']);
+    api.create.mockRejectedValue(dup);
+
+    await expect(submitTrip(form)).rejects.toBe(dup);
   });
 });

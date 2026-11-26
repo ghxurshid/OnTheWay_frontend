@@ -7,7 +7,9 @@
    Every command first records the state it asks for (presenceState), then
    sends it. After each (re)connect that whole state is replayed, so what the
    server holds for this device — role, sharing, "band", route — never drifts
-   from what the app shows, whatever happened to the socket in between.
+   from what the app shows, whatever happened to the socket in between. A
+   command the server asks to slow down (rate_limited: nothing changed there)
+   is settled the same way, a little later: what is recorded by then is sent.
 
    The "ride together" agreement and the "tell me when someone appears" alert
    are server session state on this hub too: changes are pushed, and services
@@ -19,6 +21,7 @@
 import type { HubConnection } from '@microsoft/signalr';
 import { createEmitter, createHubClient } from './hubConnection';
 import { createPresenceState } from './presenceState';
+import { createBackoff, isRateLimited } from './retry';
 
 // Server→client events (must match the C# IPresenceClient method names).
 const EVENTS = [
@@ -55,16 +58,58 @@ function updateCaches(event: string, payload: Payload) {
   }
 }
 
+/** The part of the recorded state each command sends — what to send again when the
+    server asked to slow down. (Watching routes is not settled this way.) */
+const PART_OF: Record<string, string> = {
+  SetRole: 'mode',
+  MarkEngaged: 'band', MarkAvailable: 'band',
+  PublishRoute: 'route', ClearRoute: 'route',
+  StopSharing: 'sharing', UpdateLocation: 'sharing',
+};
+const unsettled = new Set<string>();
+const settler = createBackoff(() => { settle(); });
+
+/** The server refused `method` for now (rate_limited) and holds what it held before:
+    send that part of the recorded state again a little later. */
+function settleLater(method: string) {
+  const part = PART_OF[method];
+  if (!part) return;
+  unsettled.add(part);
+  settler.schedule();
+}
+
+/** Send the unsettled parts as they are recorded NOW (a newer choice wins over the
+    refused one). Offline it waits: the next connect replays everything anyway. */
+async function settle(): Promise<void> {
+  const conn = hub.connected();
+  if (!conn) return;
+  const parts = new Set(unsettled);
+  unsettled.clear();
+  for (const [method, ...args] of desired.replay()) {
+    if (!parts.has(PART_OF[method])) continue;
+    try {
+      await conn.invoke(method, ...args);
+    } catch (e) {
+      if (isRateLimited(e)) settleLater(method);
+    }
+  }
+  if (!unsettled.size) settler.reset();
+}
+
 /** A fresh connection: forget the positions we were shown (the server re-seeds
     them via Walkers once the role is replayed) and rebuild our own state. */
 async function resync(conn: HubConnection): Promise<void> {
   positions.clear();
+  unsettled.clear(); // the whole state goes out now
+  settler.reset();
   for (const [method, ...args] of desired.replay()) {
     try {
       await conn.invoke(method, ...args);
     } catch (e) {
       if (conn.state !== 'Connected') throw e; // lost again: the next connect replays it all
-      // The server refused this one step (e.g. a stale route); replay the rest.
+      // The server refused this one step (e.g. a stale route); replay the rest — and one
+      // it only asked to slow down is sent again a little later.
+      if (isRateLimited(e)) settleLater(method);
     }
   }
   for (const step of resyncSteps) {
@@ -88,6 +133,13 @@ hub.onReconnected(() => events.emit('Reconnected'));
     recorded state is replayed on the next connect. */
 const invoke = <T = void>(method: string, fallback: T, ...args: unknown[]): Promise<T> =>
   hub.connected()?.invoke(method, ...args) ?? Promise.resolve(fallback);
+
+/** Sends a recorded command; one the server asks to slow down is settled later. */
+const send = (method: string, ...args: unknown[]): Promise<void> =>
+  invoke<void>(method, undefined, ...args).catch((e: unknown) => {
+    if (isRateLimited(e)) settleLater(method);
+    throw e;
+  });
 
 export const presenceClient = {
   /** Subscribe to a server event. Returns an unsubscribe function. */
@@ -113,23 +165,23 @@ export const presenceClient = {
 
   setMode(role: string | null) {
     desired.setMode(role);
-    return desired.mode ? invoke('SetRole', undefined, desired.mode) : Promise.resolve();
+    return desired.mode ? send('SetRole', desired.mode) : Promise.resolve();
   },
   updateLocation(lat: number, lng: number, heading: number | null = null) {
     desired.located({ lat, lng, heading });
-    return invoke('UpdateLocation', undefined, lat, lng, heading);
+    return invoke('UpdateLocation', undefined, lat, lng, heading); // past its budget a fix is dropped: the next one supersedes it
   },
   stopSharing() {
     desired.stopSharing();
-    return invoke('StopSharing', undefined);
+    return send('StopSharing');
   },
   publishRoute(routeDto: unknown) {
     desired.setRoute(routeDto);
-    return invoke('PublishRoute', undefined, routeDto);
+    return send('PublishRoute', routeDto);
   },
   clearRoute() {
     desired.setRoute(null);
-    return invoke('ClearRoute', undefined);
+    return send('ClearRoute');
   },
   watchRoute(walkerUserId: string) {
     desired.watch(walkerUserId);
@@ -144,12 +196,12 @@ export const presenceClient = {
       from the opposite-role maps in realtime. Reversible via markAvailable. */
   markEngaged() {
     desired.setEngaged(true);
-    return invoke('MarkEngaged', undefined);
+    return send('MarkEngaged');
   },
   /** Clear the engaged flag ("bo'sh"ga qaytish): discoverable again. */
   markAvailable() {
     desired.setEngaged(false);
-    return invoke('MarkAvailable', undefined);
+    return send('MarkAvailable');
   },
 
   // --- session state (retained server-side across disconnects) ---------
